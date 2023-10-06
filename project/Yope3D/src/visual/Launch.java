@@ -10,6 +10,10 @@ public class Launch {
 		
 		//initialize window using the width and height
 		Window window = new Window("Yope3D", screen.width, screen.height);
-		window.init();
+		
+		//create basic loop
+		Loop loop = new Loop(window);
+		
+		loop.start();
 	}
 }
