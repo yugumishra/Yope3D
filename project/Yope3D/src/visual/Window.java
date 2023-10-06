@@ -81,6 +81,14 @@ public class Window {
 		GL11.glClearColor(0, 0, 0, 0);
 	}
 	
+	//swaps the read and write buffers
+	//then looks for any action and processes it
+	//essential to window updating
+	public void update() {
+		GLFW.glfwSwapBuffers(window);
+		GLFW.glfwPollEvents();
+	}
+	
 	//cleanup method
 	//cleans up the window
 	public void cleanup() {
@@ -95,5 +103,10 @@ public class Window {
 	//getter for height
 	public int getHeight() {
 		return height;
+	}
+	
+	//returns if the window should close yet
+	public boolean shouldClose() {
+		return GLFW.glfwWindowShouldClose(window);
 	}
 }
