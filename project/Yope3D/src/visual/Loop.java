@@ -6,6 +6,10 @@ public class Loop {
 	private long startTime;
 	//window instance to update window
 	private Window window;
+	//world instance to access meshes
+	private World world;
+	//renderer instance to render meshes
+	private Renderer renderer;
 	//frame counter
 	//we can use int here because the int storing capacity lasts well over a year of runtime on 60fps
 	//no need for extra storage with long
@@ -19,10 +23,12 @@ public class Loop {
 	private float fps;
 	
 	//constructor
-	public Loop(Window w) {
+	public Loop(Window w, World world, Renderer renderer) {
 		startTime = System.currentTimeMillis();
 		lastTime = System.currentTimeMillis();
 		this.window = w;
+		this.world = world;
+		this.renderer = renderer;
 	}
 	
 	//how one starts the loop
@@ -36,6 +42,8 @@ public class Loop {
 	//initializes all necessary variables
 	public void init() {
 		window.init();
+		renderer.init();
+		world.init();
 	}
 	
 	//run method
@@ -61,14 +69,31 @@ public class Loop {
 				window.setTitle(window.getTitle() + " FPS: " + (int) fps);
 			}
 			
-			//update the window every frame
-			window.update();
+			//render the current state
+			render();
+			//update the state
+			update();
+			
 			
 			//if the window should close, break out of the loop
 			//this stops the updating and, by extension, closes the window
 			if(window.shouldClose()) {
 				break;
 			}
+		}
+	}
+	
+	//encapsulates all of the updates in the loop in one function
+	public void update() {
+		window.update();
+	}
+	
+	//encapsulates all of the renderings that are done in the loop
+	//the world instance is used to access each mesh, which is then rendered using the renderer
+	public void render() {
+		for(int i= 0; i< world.getNumMeshes(); i++) {
+			Mesh m = world.getMesh(i);
+			renderer.render(m);
 		}
 	}
 	
