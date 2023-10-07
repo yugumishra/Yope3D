@@ -51,9 +51,18 @@ public class Window {
 		
 		//now we create the window
 		//first three specify width, height, and title
-		//the 2nd to last parameter specifies which monitor to go on
+		//the 2nd to last parameter specifies which monitor to go on (if any)
 		//the last memoryutil.null specifies that there is no share
-		window = GLFW.glfwCreateWindow(width, height, title, GLFW.glfwGetPrimaryMonitor(), MemoryUtil.NULL);
+		window = GLFW.glfwCreateWindow(width/2, height/2, title, MemoryUtil.NULL, MemoryUtil.NULL);
+		//failcheck
+		if(window == MemoryUtil.NULL) {
+			System.err.println("Something went wrong with Window Creation. Please try again");
+			System.exit(0);
+		}
+		//center the window in the middle of the screen
+		// the over 4 is because you also subtract half of the window width and height because of screen coordinates
+		GLFW.glfwSetWindowPos(window, width/4, height/4);
+		
 		
 		//basic key callback to close window when escape is hit
 		//the 5 parameters are necessary in the lambda expression because that is what 
@@ -79,6 +88,22 @@ public class Window {
 		//also the first use of a opengl library call
 		//from now on we can use the opengl library
 		GL11.glClearColor(0, 0, 0, 0);
+		
+		//reenable visibility
+		GLFW.glfwWindowHint(GLFW.GLFW_VISIBLE, GLFW.GLFW_TRUE);
+		GLFW.glfwShowWindow(window);
+	}
+	
+	//this method just sets the title of the window
+	//mainly used for fps display
+	public void setTitle(String newTitle) {
+		GLFW.glfwSetWindowTitle(window, newTitle);
+	}
+	
+	//returns the unaltered, parameter version of the title
+	//used for fps display
+	public String getTitle() {
+		return title;
 	}
 	
 	//swaps the read and write buffers
