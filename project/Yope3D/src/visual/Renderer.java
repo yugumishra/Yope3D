@@ -136,17 +136,17 @@ public class Renderer {
 		//enable the formatting so the floats get formatted into 3d vectors each vertex
 		GL30.glEnableVertexAttribArray(0);
 		
-		//bind to the vertex buffer object that holds the vertices in GPU memory
-		GL20.glBindBuffer(GL20.GL_ARRAY_BUFFER, m.getVbo());
+		//bind to the index buffer object that refers to the indices in GPU memory that refers to the vertices
+		GL20.glBindBuffer(GL20.GL_ELEMENT_ARRAY_BUFFER, m.getIbo());
 		
 		//draw the vertices in memory using glDrawArrays
 		//using the formatting, this will format the vertex buffer into the appropriate vertices and pass them into
 		//the vertex and fragment shader
 		//vertex shader runs every vertex, fragment every "pixel"
-		GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, m.getVertexCount());
+		GL11.glDrawElements(GL11.GL_TRIANGLES, m.getVertexCount(), GL11.GL_UNSIGNED_INT, 0);
 		
 		//unbind from the VBO and VAO
-		GL20.glBindBuffer(GL20.GL_ARRAY_BUFFER, 0);
+		GL20.glBindBuffer(GL20.GL_ELEMENT_ARRAY_BUFFER, 0);
 		GL30.glBindVertexArray(0);
 		//disable the formatting
 		GL20.glDisableVertexAttribArray(0);

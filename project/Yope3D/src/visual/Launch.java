@@ -26,17 +26,21 @@ public class Launch {
 			-0.5f, -0.5f, -1f,
 			-0.5f, 0.5f, -1.2f,
 			0.5f, 0.5f, -1f,
-			0.5f, 0.5f, -1f,
-			-0.5f, -0.5f, -1f,
 			0.5f, -0.5f, -1f
 		};
 		//now each point has 3 numbers defining it, x, y, and z
 		//with the projection matrix the differing z values will be projected onto the plane
 		//this will result in a 3d effect
+		//now we create the indices that refer to the vertices to create triangles
+		//this is how we don't repeat vertices
+		int[] indices = {
+				0, 1, 2,
+				0, 2, 3
+		};
 		
 		
 		//creation of a mesh instance
-		Mesh m = new Mesh(vertices);
+		Mesh m = new Mesh(vertices, indices);
 		//addition of the mesh to the world
 		world.addMesh(m);
 		
