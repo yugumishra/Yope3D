@@ -53,11 +53,11 @@ public class Mesh {
 		//gl vertex attrib pointer specifies the formatting of the vertices
 		
 		//positions, index 0
-		//a 2d vector of floats
+		//a 3d vector of floats
 		//that is not normalized
-		//total vertex size of 2 floats, and an offset of 0 bytes from the beginning of the vertex
+		//total vertex size of 3 floats, and an offset of 0 bytes from the beginning of the vertex
 		//this ^ is what the below call formats
-		GL20.glVertexAttribPointer(0, 2, GL11.GL_FLOAT, false, Float.BYTES * (2), 0);
+		GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, Float.BYTES * (3), 0);
 		
 		//unbind vertex array object and vertex buffer object to ensure we don't edit the wrong bucket/object
 		GL30.glBindVertexArray(0);
@@ -100,12 +100,18 @@ public class Mesh {
 	
 	//cleanup method to clear the vertex objects created for this mesh
 	public void cleanup() {
+		//disable the current vertex array object
+		//so it is not being edited
 		GL30.glDisableVertexAttribArray(vao);
 		
+		//disable the current vertex buffer object
+		//so it is not being used
 		GL20.glBindBuffer(GL20.GL_ARRAY_BUFFER, 0);
 		
+		//then delete the buffers
 		GL20.glDeleteBuffers(vbo);
 		
+		//then unbind the vertex array
 		GL30.glBindVertexArray(0);
 	}
 }
