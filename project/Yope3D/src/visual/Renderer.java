@@ -1,11 +1,59 @@
 package visual;
 
+import java.nio.FloatBuffer;
+import java.util.HashMap;
+import java.util.Map;
+
+import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
+import org.lwjgl.system.MemoryUtil;
 
 //this class manages the rendering of meshes, and everything related to rendering
 public class Renderer {
+	//this variable holds the program id that is associated with the shaders
+	private int program;
+	//this variable holds the mappings from uniform variable names to its integer id in opengl
+	private Map<String, Integer> uniforms;
+	
+	//constructor for the renderer class
+	public Renderer() {
+		//initialization of the uniforms variable
+		uniforms = new HashMap<String, Integer>();
+	}
+	
+	//this method adds a uniform to the mappings
+	//important because in order to update uniform values, we must have the opengl id associated with it (which itself is associated with its name)
+	//in order to access the uniforms in our shaders, we need to have the program id that holds them, which is why the program is now a class variable
+	public void addUniform(String name) {
+		//get the relevant id from the shader program using the name
+		int id = GL20.glGetUniformLocation(program, name);
+		//check if invalid
+		if(id < 0) {
+			//this means an invalid id, meaning the uniform doesn't exist in the shaders
+			//we cannot add this invalid id to the mappings
+			System.err.println("Uniform " + name + " not found");
+			return;
+		}
+		//now we add the id to the uniforms
+		//now we can access each uniform using the map and its name
+		uniforms.put(name, id);
+	}
+	
+	//this method sends a matrix4f instance to the GPU using the uniform name and the Matrix4f instance representing its values
+	//important for sending transformation matrices and stuff like that
+	public void sendMat4(String name, Matrix4f values) {
+		//buffer to hold the values of the matrix
+		FloatBuffer buffer = MemoryUtil.memAllocFloat(16);
+		//load matrix entries into the buffer
+		values.get(buffer);
+		//send to the gpu using uniformmatrix4fv
+		//the first parameter indicate the uniform id (gotten using map)
+		//the second parameter indicates whether or not this matrix should be transposed or not (false for now)
+		//the third parameter is just the buffer hold the matrix
+		GL20.glUniformMatrix4fv(uniforms.get(name), false, buffer);
+	}
 	
 	//initializes important things like the shader program and shader objects
 	public void init() {
@@ -44,7 +92,7 @@ public class Renderer {
 		}
 		
 		//create a shader program and link the 2 shaders together
-		int program = GL20.glCreateProgram();
+		program = GL20.glCreateProgram();
 		GL20.glAttachShader(program, sid);
 		GL20.glAttachShader(program, fid);
 		
@@ -68,6 +116,12 @@ public class Renderer {
 		//then use the shader program
 		//with this in place, the draw calls will run through the vertex and fragment shaders stored in vertex.vs and fragment.fs
 		GL20.glUseProgram(program);
+		
+		//now we must create the mappings of uniforms in our shader programs
+		//using addUniform
+		//at some point in the program we must send the matrix representing it, but not here
+		addUniform(Util.projectionMatrix);
+		
 	}
 	
 	//this method is what renders a mesh
@@ -79,7 +133,7 @@ public class Renderer {
 		//bind to the specific vertex array object
 		GL30.glBindVertexArray(m.getVao());
 		
-		//enable the formatting so the floats get formatted into 2d vectors each vertex
+		//enable the formatting so the floats get formatted into 3d vectors each vertex
 		GL30.glEnableVertexAttribArray(0);
 		
 		//bind to the vertex buffer object that holds the vertices in GPU memory
@@ -96,5 +150,11 @@ public class Renderer {
 		GL30.glBindVertexArray(0);
 		//disable the formatting
 		GL20.glDisableVertexAttribArray(0);
+	}
+	
+	//this method clears the screen
+	public void clear() {
+		//clear the color buffer and detph buffr
+		GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
 	}
 }

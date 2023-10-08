@@ -20,17 +20,33 @@ public class World {
 	
 	//the getter for each individual mesh
 	public Mesh getMesh(int i) {
+		//return the mesh at the point at i
 		return meshes.get(i);
 	}
 	
 	//method that adds a mesh to the world
 	public void addMesh(Mesh m) {
+		//add mesh to meshes list
 		meshes.add(m);
 	}
 	
+	//world initialization
+	//initializes all meshes in the world
+	//by loading them
 	public void init() {
+		//iterate over each mesh
 		for(Mesh m: meshes) {
+			//then load each mesh
 			m.loadMesh();
+		}
+	}
+	
+	//world cleanup method
+	public void cleanup() {
+		//iterate over each mesh
+		for(Mesh m: meshes) {
+			//cleanup each mesh
+			m.cleanup();
 		}
 	}
 }

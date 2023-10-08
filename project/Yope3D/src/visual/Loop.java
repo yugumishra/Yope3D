@@ -17,6 +17,8 @@ public class Loop {
 	//we will display localized fps, not global fps
 	//so the below time variables is used for that purpose
 	private long lastTime;
+	//camera instance to represent camera information
+	private Camera camera;
 
 	//fps variable
 	//encapsulates the current frames per second of the application
@@ -44,6 +46,8 @@ public class Loop {
 		window.init();
 		renderer.init();
 		world.init();
+		window.initCamera();
+		camera = window.getCamera();
 	}
 	
 	//run method
@@ -81,6 +85,13 @@ public class Loop {
 				break;
 			}
 		}
+		cleanup();
+	}
+	
+	//this method cleans up everything
+	public void cleanup() {
+		window.cleanup();
+		world.cleanup();
 	}
 	
 	//encapsulates all of the updates in the loop in one function
@@ -91,8 +102,14 @@ public class Loop {
 	//encapsulates all of the renderings that are done in the loop
 	//the world instance is used to access each mesh, which is then rendered using the renderer
 	public void render() {
+		
+		//clear the screen before drawing again
+		renderer.clear();
+		//iterate over each mesh
 		for(int i= 0; i< world.getNumMeshes(); i++) {
+			//grab the specific mesh
 			Mesh m = world.getMesh(i);
+			//render it
 			renderer.render(m);
 		}
 	}
