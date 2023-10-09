@@ -9,6 +9,7 @@ public class Launch {
 	public static Window window;
 	public static World world;
 	public static Renderer renderer;
+	public static Loop game;
 	
 	public static void main(String[] args) {
 		//get width and height from the toolkit of the current monitor
@@ -23,7 +24,7 @@ public class Launch {
 		//this is done with triangulation, because we are rendering the triangles
 		//each point is connected with a mesh of triangles that form a smooth surface when rendered
 		float[] vertices = {
-			-0.5f, -0.5f, -1f,
+			-0.5f, -0.5f, -1.2f,
 			-0.5f, 0.5f, -1.2f,
 			0.5f, 0.5f, -1f,
 			0.5f, -0.5f, -1f
@@ -31,6 +32,7 @@ public class Launch {
 		//now each point has 3 numbers defining it, x, y, and z
 		//with the projection matrix the differing z values will be projected onto the plane
 		//this will result in a 3d effect
+		
 		//now we create the indices that refer to the vertices to create triangles
 		//this is how we don't repeat vertices
 		int[] indices = {
@@ -48,7 +50,7 @@ public class Launch {
 		renderer = new Renderer();
 		
 		//create the loop instance
-		Loop game = new Loop(window, world, renderer);
+		game = new Loop(window, world, renderer);
 		
 		//start the loop
 		game.start();
