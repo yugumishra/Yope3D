@@ -12,6 +12,9 @@ import org.joml.Matrix4f;
 public class Util {
 	//constants for uniform names
 	public static final String projectionMatrix = "projectionMatrix";
+	public static final String viewMatrix = "viewMatrix";
+	//constant for mouse sensitivity
+	public static final float mouseSensitivity = 0.1f;
 	// reads a shader from a source file and returns it as a string
 	public static String readShader(String source) {
 		// open scanner

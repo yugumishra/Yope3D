@@ -1,5 +1,8 @@
 package visual;
 
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
+
 public class Camera {
 	//variables concerning the camera
 	//fov to represent range of view
@@ -9,6 +12,11 @@ public class Camera {
 	private int windowHeight;
 	//aspect ratio that is the ratio of width to height
 	private float aspectRatio;
+	
+	//variables that represent the camera's state
+	private Vector3f position;
+	private Vector3f rotation;
+	private Vector3f velocity;
 	
 	//camera constructor
 	//fov is initialized to a constant of 60 (in rad)
@@ -28,6 +36,11 @@ public class Camera {
 		//so we don't want to be sending it unnecessarily
 		//only when the window is created or its size is changed do we want to change it
 		Launch.renderer.sendMat4(Util.projectionMatrix, Util.genProjectionMatrix(fov, aspectRatio));
+		
+		//initialize position, velocity, and rotation
+		position = new Vector3f(0,0,0);
+		rotation = new Vector3f(0,0,0);
+		velocity = new Vector3f(0,0,0);
 	}
 	
 	//getter for fov
@@ -39,9 +52,61 @@ public class Camera {
 	//WARNING: REQUIRES OPENGL CONTEXT TO ALREADY HAVE BEEN CREATED
 	public void windowChanged(int newWidth, int newHeight) {
 		//it is here we update the transformation matrix
+		//update window width and height
 		this.windowWidth = newWidth;
 		this.windowHeight = newHeight;
+		//recalculate aspect ratio
 		aspectRatio = (float) windowWidth/windowHeight;
+		//send matrix
 		Launch.renderer.sendMat4(Util.projectionMatrix, Util.genProjectionMatrix(fov, aspectRatio));
+	}
+	
+	//this method updates the mouse's current rotation based on the x and y difference from the cursor position (parameters)
+	public void mouseMoved(float x, float y) {
+		//1 full window width represents pi/2 rads of rotation on the y axis
+		//so 1 pixel means pi/(2 * windowWidth)
+		float yConst = (float) Math.PI;
+		yConst /= (2 * windowWidth);
+		//1 full window height represents fov rads of rotation of the x axis
+		//so 1 pixel means fov/windowHeight
+		float xConst = fov;
+		xConst /= windowHeight;
+		//now we add the rotation to the rotation variable
+		rotation.add(new Vector3f(Util.mouseSensitivity * -xConst * y, Util.mouseSensitivity * -yConst * x, 0));
+	}
+	
+	//this method adds velocity to the current velocity variable based on inputs
+	public void addVelocity(Vector3f change) {
+		velocity.add(change);
+	}
+	
+	//this method updates the position and velocity of the variable every iteration in the update loop
+	//*its an update*
+	public void update() {
+		position.add(velocity);
+		//add some friction to velocity
+		//its exponential decay
+		velocity.add(new Vector3f(velocity).mul(-0.1f));
+	}
+	
+	//this method generates the transformation represented by the camera's state (position and rotation)
+	//used in the vertex shader to transform based on camera state
+	public Matrix4f genViewMatrix() {
+		Matrix4f viewMatrix = new Matrix4f();
+		//first we rotate everything by the negative of the angle
+		//then translate by the negative position vector, bringing the camera back to 0 position and 0 rotation
+		viewMatrix
+		.rotate(-rotation.x, new Vector3f(1,0,0))
+		.rotate(-rotation.y, new Vector3f(0,1,0))
+		.rotate(-rotation.z, new Vector3f(0,0,1))
+		.translate(new Vector3f(position).mul(-1.0f));
+		//then we return the rotation matrix
+		return viewMatrix;
+	}
+	
+	//this method is a getter for the rotation variable
+	//used in input velocity generation
+	public Vector3f getRotation() {
+		return rotation;
 	}
 }
