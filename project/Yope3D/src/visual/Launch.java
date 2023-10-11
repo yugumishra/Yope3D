@@ -21,28 +21,9 @@ public class Launch {
 		//create the World instance that represents objects in the world
 		world = new World();
 		//populate the world instance with a mesh
-		//this is done with triangulation, because we are rendering the triangles
-		//each point is connected with a mesh of triangles that form a smooth surface when rendered
-		float[] vertices = {
-			-0.5f, -0.5f, -1.2f,
-			-0.5f, 0.5f, -1.2f,
-			0.5f, 0.5f, -1f,
-			0.5f, -0.5f, -1f
-		};
-		//now each point has 3 numbers defining it, x, y, and z
-		//with the projection matrix the differing z values will be projected onto the plane
-		//this will result in a 3d effect
-		
-		//now we create the indices that refer to the vertices to create triangles
-		//this is how we don't repeat vertices
-		int[] indices = {
-				0, 1, 2,
-				0, 2, 3
-		};
-		
 		
 		//creation of a mesh instance
-		Mesh m = new Mesh(vertices, indices);
+		Mesh m = Util.readObjFile("Assets\\Models\\test.obj");
 		//addition of the mesh to the world
 		world.addMesh(m);
 		
