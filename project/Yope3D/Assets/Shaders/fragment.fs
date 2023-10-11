@@ -1,9 +1,13 @@
 #version 330 core
 
-in vec2 Pos;
+in vec3 Pos;
+in vec3 Normal;
+in vec2 TexCoords;
 
 out vec4 color;
 
+uniform vec3 lightPos;
+
 void main() {
-    color = vec4(Pos.x + 0.25, Pos.y + 0.17, 1.0, 1.0);
+    color = vec4(1.0, 1.0, 1.0, 1.0);
 }

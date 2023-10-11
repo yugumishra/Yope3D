@@ -77,6 +77,8 @@ public class Window {
 		// the over 4 is because you also subtract half of the window width and height
 		// because of screen coordinates
 		GLFW.glfwSetWindowPos(window, width / 4, height / 4);
+		//center cursor position
+		GLFW.glfwSetCursorPos(window,0,0);
 		//this makes width and height half of what they are right now
 		width/=2;
 		height/=2;
@@ -123,17 +125,22 @@ public class Window {
 		//basically disables the cursor from being visible, so it can move around infinitely 
 		//good for camera controls
 		GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
-		//translate cursor position to width/2, height/2
-		//necessary so we don't start with a huge rotation at the beginning
-		GLFW.glfwSetCursorPos(window, width/2, height/2);
+		//get initial x and y position
+		double[] x = new double[2];
+		double[] y = new double[2];
+		GLFW.glfwGetCursorPos(window, x, y);
+
 		//set up callback for the cursor changing virtual position
 		//used to increment rotation
 		GLFW.glfwSetCursorPosCallback(window, (window, xPos, yPos) -> {
-			float xDiff = (float) xPos - width/2;
-			float yDiff = (float) yPos - height/2;
+			//cast to float and subtract from initial
+			float xDiff = (float) xPos - (float) x[0];
+			float yDiff = (float) yPos - (float) y[0];
+			
+			//update rotation using camera method
 			camera.mouseMoved(xDiff, yDiff);
-			//translate it back to width/2, height/2
-			GLFW.glfwSetCursorPos(window, width/2, height/2);
+			//reset position back to original
+			GLFW.glfwSetCursorPos(window, x[0], y[0]);
 		});
 
 		// make the context

@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.joml.Matrix4f;
+import org.joml.Vector3f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
@@ -58,6 +59,22 @@ public class Renderer {
 		// transposed or not (false for now)
 		// the third parameter is just the buffer hold the matrix
 		GL20.glUniformMatrix4fv(uniforms.get(name), false, buffer);
+		//free the buffer from memory
+		MemoryUtil.memFree(buffer);
+	}
+	
+	//send vec3 using vector3f instance
+	public void sendVec3(String name, Vector3f values) {
+		//buffer to hold the values
+		FloatBuffer buffer = MemoryUtil.memAllocFloat(3);
+		//send the vector3f values into the buffer
+		buffer.put(values.x);
+		buffer.put(values.y);
+		buffer.put(values.z);
+		//send to the gpu
+		GL20.glUniform3fv(uniforms.get(name), buffer);
+		//free the buffer from memory
+		MemoryUtil.memFree(buffer);
 	}
 
 	// initializes important things like the shader program and shader objects
@@ -141,6 +158,8 @@ public class Renderer {
 
 		// enable the formatting so the floats get formatted into 3d vectors each vertex
 		GL30.glEnableVertexAttribArray(0);
+		GL30.glEnableVertexAttribArray(1);
+		GL30.glEnableVertexAttribArray(2);
 
 		// bind to the index buffer object that refers to the indices in GPU memory that
 		// refers to the vertices
@@ -158,6 +177,8 @@ public class Renderer {
 		GL30.glBindVertexArray(0);
 		// disable the formatting
 		GL20.glDisableVertexAttribArray(0);
+		GL20.glDisableVertexAttribArray(1);
+		GL20.glDisableVertexAttribArray(2);
 	}
 
 	// this method clears the screen

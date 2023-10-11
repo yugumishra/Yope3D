@@ -3,7 +3,6 @@ package visual;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
 
@@ -148,11 +147,13 @@ public class Loop {
 		//the reason for the constant -1 multiplier is in the way angles are measured
 		//in the coordinate system we have defined
 		float angle = camera.getRotation().y;
+		angle *= -1;
 		//all keys have radius of speed, but angles 90 degrees offset from each other
 		//and all of them have a base angle of angle
 		//ex: w = angle + 0
 		//ex: a = angle + 90, etc
 		//after adding the correct angle offset, we just convert back to rectangular coordinates
+		
 		switch(key) {
 		case GLFW.GLFW_KEY_W:
 			angle -= (float) (Math.PI/2);
@@ -162,7 +163,7 @@ public class Loop {
 			
 			break;
 		case GLFW.GLFW_KEY_S:
-			angle +=- (float) (3 * Math.PI /2);
+			angle += (float) (Math.PI/2);
 			break;
 		}
 		//convert back to rectangular
@@ -188,11 +189,6 @@ public class Loop {
 	//encapsulates all of the renderings that are done in the loop
 	//the world instance is used to access each mesh, which is then rendered using the renderer
 	public void render() {
-		//send the view matrix prior to running the render loop
-		//this is because the view matrix only changes each frame, not per object
-		//so it is more efficient to send the matrix once every render loop rather than every object
-		Matrix4f viewMatrix = camera.genViewMatrix();
-		renderer.sendMat4(Util.viewMatrix, viewMatrix);
 		//clear the screen before drawing again
 		renderer.clear();
 		//iterate over each mesh
