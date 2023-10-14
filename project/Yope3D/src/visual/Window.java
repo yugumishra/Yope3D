@@ -108,6 +108,10 @@ public class Window {
 				}else {
 					//we need to go windowed
 					GLFW.glfwSetWindowMonitor(window, MemoryUtil.NULL, 0, 0, width, height, GLFW.GLFW_DONT_CARE);
+					// center the window in the middle of the screen
+					// the over 4 is because you also subtract half of the window width and height
+					// because of screen coordinates
+					GLFW.glfwSetWindowPos(window, width / 4, height / 4);
 					fullscreen = false;
 				}
 			}
@@ -162,7 +166,6 @@ public class Window {
 		// reenable visibility
 		GLFW.glfwWindowHint(GLFW.GLFW_VISIBLE, GLFW.GLFW_TRUE);
 		GLFW.glfwShowWindow(window);
-
 	}
 
 	// this method represents the initialization of the camera

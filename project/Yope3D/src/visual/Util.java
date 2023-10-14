@@ -18,6 +18,8 @@ public class Util {
 	// constants for uniform names
 	public static final String projectionMatrix = "projectionMatrix";
 	public static final String viewMatrix = "viewMatrix";
+	public static final String lightPos = "lightPos";
+	public static final String time = "time";
 	// constant for mouse sensitivity
 	public static final float mouseSensitivity = 0.5f;
 
@@ -122,6 +124,7 @@ public class Util {
 		//the way this will be done is every time a vertex gets referenced, the one that would have been added has its normal added to the existing normal
 		//this way the normals get summed up
 		//then all that is needed is a normalization at the end when the vertices array is fully populated
+		boolean smooth = true;
 		//iterate through the file
 		while(scan.hasNext()) {
 			String token = scan.next();
@@ -145,7 +148,15 @@ public class Util {
 				textureCoordinates.add(Float.valueOf(scan.next()));
 				textureCoordinates.add(Float.valueOf(scan.next()));
 			}
-
+			//smooth check
+			if(token.equals("s")) {
+				//smooth is true
+				smooth = true;
+				//skip the index
+				scan.next();
+				//continue
+				continue;
+			}
 			//face check
 			if(token.equals("f")) {
 				//face definition
@@ -153,40 +164,102 @@ public class Util {
 				for(int i =0; i < 3; i++) {
 					//split each vertex into its indices that refer to the positions in the attribute lists
 					String vertex = scan.next();
-					boolean vertExists = vertsToInds.containsKey(vertex);
-					if(vertExists) {
-						//already exists so no need to create an additional vertex
-						indexes.add(vertsToInds.get(vertex));
+					
+					//whether or not the model will be shaded smooth is determined by the key placement
+					//if shaded smooth, the model will not have the same position but with a different normal
+					//so the key placed in the map is different (only including position and texture coordinates)
+					//otherwise the whole vertex representation gets placed
+					if(smooth) {
+						String realKey = vertex.substring(0, vertex.lastIndexOf("/"));
+						boolean vertExists = vertsToInds.containsKey(realKey);
+						if(vertExists) {
+							//get the normal indexed by this vertex
+							String[] components = vertex.split("/");
+							int normalIndex = Integer.valueOf(components[2]);
+							//substract index by one since obj indices are one based
+							normalIndex--;
+							//since we are doing smooth shading, we need to add this vertex's normals to the existing index
+							int index = vertsToInds.get(realKey);
+							//get current normal
+							float curX = vertexes.get(index* 8 + 3);
+							float curY = vertexes.get(index* 8 + 4);
+							float curZ = vertexes.get(index* 8 + 5);
+							//add this normal to it
+							curX += normals.get(normalIndex*3);
+							curY += normals.get(normalIndex*3+1);
+							curZ += normals.get(normalIndex*3+2);
+							//place it back into the vertexes list
+							vertexes.set(index*8 + 3, curX);
+							vertexes.set(index*8 + 4, curY);
+							vertexes.set(index*8 + 5, curZ);
+							//add to the indices
+							indexes.add(index);
+						}else {
+							//we don't have an existing vertex for this vertex representation, so we just add this one to it
+							//get the vertex
+							String[] components = vertex.split("/");
+							int positionIndex = Integer.valueOf(components[0]);
+							int textureIndex = Integer.valueOf(components[1]);
+							int normalIndex = Integer.valueOf(components[2]);
+							//subtract one since obj indices are one based
+							positionIndex--;
+							textureIndex--;
+							normalIndex--;
+							//place the values into the vertexes list
+							int prevSize = vertexes.size();
+							//positions
+							vertexes.add(positions.get(positionIndex*3));
+							vertexes.add(positions.get(positionIndex*3+1));
+							vertexes.add(positions.get(positionIndex*3+2));
+							//normals
+							vertexes.add(normals.get(normalIndex*3));
+							vertexes.add(normals.get(normalIndex*3+1));
+							vertexes.add(normals.get(normalIndex*3+2));
+							//texture coordinate
+							vertexes.add(textureCoordinates.get(textureIndex*2));
+							vertexes.add(textureCoordinates.get(textureIndex*2+1));
+							//place this vertex into the indices array and the map
+							int index = prevSize /8;
+							indexes.add(index);
+							//map adding
+							vertsToInds.put(realKey, index);
+						}
 					}else {
-						//we don't have it in the map so it must be defined
-						//get the vertex
-						String[] components = vertex.split("/");
-						int positionIndex = Integer.valueOf(components[0]);
-						int textureIndex = Integer.valueOf(components[1]);
-						int normalIndex = Integer.valueOf(components[2]);
-						//subtract one since obj indices are one based
-						positionIndex--;
-						textureIndex--;
-						normalIndex--;
-						//place the values into the vertexes list
-						int prevSize = vertexes.size();
-						//positions
-						vertexes.add(positions.get(positionIndex*3));
-						vertexes.add(positions.get(positionIndex*3+1));
-						vertexes.add(positions.get(positionIndex*3+2));
-						//normals
-						vertexes.add(normals.get(normalIndex*3));
-						vertexes.add(normals.get(normalIndex*3+1));
-						vertexes.add(normals.get(normalIndex*3+2));
-						//texture coordinate
-						vertexes.add(textureCoordinates.get(textureIndex*2));
-						vertexes.add(textureCoordinates.get(textureIndex*2+1));
-						//place this vertex into the indices array and the map
-						int index = prevSize /8;
-						indexes.add(index);
-						//map adding
-						vertsToInds.put(vertex, index);
-					}
+						boolean vertExists = vertsToInds.containsKey(vertex);
+						if(vertExists) {
+							//already exists so no need to create an additional vertex
+							indexes.add(vertsToInds.get(vertex));
+						}else {
+							//we don't have it in the map so it must be defined
+							//get the vertex
+							String[] components = vertex.split("/");
+							int positionIndex = Integer.valueOf(components[0]);
+							int textureIndex = Integer.valueOf(components[1]);
+							int normalIndex = Integer.valueOf(components[2]);
+							//subtract one since obj indices are one based
+							positionIndex--;
+							textureIndex--;
+							normalIndex--;
+							//place the values into the vertexes list
+							int prevSize = vertexes.size();
+							//positions
+							vertexes.add(positions.get(positionIndex*3));
+							vertexes.add(positions.get(positionIndex*3+1));
+							vertexes.add(positions.get(positionIndex*3+2));
+							//normals
+							vertexes.add(normals.get(normalIndex*3));
+							vertexes.add(normals.get(normalIndex*3+1));
+							vertexes.add(normals.get(normalIndex*3+2));
+							//texture coordinate
+							vertexes.add(textureCoordinates.get(textureIndex*2));
+							vertexes.add(textureCoordinates.get(textureIndex*2+1));
+							//place this vertex into the indices array and the map
+							int index = prevSize /8;
+							indexes.add(index);
+							//map adding
+							vertsToInds.put(vertex, index);
+						}
+					}					
 				}
 			}
 		}
@@ -202,6 +275,7 @@ public class Util {
 			indices[i] = indexes.get(i);
 		}
 		//normalize the normals
+		
 		for(int i = 0; i< vertices.length; i+=8) {
 			Vector3f normal = new Vector3f(vertices[i+3], vertices[i+4], vertices[i+5]);
 			normal.normalize();
@@ -209,7 +283,6 @@ public class Util {
 			vertices[i+4] = normal.y;
 			vertices[i+5] = normal.z;
 		}
-		
 		//create the mesh and return it
 		Mesh m = new Mesh(vertices, indices);
 		return m;

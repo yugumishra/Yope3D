@@ -59,21 +59,25 @@ public class Renderer {
 		// transposed or not (false for now)
 		// the third parameter is just the buffer hold the matrix
 		GL20.glUniformMatrix4fv(uniforms.get(name), false, buffer);
-		//free the buffer from memory
+		// free the buffer from memory
 		MemoryUtil.memFree(buffer);
 	}
-	
-	//send vec3 using vector3f instance
+
+	// send vec3 using vector3f instance
 	public void sendVec3(String name, Vector3f values) {
-		//buffer to hold the values
-		FloatBuffer buffer = MemoryUtil.memAllocFloat(3);
-		//send the vector3f values into the buffer
-		buffer.put(values.x);
-		buffer.put(values.y);
-		buffer.put(values.z);
+		// send to the gpu
+		GL20.glUniform3f(uniforms.get(name), values.x, values.y, values.z);
+	}
+	
+	// send a float using float
+	public void sendFloat(String name, float value) {
+		// buffer to hold the value
+		FloatBuffer buffer = MemoryUtil.memAllocFloat(1);
+		// put the single value into the buffer
+		buffer.put(value);
 		//send to the gpu
 		GL20.glUniform3fv(uniforms.get(name), buffer);
-		//free the buffer from memory
+		// free the buffer from memory
 		MemoryUtil.memFree(buffer);
 	}
 
@@ -145,6 +149,10 @@ public class Renderer {
 		// using addUniform
 		addUniform(Util.projectionMatrix);
 		addUniform(Util.viewMatrix);
+		addUniform(Util.lightPos);
+		
+		//send a light position here, since it is constant
+		sendVec3(Util.lightPos, new Vector3f(0, 3, 10));
 	}
 
 	// this method is what renders a mesh
@@ -153,6 +161,7 @@ public class Renderer {
 		if (m.loaded() == false) {
 			m.loadMesh();
 		}
+
 		// bind to the specific vertex array object
 		GL30.glBindVertexArray(m.getVao());
 
@@ -186,8 +195,8 @@ public class Renderer {
 		// clear the color buffer and depth buffer
 		GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
 	}
-	
-	//this method cleans up the renderer's stuff
+
+	// this method cleans up the renderer's stuff
 	public void cleanup() {
 		GL20.glDeleteProgram(program);
 	}
