@@ -3,6 +3,8 @@ package visual;
 import java.awt.Dimension;
 import java.awt.Toolkit;
 
+import physics.Sphere;
+
 public class Launch {
 	//create static variables that hold the important variables concerning the application
 	//so they can be accessed by other classes to run methods or get data
@@ -23,9 +25,11 @@ public class Launch {
 		//populate the world instance with a mesh
 		
 		//creation of a mesh instance
-		Mesh m = Util.readObjFile("Assets\\Models\\test.obj");
-		//addition of the mesh to the world
+		Sphere m = Sphere.genSphere(1.0f, 2);
+		
+		//addition of the meshes to the world
 		world.addMesh(m);
+		
 		
 		//create a Renderer instance, which is used to render the meshes in the World instance
 		renderer = new Renderer();
