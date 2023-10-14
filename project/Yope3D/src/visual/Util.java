@@ -20,6 +20,7 @@ public class Util {
 	public static final String viewMatrix = "viewMatrix";
 	public static final String lightPos = "lightPos";
 	public static final String time = "time";
+	public static final String cameraPos = "cameraPos";
 	// constant for mouse sensitivity
 	public static final float mouseSensitivity = 0.5f;
 
@@ -147,6 +148,8 @@ public class Util {
 				//add the positions on this line to the positions list
 				textureCoordinates.add(Float.valueOf(scan.next()));
 				textureCoordinates.add(Float.valueOf(scan.next()));
+				//add 0 because of 3D texture referencing for now
+				textureCoordinates.add(0.0f);
 			}
 			//smooth check
 			if(token.equals("s")) {
@@ -181,17 +184,17 @@ public class Util {
 							//since we are doing smooth shading, we need to add this vertex's normals to the existing index
 							int index = vertsToInds.get(realKey);
 							//get current normal
-							float curX = vertexes.get(index* 8 + 3);
-							float curY = vertexes.get(index* 8 + 4);
-							float curZ = vertexes.get(index* 8 + 5);
+							float curX = vertexes.get(index* 9 + 3);
+							float curY = vertexes.get(index* 9 + 4);
+							float curZ = vertexes.get(index* 9 + 5);
 							//add this normal to it
 							curX += normals.get(normalIndex*3);
 							curY += normals.get(normalIndex*3+1);
 							curZ += normals.get(normalIndex*3+2);
 							//place it back into the vertexes list
-							vertexes.set(index*8 + 3, curX);
-							vertexes.set(index*8 + 4, curY);
-							vertexes.set(index*8 + 5, curZ);
+							vertexes.set(index*9 + 3, curX);
+							vertexes.set(index*9 + 4, curY);
+							vertexes.set(index*9 + 5, curZ);
 							//add to the indices
 							indexes.add(index);
 						}else {
@@ -216,10 +219,11 @@ public class Util {
 							vertexes.add(normals.get(normalIndex*3+1));
 							vertexes.add(normals.get(normalIndex*3+2));
 							//texture coordinate
-							vertexes.add(textureCoordinates.get(textureIndex*2));
-							vertexes.add(textureCoordinates.get(textureIndex*2+1));
+							vertexes.add(textureCoordinates.get(textureIndex*3));
+							vertexes.add(textureCoordinates.get(textureIndex*3+1));
+							vertexes.add(textureCoordinates.get(textureIndex*3+2));
 							//place this vertex into the indices array and the map
-							int index = prevSize /8;
+							int index = prevSize /9;
 							indexes.add(index);
 							//map adding
 							vertsToInds.put(realKey, index);
@@ -251,10 +255,11 @@ public class Util {
 							vertexes.add(normals.get(normalIndex*3+1));
 							vertexes.add(normals.get(normalIndex*3+2));
 							//texture coordinate
-							vertexes.add(textureCoordinates.get(textureIndex*2));
-							vertexes.add(textureCoordinates.get(textureIndex*2+1));
+							vertexes.add(textureCoordinates.get(textureIndex*3));
+							vertexes.add(textureCoordinates.get(textureIndex*3+1));
+							vertexes.add(textureCoordinates.get(textureIndex*3+2));
 							//place this vertex into the indices array and the map
-							int index = prevSize /8;
+							int index = prevSize /9;
 							indexes.add(index);
 							//map adding
 							vertsToInds.put(vertex, index);
@@ -276,7 +281,7 @@ public class Util {
 		}
 		//normalize the normals
 		
-		for(int i = 0; i< vertices.length; i+=8) {
+		for(int i = 0; i< vertices.length; i+=9) {
 			Vector3f normal = new Vector3f(vertices[i+3], vertices[i+4], vertices[i+5]);
 			normal.normalize();
 			vertices[i+3] = normal.x;

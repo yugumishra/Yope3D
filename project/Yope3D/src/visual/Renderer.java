@@ -150,8 +150,9 @@ public class Renderer {
 		addUniform(Util.projectionMatrix);
 		addUniform(Util.viewMatrix);
 		addUniform(Util.lightPos);
+		addUniform(Util.cameraPos);
 		
-		//send a light position here, since it is constant
+		//send a light position here
 		sendVec3(Util.lightPos, new Vector3f(0, 3, 10));
 	}
 

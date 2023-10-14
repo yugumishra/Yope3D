@@ -100,6 +100,8 @@ public class Camera {
 		velocity.add(new Vector3f(velocity).mul(-0.1f));
 		//send the updated view matrix to the gpu
 		Launch.renderer.sendMat4(Util.viewMatrix, genViewMatrix());
+		//send the updated camera position to the gpu
+		Launch.renderer.sendVec3(Util.cameraPos, position);
 	}
 	
 	//this method generates the transformation represented by the camera's state (position and rotation)
