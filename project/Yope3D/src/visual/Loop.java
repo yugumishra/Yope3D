@@ -87,7 +87,7 @@ public class Loop {
 		while(true) {
 			//increment the frames
 			frames++;
-			if(frames % 100 == 0) {
+			if(frames % 1000 == 0) {
 				//reupdate the fps
 				//calculate the difference in time from last update to now
 				float timeDiff = (float) (System.currentTimeMillis() - lastTime);
@@ -95,7 +95,7 @@ public class Loop {
 				lastTime = System.currentTimeMillis();
 				//frame difference will always be 10000, and time diff is measured in milliseconds
 				//once you work out the math, the fps is just 10 million times the inverse in difference
-				fps = 100000 / timeDiff;
+				fps = (1000 * 1000) / timeDiff;
 				
 				//now we update the title to indicate FPS
 				window.setTitle(window.getTitle() + " FPS: " + (int) fps);
@@ -198,6 +198,14 @@ public class Loop {
 			//render it
 			renderer.render(m);
 		}
+	}
+	
+	//delta time getter
+	//gets the time from the start
+	public float getTime() {
+		long diff = System.currentTimeMillis() - startTime;
+		float difference = (float) diff/1000.0f;
+		return difference;
 	}
 	
 	//getter for fps

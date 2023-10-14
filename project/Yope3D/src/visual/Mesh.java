@@ -79,7 +79,7 @@ public class Mesh {
 		GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, Float.BYTES * (3 + 3 + 2), 0);
 		//same thing for normals and texture coordinates
 		GL20.glVertexAttribPointer(1, 3, GL11.GL_FLOAT, true, Float.BYTES * (3 + 3 + 2), Float.BYTES * (3));
-		GL20.glVertexAttribPointer(2, 2, GL11.GL_FLOAT, false, Float.BYTES * (3 + 3 + 2), Float.BYTES * (3+3));
+		GL20.glVertexAttribPointer(2, 2, GL11.GL_FLOAT, true, Float.BYTES * (3 + 3 + 2), Float.BYTES * (3+3));
 		
 		//unbind vertex array object and vertex buffer object to ensure we don't edit the wrong bucket/object
 		GL30.glBindVertexArray(0);
