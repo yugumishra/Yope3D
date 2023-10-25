@@ -29,7 +29,7 @@ public class Launch {
 		//creation of a mesh instance
 		//Sphere m = Sphere.genSphere(1.0f, 3);
 		Mesh m2 = Util.readObjFile("Assets\\Models\\floor.obj");
-		Sphere sphere = Sphere.genSphere(1, 4);
+		Sphere sphere = Sphere.genSphere(1, 3);
 		sphere.translate(new Vector3f(0,1,0));
 		//addition of the meshes to the world
 		//world.addMesh(m);
