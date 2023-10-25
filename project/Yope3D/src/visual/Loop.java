@@ -193,10 +193,7 @@ public class Loop {
 		window.update();
 		if (window.isPaused() == false) {
 			camera.update();
-			//update light position
-			float time = getTime();
-			Vector3f newPosition = new Vector3f(10 * (float)Math.cos(time), 3, 10 * (float)Math.sin(time));
-			renderer.sendVec3(Util.lightPos, newPosition);
+			
 		}
 	}
 
@@ -219,7 +216,7 @@ public class Loop {
 			renderer.render(m);
 			
 			//add a test rotation
-			if(m.getClass().equals(Sphere.class)) {
+			if(window.isPaused() == false && m.getClass().equals(Sphere.class)) {
 				m.rotate(new Vector3f(0.0001f, 0.0001f,0.0001f));
 			}
 		}

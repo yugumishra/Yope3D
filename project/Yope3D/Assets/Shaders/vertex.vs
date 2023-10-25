@@ -15,6 +15,6 @@ uniform mat4 modelMatrix;
 void main() {
     gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(pos, 1.0);
     Pos = pos;
-    Normal = normal;
+    Normal = mat3(modelMatrix) * normal;
     TexCoords = texCoords;
 }
