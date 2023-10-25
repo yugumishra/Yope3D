@@ -30,6 +30,10 @@ public class Loop {
 	private Map<Integer, Boolean> keyMap;
 	// array of all keys
 	private int[] keys;
+	// variable to hold the amount of time elapsed during the paused period
+	private long pausedTime;
+	//variable to hold the satrt time of the last pause
+	private long lastPause;
 
 	// fps variable
 	// encapsulates the current frames per second of the application
@@ -53,7 +57,8 @@ public class Loop {
 		for (Integer k : keys) {
 			keyMap.put(k, false);
 		}
-
+		//initialize paused time to 0
+		pausedTime = 0;
 	}
 
 	// how one starts the loop
@@ -89,9 +94,9 @@ public class Loop {
 				float timeDiff = (float) (System.currentTimeMillis() - lastTime);
 				// reupdate last time
 				lastTime = System.currentTimeMillis();
-				// frame difference will always be 10000, and time diff is measured in
+				// frame difference will always be 1000, and time diff is measured in
 				// milliseconds
-				// once you work out the math, the fps is just 10 million times the inverse in
+				// once you work out the math, the fps is just 1 million times the inverse in
 				// difference
 				fps = (1000 * 1000) / timeDiff;
 
@@ -184,8 +189,13 @@ public class Loop {
 		// the window needs to update no matter what, so we will do a pause check only
 		// on camera update
 		window.update();
-		if (window.isPaused() == false)
+		if (window.isPaused() == false) {
 			camera.update();
+			//update light position
+			float time = getTime();
+			Vector3f newPosition = new Vector3f(10 * (float)Math.cos(time), 3, 10 * (float)Math.sin(time));
+			renderer.sendVec3(Util.lightPos, newPosition);
+		}
 	}
 
 	// encapsulates all of the renderings that are done in the loop
@@ -198,10 +208,7 @@ public class Loop {
 		//its just that the game state needs to remain constant, so no inputs or camera changes
 		// clear the screen before drawing again
 		renderer.clear();
-		//update light position
-		float time = getTime();
-		Vector3f newPosition = new Vector3f(10 * (float)Math.cos(time), 3, 10 * (float)Math.sin(time));
-		renderer.sendVec3(Util.lightPos, newPosition);
+		
 		// iterate over each mesh
 		for (int i = 0; i < world.getNumMeshes(); i++) {
 			// grab the specific mesh
@@ -214,7 +221,11 @@ public class Loop {
 	// delta time getter
 	// gets the time from the start
 	public float getTime() {
+		//get time difference
 		long diff = System.currentTimeMillis() - startTime;
+		//subtract paused time to keep the time accurate
+		diff -= pausedTime;
+		//convert to float and change to seconds
 		float difference = (float) diff / 1000.0f;
 		return difference;
 	}
@@ -234,5 +245,17 @@ public class Loop {
 	// indicates whether or not this key map has the specific key or no
 	public boolean hasKey(Integer key) {
 		return keyMap.containsKey(key);
+	}
+	
+	//methods to start and stop paused time
+	//used by window class to pause the time
+	public void startPause() {
+		lastPause = System.currentTimeMillis();
+	}
+	
+	public void stopPause() {
+		long time = System.currentTimeMillis() - lastPause;
+		pausedTime = pausedTime + time;
+		lastPause = 0;
 	}
 }

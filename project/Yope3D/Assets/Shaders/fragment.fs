@@ -9,6 +9,8 @@ out vec4 color;
 uniform vec3 lightPos;
 uniform vec3 cameraPos;
 
+uniform sampler2DArray image;
+
 void main() {
     vec3 lightColor = vec3(1,1,1);
     //ambient
@@ -24,6 +26,6 @@ void main() {
     float specular = pow(max(dot(Normal, h), 0.0), 64);
     vec3 specularColor = specular * lightColor;
     //combine into one color
-    vec3 resultant = (ambientColor + diffuseColor + specularColor) * TexCoords;
+    vec3 resultant = (ambientColor + diffuseColor + specularColor) * vec3(texture(image, TexCoords));
     color = vec4(resultant, 1.0);
 }

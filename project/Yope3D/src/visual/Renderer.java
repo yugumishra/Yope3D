@@ -80,6 +80,11 @@ public class Renderer {
 		// free the buffer from memory
 		MemoryUtil.memFree(buffer);
 	}
+	
+	 // send a integer using integer
+	public void send1i(String name, int value) {
+		GL20.glUniform1i(uniforms.get(name), value);
+	}
 
 	// initializes important things like the shader program and shader objects
 	public void init() {
@@ -151,6 +156,8 @@ public class Renderer {
 		addUniform(Util.viewMatrix);
 		addUniform(Util.lightPos);
 		addUniform(Util.cameraPos);
+		addUniform(Util.image);
+		addUniform(Util.modelMatrix);
 		
 		//send a light position here
 		sendVec3(Util.lightPos, new Vector3f(0, 3, 10));
@@ -162,6 +169,9 @@ public class Renderer {
 		if (m.loaded() == false) {
 			m.loadMesh();
 		}
+		
+		//send the model matrix for this mesh
+		sendMat4(Util.modelMatrix, m.getMM());
 
 		// bind to the specific vertex array object
 		GL30.glBindVertexArray(m.getVao());
@@ -174,6 +184,15 @@ public class Renderer {
 		// bind to the index buffer object that refers to the indices in GPU memory that
 		// refers to the vertices
 		GL20.glBindBuffer(GL20.GL_ELEMENT_ARRAY_BUFFER, m.getIbo());
+		
+		
+		//send which texture unit the texture object is bound to
+		send1i(Util.image, 0);
+		//bind to texture unit 0
+		GL20.glActiveTexture(GL20.GL_TEXTURE0);
+		//bind to the mesh's texture object, binding to texture unit 0 and allowing the sampler2d array to access it
+		GL20.glBindTexture(GL30.GL_TEXTURE_2D_ARRAY, m.getTexID());
+		
 
 		// draw the vertices in memory using glDrawElements
 		// using the formatting, this will format the vertex buffer (referenced from the

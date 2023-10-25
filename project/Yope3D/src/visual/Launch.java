@@ -3,6 +3,8 @@ package visual;
 import java.awt.Dimension;
 import java.awt.Toolkit;
 
+import org.joml.Vector3f;
+
 import physics.Sphere;
 
 public class Launch {
@@ -25,11 +27,14 @@ public class Launch {
 		//populate the world instance with a mesh
 		
 		//creation of a mesh instance
-		Sphere m = Sphere.genSphere(1.0f, 2);
-		
+		//Sphere m = Sphere.genSphere(1.0f, 3);
+		Mesh m2 = Util.readObjFile("Assets\\Models\\floor.obj");
+		Sphere sphere = Sphere.genSphere(1, 4);
+		sphere.translate(new Vector3f(0,1,0));
 		//addition of the meshes to the world
-		world.addMesh(m);
-		
+		//world.addMesh(m);
+		world.addMesh(m2);
+		world.addMesh(sphere);
 		
 		//create a Renderer instance, which is used to render the meshes in the World instance
 		renderer = new Renderer();

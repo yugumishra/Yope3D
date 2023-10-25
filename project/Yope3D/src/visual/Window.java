@@ -135,11 +135,15 @@ public class Window {
 				// we need to pause or unpause
 				paused = !paused;
 				if (paused) {
+					// start the paused timer
+					Launch.game.startPause();
 					// enable mouse movement
 					GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
 					// set the cursor to its position
 					GLFW.glfwSetCursorPos(window, width/2, height/2);
 				} else {
+					// stop the pause timer
+					Launch.game.stopPause();
 					//set the cursor to the position
 					GLFW.glfwSetCursorPos(window, width/2, height/2);
 					// re disable the mouse movement

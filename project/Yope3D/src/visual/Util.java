@@ -21,6 +21,8 @@ public class Util {
 	public static final String lightPos = "lightPos";
 	public static final String time = "time";
 	public static final String cameraPos = "cameraPos";
+	public static final String image = "image";
+	public static final String modelMatrix = "modelMatrix";
 	// constant for mouse sensitivity
 	public static final float mouseSensitivity = 0.5f;
 
