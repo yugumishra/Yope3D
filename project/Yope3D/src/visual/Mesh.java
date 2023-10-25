@@ -40,8 +40,10 @@ public class Mesh {
 	private boolean loaded;
 	// id for the texture
 	private int tid;
-	//matrix4f instance to hold the model matrix for this mesh
-	private Matrix4f model;
+	//position variable
+	private Vector3f position;
+	//rotation variable
+	private Vector3f rotation;
 
 	// constructor
 	public Mesh(float[] vertices, int[] indices) {
@@ -49,9 +51,9 @@ public class Mesh {
 		this.vertices = vertices;
 		loaded = false;
 		this.indices = indices;
-		//initialize model matrix
-		model = new Matrix4f();
 		//since the default model mat has nothing, it is simply the identity
+		position = new Vector3f();
+		rotation = new Vector3f();
 	}
 
 	// loads a mesh, using index based rendering
@@ -244,19 +246,22 @@ public class Mesh {
     
     //this method returns the model matrix that this mesh has
     public Matrix4f getMM() {
-    	return model;
+    	Matrix4f modelMat = new Matrix4f();
+    	modelMat.translate(position)
+    	.rotate(rotation.x, new Vector3f(1,0,0))
+    	.rotate(rotation.y, new Vector3f(0,1,0))
+    	.rotate(rotation.z, new Vector3f(0,0,1));
+    	return modelMat;
     }
     
-    //this method adds a translation (world) to the model matrix
+    //this method adds a translation (world) to the position
     public void translate(Vector3f translation) {
-    	model.translate(translation);
+    	position.add(translation);
     }
     
-    //this method adds a rotation (world) to the model matrix
+    //this method adds a rotation (world) to the rotation
     public void rotate(Vector3f rotation) {
-    	model.rotate(rotation.x, new Vector3f(1,0,0));
-    	model.rotate(rotation.y, new Vector3f(0,1,0));
-    	model.rotate(rotation.z, new Vector3f(0,0,1));
+    	this.rotation.add(rotation);
     }
 
 	// returns whether or not this specific mesh is loaded or not

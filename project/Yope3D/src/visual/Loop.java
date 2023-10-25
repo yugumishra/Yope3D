@@ -6,6 +6,8 @@ import java.util.Map;
 import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
 
+import physics.Sphere;
+
 public class Loop {
 	// time of the creation of the loop
 	// will be used for time tracking (fps calculation)
@@ -215,6 +217,11 @@ public class Loop {
 			Mesh m = world.getMesh(i);
 			// render it
 			renderer.render(m);
+			
+			//add a test rotation
+			if(m.getClass().equals(Sphere.class)) {
+				m.rotate(new Vector3f(0.0001f, 0.0001f,0.0001f));
+			}
 		}
 	}
 
