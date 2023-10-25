@@ -10,9 +10,10 @@ out vec3 TexCoords;
 
 uniform mat4 projectionMatrix;
 uniform mat4 viewMatrix;
+uniform mat4 modelMatrix;
 
 void main() {
-    gl_Position = projectionMatrix * viewMatrix * vec4(pos, 1.0);
+    gl_Position = projectionMatrix * modelMatrix * viewMatrix * vec4(pos, 1.0);
     Pos = pos;
     Normal = normal;
     TexCoords = texCoords;

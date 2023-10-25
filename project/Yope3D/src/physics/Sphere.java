@@ -50,10 +50,10 @@ public class Sphere extends Mesh {
 			//but to keep consistent with the mesh formatting, the texture coordinates become color (rgb)
 			//for this a new shader program will be used with a different fragment shader for non-textured objects
 			
-			//for now just set the color to white
-			vertices[i+6] = 1;
-			vertices[i+7] = 0;
-			vertices[i+8] = 0;
+			//for now set the original point color to be blue for visualization purposes
+			//vertices[i+6] = 0;
+			//vertices[i+7] = 0;
+			//vertices[i+8] = 1;
 		}
 		
 		//now subdivide
@@ -80,6 +80,8 @@ public class Sphere extends Mesh {
 				}
 				
 				//create the other 3 vector3f (midpoints of the 3 edges)
+				//and the averaged texture coordinates
+				Vector3f[] texCoords = new Vector3f[3];
 				Vector3f[] newInstances = new Vector3f[3];
 				for(int b= 0; b< originalTriangle.length; b++) {
 					//get the 2 points that need to be midpointed
@@ -91,8 +93,15 @@ public class Sphere extends Mesh {
 					diff.mul(0.5f);
 					//then add to one to get the point
 					newInstances[b] = new Vector3f(one).add(diff);
-					//then normalize to radius
+					//then normalize
 					newInstances[b].normalize();
+					
+					//now average the texture coordinates
+					Vector3f t1 = new Vector3f(newVertices.get(face[b]*9 + 6), newVertices.get(face[b]*9 + 7), newVertices.get(face[b]*9 + 8));
+					int x = (b+1)%3;
+					Vector3f t2 = new Vector3f(newVertices.get(face[x]*9 + 6), newVertices.get(face[x]*9 + 7), newVertices.get(face[x]*9 + 8));
+					texCoords[b] = new Vector3f(t1).add(t2);
+					texCoords[b].mul(0.5f);
 				}
 				//now each new point has been created, now what is required to add to the vertices list
 				//and add the correct indices
@@ -109,9 +118,9 @@ public class Sphere extends Mesh {
 					newVertices.add(newInstances[b].y);
 					newVertices.add(newInstances[b].z);
 					
-					newVertices.add(1f);
-					newVertices.add(1f);
-					newVertices.add(1f);
+					newVertices.add(texCoords[b].x);
+					newVertices.add(texCoords[b].y);
+					newVertices.add(texCoords[b].z);
 				}
 				
 				//now create the indices that connect the points
