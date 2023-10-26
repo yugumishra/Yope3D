@@ -3,8 +3,6 @@ package visual;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
-import java.util.ArrayList;
-import java.util.List;
 
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -12,7 +10,6 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
-import org.lwjgl.opengl.GL42;
 import org.lwjgl.stb.STBImage;
 import org.lwjgl.system.MemoryUtil;
 
@@ -40,6 +37,8 @@ public class Mesh {
 	private boolean loaded;
 	// id for the texture
 	private int tid;
+	//string variable for the filepath of the texture
+	private String texture;
 	//position variable
 	private Vector3f position;
 	//rotation variable
@@ -99,10 +98,10 @@ public class Mesh {
 		// total vertex size of 3 floats, and an offset of 0 bytes from the beginning of
 		// the vertex
 		// this ^ is what the below call formats
-		GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, Float.BYTES * (3 + 3 + 3), 0);
+		GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, Float.BYTES * (3 + 3 + 2), 0);
 		// same thing for normals and texture coordinates
-		GL20.glVertexAttribPointer(1, 3, GL11.GL_FLOAT, true, Float.BYTES * (3 + 3 + 3), Float.BYTES * (3));
-		GL20.glVertexAttribPointer(2, 3, GL11.GL_FLOAT, true, Float.BYTES * (3 + 3 + 3), Float.BYTES * (3 + 3));
+		GL20.glVertexAttribPointer(1, 3, GL11.GL_FLOAT, true, Float.BYTES * (3 + 3 + 2), Float.BYTES * (3));
+		GL20.glVertexAttribPointer(2, 2, GL11.GL_FLOAT, true, Float.BYTES * (3 + 3 + 2), Float.BYTES * (3 + 3));
 
 		// unbind vertex array object and vertex buffer object to ensure we don't edit
 		// the wrong bucket/object
@@ -127,122 +126,85 @@ public class Mesh {
 		// set loaded to true to indicate that this mesh has been loaded
 		loaded = true;
 
-		// load the textures
-		loadTextures();
+		// load the texture
+		loadTexture();
+	}
+	
+	//this method sets the filepath for the texture
+	public void setTexture(String path) {
+		texture = path;
 	}
 
 	// texture loading method
 	// loads the textures
-    public void loadTextures() {
-    	//for now use a constant filepath for testing
-    	String[] filepaths = {"Assets\\Textures\\metal_texture.jpg"};
-    	
+    public void loadTexture() {
 		//bind to texture unit 0, since that is the unit we operate on
 		GL13.glActiveTexture(GL13.GL_TEXTURE0);
 		//generate the texture id
 		tid = GL11.glGenTextures();
 
 		// bind to the generated texture object
-		GL11.glBindTexture(GL30.GL_TEXTURE_2D_ARRAY, tid);
+		GL11.glBindTexture(GL30.GL_TEXTURE_2D, tid);
 
 		//read the image datas
-		//create a list of bytebuffers which will hold each textures data
-		List<ByteBuffer> imageBuffers = new ArrayList<ByteBuffer>();
-		//create max width and max height variables to denote the maximum width and height to allocate for in storage
-		int maxW = 0, maxH = 0;
+		//create a byte buffer to hold the data
+		ByteBuffer imageBuffer;
+		
+		
 		// load data using STBImage library
 		//but first flip it vertically because image coordinates are different then uv coordinates
 		STBImage.stbi_set_flip_vertically_on_load(true);
-		//then iterate through the filepaths available
-		for(int i = 0; i< filepaths.length; i++) {
-			//create holders for width, height, and channel number
-			int[] width = new int[1];
-			int[] height = new int[1];
-			int[] channels = new int[1];
-			//load the image using STBImage load and add it to the buffers
-			imageBuffers.add(STBImage.stbi_load(filepaths[i], width, height, channels, 4));
-			//check for an increase in maxWidth or maxHeight
-			//and set appropriately
-			if(width[0] > maxW) {
-				maxW = width[0];
-			}
-			if(height[0] > maxH) {
-				maxH = height[0];
-			}
-		}
+		//create holders for width, height, and channel number
+		int[] width = new int[1];
+		int[] height = new int[1];
+		int[] channels = new int[1];
+		//load the image using STBImage load
+		imageBuffer = STBImage.stbi_load(texture, width, height, channels, 4);
 
-		//combine the buffers into one so it can be sent
-		ByteBuffer imageBuffer = combine(imageBuffers);
-		//calculate the number of mipmaps that will be generated
-		int numMipmapLevels = (int) (Math.floor(Math.log(Math.max(maxW, maxH)) / Math.log(2)) + 1);
-		//allocate storage for the array of textures
-		//first parameter indicates the type of texture
-		//the next parameter indicates the number of mipmap levels that will be created
-		//the next indicates the type of data that must be allocated for storage
-		//the next 2 indicate the texture size of each texture
-		//the last parameter indicates the amount of textures
-		GL42.glTexStorage3D(GL42.GL_TEXTURE_2D_ARRAY, numMipmapLevels, GL42.GL_RGBA8, maxW, maxH, filepaths.length);
-
-		//send to the gpu using texsubimage3D
-		//the first parameter indicates texture type
-		//the next indicates level of detail that must be started from (0 for base image)
-		//next 3 any texel offsets and texture index offsets
-		//the next 3 indicate the length, width, and depth of the texture
-		//the next parameter indicates storage type
-		//the next indicates type of data being buffered
-		//and the last is the actual buffer
-		GL30.glTexSubImage3D(GL30.GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, maxW, maxH, filepaths.length, GL42.GL_RGBA, GL11.GL_UNSIGNED_BYTE, imageBuffer);
+		//send to the gpu using texImage2D
+		//first parameter defines format (2d)
+		//second the storage format
+		//next 2 the width and height of the texture
+		//5th the border (always 0)
+		//6th the format (components, not internal format)
+		//7th the data type (float, unsigned byte, double, etc)
+		//8th is the actual data
+		GL30.glTexImage2D(GL20.GL_TEXTURE_2D, 0, GL20.GL_RGBA8, width[0], height[0], 0, GL20.GL_RGBA, GL20.GL_UNSIGNED_BYTE, imageBuffer);
+		
 
 		// generate the mipmaps on the textures
 		//generates automatically the number of mipmaps needed (using the calculation used for numMipmaplevels, which is why that calculation was used)
-		GL30.glGenerateMipmap(GL30.GL_TEXTURE_2D_ARRAY);
+		GL30.glGenerateMipmap(GL30.GL_TEXTURE_2D);
 
 		// indicate image processing parameters prior to unbinding from the current texture object
 		//these 2 calls indicate the wrapping of uv coordinates into 0->1 s and t bounds
 		//so the texture repeats
-		GL11.glTexParameteri(GL30.GL_TEXTURE_2D_ARRAY, GL11.GL_TEXTURE_WRAP_S, GL13.GL_REPEAT);
-		GL11.glTexParameteri(GL30.GL_TEXTURE_2D_ARRAY, GL11.GL_TEXTURE_WRAP_T, GL13.GL_REPEAT);
+		GL11.glTexParameteri(GL30.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL13.GL_REPEAT);
+		GL11.glTexParameteri(GL30.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL13.GL_REPEAT);
 		//these 2 calls indicate how the pixels should be interpolated through mipmaps
 		//this call indicates how mipmaps should be interpolated as the sample space is large relative to the pixel size (aka full texture being called for only a few pixels)
 		//aka minimization
-		GL11.glTexParameteri(GL30.GL_TEXTURE_2D_ARRAY, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR);
+		GL11.glTexParameteri(GL30.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR);
 		//this call indicates how textures (not mipmaps) should be interpolated as the sample space is small relative to the pixel size (15, 16 actual texels being called for the whole screen of pixels)
 		//aka magnification
-		GL11.glTexParameteri(GL30.GL_TEXTURE_2D_ARRAY, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+		GL11.glTexParameteri(GL30.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
 
 		//then unbind from the texture object
-		GL11.glBindTexture(GL30.GL_TEXTURE_2D_ARRAY, 0);
-
-		// free the individual buffers and the big buffer
-		for(int i = 0; i< imageBuffers.size(); i++) {
-			MemoryUtil.memFree(imageBuffers.get(i));
-		}
+		GL11.glBindTexture(GL30.GL_TEXTURE_2D, 0);
+		
+		//free the image buffer
 		MemoryUtil.memFree(imageBuffer);
     }
     
-    //this method combines a list of bytebuffers into one
-    //used to combine separate textures into one for textures
-    private ByteBuffer combine(List<ByteBuffer> buffers) {
-    	//create length variable to track how many bytes are in the aggregate
-		int length = 0;
-		//rewind each buffer and see how many bytes it has left (so from length -> 0 then see how many till length)
-		//add it to length
-		for(ByteBuffer bb: buffers) {
-			bb.rewind();
-			length += bb.remaining();
-		}
-		//create a big byte buffer with the length of all of the other byte buffers
-		ByteBuffer buff = MemoryUtil.memAlloc(length);
-		//store each buffer into the big one
-		for(ByteBuffer bb: buffers) {
-			bb.rewind();
-			buff.put(bb);
-		}
-		//reset position back to 0 in the big buffer
-		buff.rewind();
-		//return it
-		return buff;
-	}
+    //this method clears the current texture object
+    public void clearTexture() {
+    	//delete texture
+    	GL20.glBindTexture(GL20.GL_TEXTURE_2D, tid);
+    	GL20.glDeleteTextures(tid);
+    	
+    	//unbind
+    	GL20.glBindTexture(GL20.GL_TEXTURE_2D, 0);
+    }
     
     //this method returns the model matrix that this mesh has
     public Matrix4f getMM() {

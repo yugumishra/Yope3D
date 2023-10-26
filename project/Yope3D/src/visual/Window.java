@@ -24,6 +24,8 @@ public class Window {
 	private int maxWidth, maxHeight;
 	// paused variable to keep track of whether or not the window is paused
 	private boolean paused;
+	// debugging variable to keep trakc whether or not the window is in debug mode
+	public boolean debug;
 
 	public Window(String title, int width, int height) {
 		this.title = title;
@@ -34,6 +36,7 @@ public class Window {
 		maxWidth = width;
 		maxHeight = height;
 		paused = false;
+		debug = false;
 	}
 
 	// initialize this window instance
@@ -137,6 +140,8 @@ public class Window {
 				if (paused) {
 					// start the paused timer
 					Launch.game.startPause();
+					//send the updated pause variable to the fragment shader for darker shading
+					Launch.renderer.send1i(Util.state, 1);
 					// enable mouse movement
 					GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
 					// set the cursor to its position
@@ -144,6 +149,8 @@ public class Window {
 				} else {
 					// stop the pause timer
 					Launch.game.stopPause();
+					//send the updated pause variable to the fragment shader for normal shading
+					Launch.renderer.send1i(Util.state, 0);
 					//set the cursor to the position
 					GLFW.glfwSetCursorPos(window, width/2, height/2);
 					// re disable the mouse movement
@@ -151,6 +158,20 @@ public class Window {
 					//reset x[0], y[0]
 					x[0] = (double) width/2;
 					y[0] = (double) height/2;
+				}
+			}
+			
+			//debug key
+			// this will set state to 2 to enable debug mode
+			if(key == GLFW.GLFW_KEY_LEFT_BRACKET && action == GLFW.GLFW_PRESS) {
+				//invert debug
+				debug = !debug;
+				//if check
+				if(debug) {
+					Launch.renderer.send1i(Util.state, 2);
+				}else {
+					//send 0 to symbolize normal
+					Launch.renderer.send1i(Util.state, 0);
 				}
 			}
 

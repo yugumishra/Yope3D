@@ -158,9 +158,13 @@ public class Renderer {
 		addUniform(Util.cameraPos);
 		addUniform(Util.image);
 		addUniform(Util.modelMatrix);
+		addUniform(Util.state);
 		
 		//send a light position here
-		sendVec3(Util.lightPos, new Vector3f(0, 3, 10));
+		sendVec3(Util.lightPos, new Vector3f(0, 300000000, 0));
+		
+		//send an initial state of 0 (normal) here
+		send1i(Util.state, 0);
 	}
 
 	// this method is what renders a mesh
@@ -191,7 +195,7 @@ public class Renderer {
 		//bind to texture unit 0
 		GL20.glActiveTexture(GL20.GL_TEXTURE0);
 		//bind to the mesh's texture object, binding to texture unit 0 and allowing the sampler2d array to access it
-		GL20.glBindTexture(GL30.GL_TEXTURE_2D_ARRAY, m.getTexID());
+		GL20.glBindTexture(GL30.GL_TEXTURE_2D, m.getTexID());
 		
 
 		// draw the vertices in memory using glDrawElements

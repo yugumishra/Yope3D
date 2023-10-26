@@ -2,11 +2,11 @@
 
 layout(location = 0) in vec3 pos;
 layout(location = 1) in vec3 normal;
-layout(location = 2) in vec3 texCoords;
+layout(location = 2) in vec2 texCoords;
 
 out vec3 Pos;
 out vec3 Normal;
-out vec3 TexCoords;
+out vec2 TexCoords;
 
 uniform mat4 projectionMatrix;
 uniform mat4 viewMatrix;
