@@ -28,7 +28,7 @@ public class Sphere extends Mesh {
 		Mesh icosahedron = Util.readObjFile("Assets\\Models\\icosahedron.obj");
 		//get vertices
 		float[] vertices = icosahedron.vertices();
-		for(int i = 0; i< vertices.length; i+=9) {
+		for(int i = 0; i< vertices.length; i+=8) {
 			//normalize the position
 			Vector3f point = new Vector3f(vertices[i], vertices[i+1], vertices[i+2]);
 			point.normalize();
@@ -38,22 +38,14 @@ public class Sphere extends Mesh {
 			vertices[i+2] = point.z * radius;
 			
 			//for normal data we can simply reuse point
-			//because the normal vector for a point on a sphere is the distance from that point to the origin
-			//can be thought of as the 3D analogue for tan(theta) giving the normal vector for a unit circle
-			//but with 2 angles
+			//because the normal vector is the gradient of the original curve
+			//gradient of x^2 + y^2 + z^2 = r^2
+			//gives partial x 2x, partial y 2y, partial z 2z
+			//normalization cancels out the 2s and becomes x,y,z, the original point
 			//essentially, no extra calculations are necessary to assign normals
 			vertices[i+3] = point.x;
 			vertices[i+4] = point.y;
 			vertices[i+5] = point.z;
-			
-			//since the icospheres will be programatically generated, there is no need for texture coordinates
-			//but to keep consistent with the mesh formatting, the texture coordinates become color (rgb)
-			//for this a new shader program will be used with a different fragment shader for non-textured objects
-			
-			//for now set the original point color to be blue for visualization purposes
-			//vertices[i+6] = 0;
-			//vertices[i+7] = 0;
-			//vertices[i+8] = 1;
 		}
 		
 		//now subdivide
@@ -76,7 +68,7 @@ public class Sphere extends Mesh {
 				//construct the vector3f instances
 				Vector3f[] originalTriangle = new Vector3f[3];
 				for(int b = 0; b< face.length; b++) {
-					originalTriangle[b] = new Vector3f(newVertices.get(face[b]*9), newVertices.get(face[b]*9+1) ,newVertices.get(face[b]*9+2));
+					originalTriangle[b] = new Vector3f(newVertices.get(face[b]*8), newVertices.get(face[b]*8+1) ,newVertices.get(face[b]*8+2));
 				}
 				
 				//create the other 3 vector3f (midpoints of the 3 edges)
@@ -97,9 +89,9 @@ public class Sphere extends Mesh {
 					newInstances[b].normalize();
 					
 					//now average the texture coordinates
-					Vector3f t1 = new Vector3f(newVertices.get(face[b]*9 + 6), newVertices.get(face[b]*9 + 7), newVertices.get(face[b]*9 + 8));
+					Vector3f t1 = new Vector3f(newVertices.get(face[b]*8 + 6), newVertices.get(face[b]*8 + 7), 0);
 					int x = (b+1)%3;
-					Vector3f t2 = new Vector3f(newVertices.get(face[x]*9 + 6), newVertices.get(face[x]*9 + 7), newVertices.get(face[x]*9 + 8));
+					Vector3f t2 = new Vector3f(newVertices.get(face[x]*8 + 6), newVertices.get(face[x]*8 + 7), 0);
 					texCoords[b] = new Vector3f(t1).add(t2);
 					texCoords[b].mul(0.5f);
 				}
@@ -108,19 +100,19 @@ public class Sphere extends Mesh {
 				int[] correspondingIndices = new int[3];
 				for(int b = 0;b < newInstances.length; b++) {
 					//log the index
-					correspondingIndices[b] = newVertices.size()/9;
+					correspondingIndices[b] = newVertices.size()/8;
 					//then add the vertex
 					newVertices.add(newInstances[b].x * radius);
 					newVertices.add(newInstances[b].y * radius);
 					newVertices.add(newInstances[b].z * radius);
 					
+					//see above for why surface point can be reused for normal
 					newVertices.add(newInstances[b].x);
 					newVertices.add(newInstances[b].y);
 					newVertices.add(newInstances[b].z);
 					
 					newVertices.add(texCoords[b].x);
 					newVertices.add(texCoords[b].y);
-					newVertices.add(texCoords[b].z);
 				}
 				
 				//now create the indices that connect the points
@@ -157,5 +149,99 @@ public class Sphere extends Mesh {
 		}
 		return new Sphere(verts, inds);
 	}
-
+	
+	//uv sphere generation method
+	//requires divisible by 2 slices parameter
+	public static Sphere genSphere(int segments, int slices, float radius) {
+		//this method will create rectangular faces around circles that increase and decrease in radius
+		//done through double for loop of angles
+		
+		//positions can be found through polar -> rectangular conversions
+		//normals are just positions
+		//texture coordinates are angles mapped to 0->1 (trust)
+		
+		//one issue is that due to the linear interpolation opengl does on textures, the last segment (when joined with the first)
+		//interpolates from a value close to 1 to 0, which creates this very bad texture distortion
+		//to fix this, a duplicate seam is created, so in reality segments + 1 segments are created (that is why segments +1 is always used)
+		
+		//list of floats for vertices
+		List<Float> vertices = new ArrayList<Float>();
+		
+		//generate angle steps
+		float thetaStep = (float) Math.PI * 2;
+		thetaStep /= segments;
+		float phiStep = (float) Math.PI;
+		phiStep /= slices;
+		//run through the slices (vertical)
+		for(int i= -slices/2; i<= slices/2; i++) {
+			//calculate phi for this iteration
+			float phi = i * phiStep;
+			//calculate y
+			float y = radius * (float) Math.sin(phi);
+			//calculate texture coordinate v by normalizing angle from -slices/2 -> slices/2 to 0->1
+			float v = (float) (i + slices/2);
+			v /= (float) (slices);
+			//calculate the new radius, used for x and z calculations
+			float newRadius = radius * (float) Math.cos(phi);
+			for(int j = 0; j< segments+1; j++) {
+				//calculate theta for this iteration
+				float theta = j * thetaStep;
+				//x is just the radius times sin
+				float x = newRadius * (float) Math.cos(theta);
+				//z is just -radius times cos
+				float z = newRadius * (float) Math.sin(theta);
+				
+				//calculate texture coordinate u by normalizing angle from 0->segments to 0->1
+				float u = (float) (j) / (float) segments;
+				
+				
+				//add to vertices
+				//positions
+				vertices.add(x);
+				vertices.add(y);
+				vertices.add(z);
+				
+				//normals (see above why surface point can be reused for normal)
+				Vector3f normal = new Vector3f(x,y,z);
+				normal.normalize();
+				vertices.add(normal.x);
+				vertices.add(normal.y);
+				vertices.add(normal.z);
+				
+				//texture coordinates
+				vertices.add(u);
+				vertices.add(v);
+			}
+		}
+		
+		//list of integers for indices
+		List<Integer> indices = new ArrayList<Integer>();
+		//iterate through slices and segments
+		for(int i =0 ;i< slices; i++) {
+			for(int j =0; j< segments+1; j++) {
+				//index is given by i*(segments+1) + j
+				int index = i*(segments+1) + j;
+				
+				int plusOne = index+1;
+				
+				
+				//form the quad
+				indices.add(index);
+				indices.add(index + segments +1);
+				indices.add(plusOne);
+				indices.add(plusOne + segments +1);
+				indices.add(index + segments + 1);
+				indices.add(plusOne);
+			}
+		}
+		float[] data = new float[vertices.size()];
+		for(int i =0; i< data.length ;i++) {
+			data[i] = vertices.get(i);
+		}
+		int[] indexes = new int[indices.size()];
+		for(int i =0; i< indexes.length ;i++) {
+			indexes[i] = indices.get(i);
+		}
+		return new Sphere(data, indexes);
+	}
 }

@@ -36,6 +36,10 @@ public class Loop {
 	private long pausedTime;
 	//variable to hold the satrt time of the last pause
 	private long lastPause;
+	//variable to hold the time of the last frame
+	private long lastFrame;
+	//variable to hold the delta time for the most recent interval
+	private float deltaTime;
 
 	// fps variable
 	// encapsulates the current frames per second of the application
@@ -61,6 +65,8 @@ public class Loop {
 		}
 		//initialize paused time to 0
 		pausedTime = 0;
+		//initialize last frame
+		lastFrame = System.currentTimeMillis();
 	}
 
 	// how one starts the loop
@@ -90,20 +96,23 @@ public class Loop {
 		while (true) {
 			// increment the frames
 			frames++;
-			if (frames % 1000 == 0) {
+			if (frames % 100 == 0) {
 				// reupdate the fps
+				//the reason we use a separate method as opposed to delta time
+				//is to create a smoother average (since delta time varies a lot and could be susceptible to spikes)
+				
 				// calculate the difference in time from last update to now
 				float timeDiff = (float) (System.currentTimeMillis() - lastTime);
 				// reupdate last time
 				lastTime = System.currentTimeMillis();
-				// frame difference will always be 1000, and time diff is measured in
+				// frame difference will always be 100, and time diff is measured in
 				// milliseconds
-				// once you work out the math, the fps is just 1 million times the inverse in
+				// once you work out the math, the fps is just 10^5 times the inverse in
 				// difference
-				fps = (1000 * 1000) / timeDiff;
+				fps = (100 * 1000) / timeDiff;
 
-				// now we update the title to indicate FPS
-				window.setTitle(window.getTitle() + " FPS: " + (int) fps);
+				// we update the title (once every 1000 frame) to indicate FPS
+				if(frames % 1000 == 0) window.setTitle(window.getTitle() + " FPS: " + (int) fps);
 			}
 			// render the current state
 			render();
@@ -139,7 +148,7 @@ public class Loop {
 	// this method does what action the key needs to do
 	// ex w means move forward
 	public void doInput(Integer key) {
-		float speed = 0.5f / fps;
+		float speed = 5f * deltaTime();
 		switch (key) {
 		case GLFW.GLFW_KEY_SPACE:
 			camera.addVelocity(new Vector3f(0, speed, 0));
@@ -188,6 +197,7 @@ public class Loop {
 
 	// encapsulates all of the updates in the loop in one function
 	public void update() {
+		reCalcDeltaTime();
 		// the window needs to update no matter what, so we will do a pause check only
 		// on camera update
 		window.update();
@@ -217,13 +227,13 @@ public class Loop {
 			
 			//add a test rotation
 			if(window.isPaused() == false && m.getClass().equals(Sphere.class)) {
-				m.rotate(new Vector3f(0.0001f, 0.0001f,0.0001f));
+				//m.rotate(new Vector3f(0.6f* deltaTime(), 0.6f* deltaTime(), 0.6f* deltaTime()));
 			}
 		}
 	}
 
-	// delta time getter
-	// gets the time from the start
+
+	// gets the time from the start in seconds
 	public float getTime() {
 		//get time difference
 		long diff = System.currentTimeMillis() - startTime;
@@ -232,6 +242,23 @@ public class Loop {
 		//convert to float and change to seconds
 		float difference = (float) diff / 1000.0f;
 		return difference;
+	}
+	
+	//delta time method
+	//returns the time from last frame to this one in seconds
+	public float deltaTime() {
+		return deltaTime;
+	}
+	
+	//delta time calculator
+	//calculates the time from last frame to now in seconds
+	public void reCalcDeltaTime() {
+		//get time difference
+		long diff = System.currentTimeMillis() - lastFrame;
+		//convert to seconds
+		deltaTime = (float) diff / 1000.0f;
+		//reupdate last frame
+		lastFrame = System.currentTimeMillis();
 	}
 
 	// getter for fps
