@@ -63,7 +63,7 @@ public class Window {
 		GLFW.glfwWindowHint(GLFW.GLFW_RESIZABLE, GL11.GL_TRUE);
 		// what version of openGL will be running on the window (major and minor)
 		GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MAJOR, 4);
-		GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MINOR, 2);
+		GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MINOR, 3);
 		// core profile of opengl
 		// basically lets GLFW which opengl it should create the context for (so we can
 		// run it)
@@ -92,6 +92,8 @@ public class Window {
 		double[] x = new double[2];
 		double[] y = new double[2];
 		GLFW.glfwGetCursorPos(window, x, y);
+		
+		
 
 		// set not full screen
 		fullscreen = false;
@@ -161,18 +163,12 @@ public class Window {
 				}
 			}
 			
-			//debug key
-			// this will set state to 2 to enable debug mode
-			if(key == GLFW.GLFW_KEY_LEFT_BRACKET && action == GLFW.GLFW_PRESS) {
-				//invert debug
-				debug = !debug;
-				//if check
-				if(debug) {
-					Launch.renderer.send1i(Util.state, 2);
-				}else {
-					//send 0 to symbolize normal
-					Launch.renderer.send1i(Util.state, 0);
-				}
+			//speed up & slow down keys
+			//these keys will speed/slow down up the number of compute iterations in one frame
+			if(key == GLFW.GLFW_KEY_RIGHT_BRACKET && action == GLFW.GLFW_PRESS) {
+				Launch.game.speed();
+			}else if(key == GLFW.GLFW_KEY_LEFT_BRACKET && action == GLFW.GLFW_PRESS) {
+				Launch.game.slow();
 			}
 
 			// game input keys
@@ -221,13 +217,14 @@ public class Window {
 		// this is also known as clear color
 		// also the first use of a opengl library call
 		// from now on we can use the opengl library
-		GL11.glClearColor(0, 0, 0, 0);
+		GL11.glClearColor(0, 1, 1, 0);
 
 		// reenable visibility
 		GLFW.glfwWindowHint(GLFW.GLFW_VISIBLE, GLFW.GLFW_TRUE);
 		GLFW.glfwShowWindow(window);
 		
-		GLFW.glfwSwapInterval(0);
+		//enable video sync for better video results (at the cost of fps)
+		GLFW.glfwSwapInterval(1);
 	}
 
 	// this method represents the initialization of the camera

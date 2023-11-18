@@ -13,9 +13,19 @@ import visual.Util;
 //like collisions and mesh generation
 public class Sphere extends Mesh {
 	
+	//variable for the 1 (one) thing that defines the sphere
+	// the radius
+	private float radius;
+	
 	//create private constructor the creates based on mesh constuctor
-	private Sphere(float[] vertices, int[] indices) {
+	private Sphere(float[] vertices, int[] indices, float radius) {
 		super(vertices, indices);
+		this.radius = radius;
+	}
+	
+	//getters for radius
+	public float getRadius() {
+		return radius;
 	}
 	
 	//public constructor that creates mesh and indices based on input
@@ -29,23 +39,15 @@ public class Sphere extends Mesh {
 		//get vertices
 		float[] vertices = icosahedron.vertices();
 		for(int i = 0; i< vertices.length; i+=8) {
-			//normalize the position
-			Vector3f point = new Vector3f(vertices[i], vertices[i+1], vertices[i+2]);
-			point.normalize();
-			//now reset position and normal data
-			vertices[i] = point.x * radius;
-			vertices[i+1] = point.y * radius;
-			vertices[i+2] = point.z * radius;
-			
 			//for normal data we can simply reuse point
 			//because the normal vector is the gradient of the original curve
 			//gradient of x^2 + y^2 + z^2 = r^2
 			//gives partial x 2x, partial y 2y, partial z 2z
 			//normalization cancels out the 2s and becomes x,y,z, the original point
 			//essentially, no extra calculations are necessary to assign normals
-			vertices[i+3] = point.x;
-			vertices[i+4] = point.y;
-			vertices[i+5] = point.z;
+			vertices[i+3] = vertices[i];
+			vertices[i+4] = vertices[i+1];
+			vertices[i+5] = vertices[i+2];
 		}
 		
 		//now subdivide
@@ -102,9 +104,9 @@ public class Sphere extends Mesh {
 					//log the index
 					correspondingIndices[b] = newVertices.size()/8;
 					//then add the vertex
-					newVertices.add(newInstances[b].x * radius);
-					newVertices.add(newInstances[b].y * radius);
-					newVertices.add(newInstances[b].z * radius);
+					newVertices.add(newInstances[b].x);
+					newVertices.add(newInstances[b].y);
+					newVertices.add(newInstances[b].z);
 					
 					//see above for why surface point can be reused for normal
 					newVertices.add(newInstances[b].x);
@@ -147,7 +149,9 @@ public class Sphere extends Mesh {
 		for(int i = 0; i< inds.length; i++) {
 			inds[i] = newIndices.get(i);
 		}
-		return new Sphere(verts, inds);
+		Sphere sphere = new Sphere(verts, inds, radius);
+		sphere.setScale(radius);
+		return sphere;
 	}
 	
 	//uv sphere generation method
@@ -177,12 +181,12 @@ public class Sphere extends Mesh {
 			//calculate phi for this iteration
 			float phi = i * phiStep;
 			//calculate y
-			float y = radius * (float) Math.sin(phi);
+			float y = (float) Math.sin(phi);
 			//calculate texture coordinate v by normalizing angle from -slices/2 -> slices/2 to 0->1
 			float v = (float) (i + slices/2);
 			v /= (float) (slices);
 			//calculate the new radius, used for x and z calculations
-			float newRadius = radius * (float) Math.cos(phi);
+			float newRadius = (float) Math.cos(phi);
 			for(int j = 0; j< segments+1; j++) {
 				//calculate theta for this iteration
 				float theta = j * thetaStep;
@@ -202,11 +206,9 @@ public class Sphere extends Mesh {
 				vertices.add(z);
 				
 				//normals (see above why surface point can be reused for normal)
-				Vector3f normal = new Vector3f(x,y,z);
-				normal.normalize();
-				vertices.add(normal.x);
-				vertices.add(normal.y);
-				vertices.add(normal.z);
+				vertices.add(x);
+				vertices.add(y);
+				vertices.add(z);
 				
 				//texture coordinates
 				vertices.add(u);
@@ -242,6 +244,8 @@ public class Sphere extends Mesh {
 		for(int i =0; i< indexes.length ;i++) {
 			indexes[i] = indices.get(i);
 		}
-		return new Sphere(data, indexes);
+		Sphere sphere = new Sphere(data, indexes, radius);
+		sphere.setScale(radius);
+		return sphere;
 	}
 }

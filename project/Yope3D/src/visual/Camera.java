@@ -38,7 +38,7 @@ public class Camera {
 		Launch.renderer.sendMat4(Util.projectionMatrix, Util.genProjectionMatrix(fov, aspectRatio));
 		
 		//initialize position, velocity, and rotation
-		position = new Vector3f(0,5,5);
+		position = new Vector3f(0,100,5);
 		rotation = new Vector3f(0,0,0);
 		velocity = new Vector3f(0,0,0);
 	}

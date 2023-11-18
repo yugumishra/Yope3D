@@ -1,16 +1,13 @@
 package visual;
 
-import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.opengl.GL11;
-import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
-import org.lwjgl.stb.STBImage;
 import org.lwjgl.system.MemoryUtil;
 
 //this class encapsulates the data of a mesh and its associated functionality
@@ -35,14 +32,17 @@ public class Mesh {
 	private int vertexCount;
 	// represents whether or not this mesh is loaded or not
 	private boolean loaded;
-	// id for the texture
-	private int tid;
 	//string variable for the filepath of the texture
 	private String texture;
 	//position variable
 	private Vector3f position;
+	//previous position variable
+	private Vector3f velocity;
 	//rotation variable
 	private Vector3f rotation;
+	//scale variable
+	//indicates how to scale the mesh
+	private float scale;
 
 	// constructor
 	public Mesh(float[] vertices, int[] indices) {
@@ -53,6 +53,9 @@ public class Mesh {
 		//since the default model mat has nothing, it is simply the identity
 		position = new Vector3f();
 		rotation = new Vector3f();
+		velocity = new Vector3f();
+		//initialize scale to 1
+		scale =1.0f;
 	}
 
 	// loads a mesh, using index based rendering
@@ -127,84 +130,13 @@ public class Mesh {
 		loaded = true;
 
 		// load the texture
-		loadTexture();
+		Textures.loadTexture(texture);
 	}
 	
 	//this method sets the filepath for the texture
 	public void setTexture(String path) {
 		texture = path;
 	}
-
-	// texture loading method
-	// loads the textures
-    public void loadTexture() {
-		//bind to texture unit 0, since that is the unit we operate on
-		GL13.glActiveTexture(GL13.GL_TEXTURE0);
-		//generate the texture id
-		tid = GL11.glGenTextures();
-
-		// bind to the generated texture object
-		GL11.glBindTexture(GL30.GL_TEXTURE_2D, tid);
-
-		//read the image datas
-		//create a byte buffer to hold the data
-		ByteBuffer imageBuffer;
-		
-		
-		// load data using STBImage library
-		//but first flip it vertically because image coordinates are different then uv coordinates
-		STBImage.stbi_set_flip_vertically_on_load(true);
-		//create holders for width, height, and channel number
-		int[] width = new int[1];
-		int[] height = new int[1];
-		int[] channels = new int[1];
-		//load the image using STBImage load
-		imageBuffer = STBImage.stbi_load(texture, width, height, channels, 4);
-
-		//send to the gpu using texImage2D
-		//first parameter defines format (2d)
-		//second the storage format
-		//next 2 the width and height of the texture
-		//5th the border (always 0)
-		//6th the format (components, not internal format)
-		//7th the data type (float, unsigned byte, double, etc)
-		//8th is the actual data
-		GL30.glTexImage2D(GL20.GL_TEXTURE_2D, 0, GL20.GL_RGBA8, width[0], height[0], 0, GL20.GL_RGBA, GL20.GL_UNSIGNED_BYTE, imageBuffer);
-		
-
-		// generate the mipmaps on the textures
-		//generates automatically the number of mipmaps needed (using the calculation used for numMipmaplevels, which is why that calculation was used)
-		GL30.glGenerateMipmap(GL30.GL_TEXTURE_2D);
-
-		// indicate image processing parameters prior to unbinding from the current texture object
-		//these 2 calls indicate the wrapping of uv coordinates into 0->1 s and t bounds
-		//so the texture repeats
-		GL11.glTexParameteri(GL30.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL13.GL_REPEAT);
-		GL11.glTexParameteri(GL30.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL13.GL_REPEAT);
-		//these 2 calls indicate how the pixels should be interpolated through mipmaps
-		//this call indicates how mipmaps should be interpolated as the sample space is large relative to the pixel size (aka full texture being called for only a few pixels)
-		//aka minimization
-		GL11.glTexParameteri(GL30.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR);
-		//this call indicates how textures (not mipmaps) should be interpolated as the sample space is small relative to the pixel size (15, 16 actual texels being called for the whole screen of pixels)
-		//aka magnification
-		GL11.glTexParameteri(GL30.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
-
-		//then unbind from the texture object
-		GL11.glBindTexture(GL30.GL_TEXTURE_2D, 0);
-		
-		//free the image buffer
-		MemoryUtil.memFree(imageBuffer);
-    }
-    
-    //this method clears the current texture object
-    public void clearTexture() {
-    	//delete texture
-    	GL20.glBindTexture(GL20.GL_TEXTURE_2D, tid);
-    	GL20.glDeleteTextures(tid);
-    	
-    	//unbind
-    	GL20.glBindTexture(GL20.GL_TEXTURE_2D, 0);
-    }
     
     //this method returns the model matrix that this mesh has
     public Matrix4f getMM() {
@@ -212,13 +144,20 @@ public class Mesh {
     	modelMat.translate(position)
     	.rotate(rotation.x, new Vector3f(1,0,0))
     	.rotate(rotation.y, new Vector3f(0,1,0))
-    	.rotate(rotation.z, new Vector3f(0,0,1));
+    	.rotate(rotation.z, new Vector3f(0,0,1))
+    	.scale(scale);
     	return modelMat;
     }
     
     //this method adds a translation (world) to the position
     public void translate(Vector3f translation) {
+    	//set the initial position
     	position.add(translation);
+    }
+    
+    //this method sets the position variable to a new one
+    public void setPosition(Vector3f n) {
+    	position = n;
     }
     
     //this method adds a rotation (world) to the rotation
@@ -286,7 +225,37 @@ public class Mesh {
 	}
 
 	// getter for texture id
-	public int getTexID() {
-		return tid;
+	public String getTexture() {
+		return texture;
+	}
+	
+	// getter for the position of this mesh (as represented by the model matrix)
+	public Vector3f getPosition() {
+		return new Vector3f(position);
+	}
+	
+	//getter for velocity
+	public Vector3f getVelocity() {
+		return velocity;
+	}
+	
+	//setter for velocity
+	public void setVelocity(Vector3f n) {
+		velocity = n;
+	}
+	
+	//updater for velocity
+	public void addVelocity(Vector3f n) {
+		velocity.add(n);
+	}
+	
+	//getter for scale
+	public float getScale() {
+		return scale;
+	}
+	
+	//setter for scale
+	public void setScale(float n) {
+		scale = n;
 	}
 }
