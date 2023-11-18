@@ -23,6 +23,7 @@ public class Util {
 	public static final String image = "image";
 	public static final String modelMatrix = "modelMatrix";
 	public static final String state = "state";
+	public static final String dt = "dt";
 	// constant for mouse sensitivity
 	public static final float mouseSensitivity = 0.5f;
 

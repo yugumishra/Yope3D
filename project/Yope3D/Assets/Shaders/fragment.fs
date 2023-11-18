@@ -1,4 +1,4 @@
-#version 330 core
+#version 460 core
 
 in vec3 Pos;
 in vec3 Normal;
@@ -34,10 +34,6 @@ void main() {
        
         resultant = resultant * 0.3;
     }
-    //debug
-    if(state == 2) {
-         resultant = (ambientColor + diffuseColor + specularColor) * vec3(TexCoords, 1.0);
-    }
-    resultant = resultant * 0.8;
+    
     color = vec4(resultant, 1.0);
 }

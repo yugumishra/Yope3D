@@ -34,12 +34,15 @@ public class Loop {
 	private int[] keys;
 	// variable to hold the amount of time elapsed during the paused period
 	private long pausedTime;
-	//variable to hold the satrt time of the last pause
+	// variable to hold the satrt time of the last pause
 	private long lastPause;
-	//variable to hold the time of the last frame
+	// variable to hold the time of the last frame
 	private long lastFrame;
-	//variable to hold the delta time for the most recent interval
+	// variable to hold the delta time for the most recent interval
 	private float deltaTime;
+	
+	//variable to hold speed multiplier
+	private int speedMultiplier;
 
 	// fps variable
 	// encapsulates the current frames per second of the application
@@ -63,10 +66,12 @@ public class Loop {
 		for (Integer k : keys) {
 			keyMap.put(k, false);
 		}
-		//initialize paused time to 0
+		// initialize paused time to 0
 		pausedTime = 0;
-		//initialize last frame
+		// initialize last frame
 		lastFrame = System.currentTimeMillis();
+		
+		speedMultiplier = 1;
 	}
 
 	// how one starts the loop
@@ -98,9 +103,10 @@ public class Loop {
 			frames++;
 			if (frames % 100 == 0) {
 				// reupdate the fps
-				//the reason we use a separate method as opposed to delta time
-				//is to create a smoother average (since delta time varies a lot and could be susceptible to spikes)
-				
+				// the reason we use a separate method as opposed to delta time
+				// is to create a smoother average (since delta time varies a lot and could be
+				// susceptible to spikes)
+
 				// calculate the difference in time from last update to now
 				float timeDiff = (float) (System.currentTimeMillis() - lastTime);
 				// reupdate last time
@@ -112,8 +118,9 @@ public class Loop {
 				fps = (100 * 1000) / timeDiff;
 
 				// we update the title (once every 1000 frame) to indicate FPS
-				if(frames % 1000 == 0) window.setTitle(window.getTitle() + " FPS: " + (int) fps);
+				window.setTitle(window.getTitle() + " FPS: " + (int) fps);
 			}
+			
 			// render the current state
 			render();
 			// update the state
@@ -132,8 +139,9 @@ public class Loop {
 
 	// this method checks for any inputs and updates the camera based on that
 	public void input() {
-		//do a pause check
-		if(window.isPaused()) return;
+		// do a pause check
+		if (window.isPaused())
+			return;
 		// iterate over each key
 		for (Integer key : keys) {
 			// get whether or not it is being held/pressed
@@ -148,7 +156,7 @@ public class Loop {
 	// this method does what action the key needs to do
 	// ex w means move forward
 	public void doInput(Integer key) {
-		float speed = 5f * deltaTime();
+		float speed = 20f * deltaTime();
 		switch (key) {
 		case GLFW.GLFW_KEY_SPACE:
 			camera.addVelocity(new Vector3f(0, speed, 0));
@@ -203,7 +211,18 @@ public class Loop {
 		window.update();
 		if (window.isPaused() == false) {
 			camera.update();
+			// here we run the compute shader
+			renderer.compute(world, (speedMultiplier > 0) ? (5 * speedMultiplier) : (0));
 			
+			//add a new sphere
+			if(getTime() > 5.0f && world.getNumMeshes() < 2001) {
+				Sphere s = Sphere.genSphere(10,10, 2.5f);
+				s.translate(new Vector3f(-400, 100, 0));
+				s.addVelocity(new Vector3f(10,0,0));
+				s.setTexture("Assets\\Textures\\brick.jpg");
+				world.addMesh(s);
+				s.loadMesh();
+			}
 		}
 	}
 
@@ -211,53 +230,48 @@ public class Loop {
 	// the world instance is used to access each mesh, which is then rendered using
 	// the renderer
 	public void render() {
-		//no need for pause check for render loop because window changes are what
-		//pause is most likely going to be used for, so it needs to be updating to show
-		//the updated window
-		//its just that the game state needs to remain constant, so no inputs or camera changes
+		// no need for pause check for render loop because window changes are what
+		// pause is most likely going to be used for, so it needs to be updating to show
+		// the updated window
+		// its just that the game state needs to remain constant, so no inputs or camera
+		// changes
 		// clear the screen before drawing again
 		renderer.clear();
-		
+
 		// iterate over each mesh
 		for (int i = 0; i < world.getNumMeshes(); i++) {
 			// grab the specific mesh
 			Mesh m = world.getMesh(i);
 			// render it
 			renderer.render(m);
-			
-			//add a test rotation
-			if(window.isPaused() == false && m.getClass().equals(Sphere.class)) {
-				//m.rotate(new Vector3f(0.6f* deltaTime(), 0.6f* deltaTime(), 0.6f* deltaTime()));
-			}
 		}
 	}
 
-
 	// gets the time from the start in seconds
 	public float getTime() {
-		//get time difference
+		// get time difference
 		long diff = System.currentTimeMillis() - startTime;
-		//subtract paused time to keep the time accurate
+		// subtract paused time to keep the time accurate
 		diff -= pausedTime;
-		//convert to float and change to seconds
+		// convert to float and change to seconds
 		float difference = (float) diff / 1000.0f;
 		return difference;
 	}
-	
-	//delta time method
-	//returns the time from last frame to this one in seconds
+
+	// delta time method
+	// returns the time from last frame to this one in seconds
 	public float deltaTime() {
 		return deltaTime;
 	}
-	
-	//delta time calculator
-	//calculates the time from last frame to now in seconds
+
+	// delta time calculator
+	// calculates the time from last frame to now in seconds
 	public void reCalcDeltaTime() {
-		//get time difference
+		// get time difference
 		long diff = System.currentTimeMillis() - lastFrame;
-		//convert to seconds
+		// convert to seconds
 		deltaTime = (float) diff / 1000.0f;
-		//reupdate last frame
+		// reupdate last frame
 		lastFrame = System.currentTimeMillis();
 	}
 
@@ -277,16 +291,24 @@ public class Loop {
 	public boolean hasKey(Integer key) {
 		return keyMap.containsKey(key);
 	}
-	
-	//methods to start and stop paused time
-	//used by window class to pause the time
+
+	// methods to start and stop paused time
+	// used by window class to pause the time
 	public void startPause() {
 		lastPause = System.currentTimeMillis();
 	}
-	
+
 	public void stopPause() {
 		long time = System.currentTimeMillis() - lastPause;
 		pausedTime = pausedTime + time;
 		lastPause = 0;
 	}
+	
+	public void speed() {
+		speedMultiplier++;
+	}
+	
+	public void slow() {
+		speedMultiplier--;
+}
 }

@@ -2,10 +2,6 @@ package visual;
 
 import java.util.ArrayList;
 
-import org.joml.Vector3f;
-
-import physics.Sphere;
-
 //this class encapsulates the world, which contains many meshes
 //this class is mainly used to consolidate the various meshes that exist in the world, acting as a getter for all universal meshes
 public class World {
@@ -33,32 +29,20 @@ public class World {
 		// add mesh to meshes list
 		meshes.add(m);
 	}
-
-	// world initialization
-	// initializes all meshes in the world
-	// by loading them
+	
+	//world initialization method
 	public void init() {
-		// populate the world
 		
-		//generate meshes
-		Mesh m2 = Util.readObjFile("Assets\\Models\\floor.obj");
-		Sphere moon = Sphere.genSphere(32,16,5);
+		//create floor mesh
+		Mesh floor = Util.readObjFile("Assets\\Models\\floor.obj");
 		
-		//translate the moon a bit up
-		moon.translate(new Vector3f(0, 5, 0));
-		// addition of the meshes to the world
-		addMesh(m2);
-		addMesh(moon);
-
-		// set textures for each mesh
-		m2.setTexture("Assets\\Textures\\rock_texture.jpeg");
-		moon.setTexture("Assets\\Textures\\moon.jpg");
-
-		// iterate over each mesh
-		for (Mesh m : meshes) {
-			// then load each mesh
-			m.loadMesh();
-		}
+		//set texture and add to world
+		floor.setTexture("Assets\\Textures\\brick.jpg");
+		addMesh(floor);
+		
+		//load the mesh
+		floor.loadMesh();
+		
 	}
 
 	// world cleanup method
