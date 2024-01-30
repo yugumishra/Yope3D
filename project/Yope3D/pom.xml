@@ -3,6 +3,7 @@
   <groupId>Yope3D</groupId>
   <artifactId>Yope3D</artifactId>
   <version>0.0.1-SNAPSHOT</version>
+  <packaging>jar</packaging>
   
   <properties>
 	<lwjgl.version>3.3.3</lwjgl.version>

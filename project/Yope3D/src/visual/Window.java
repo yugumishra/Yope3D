@@ -1,9 +1,13 @@
 package visual;
 
+import org.lwjgl.PointerBuffer;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GLCapabilities;
 import org.lwjgl.system.MemoryUtil;
+
+import ui.TextAtlas;
 
 public class Window {
 	// window variables
@@ -26,6 +30,21 @@ public class Window {
 	private boolean paused;
 	// debugging variable to keep trakc whether or not the window is in debug mode
 	public boolean debug;
+
+	// handle to free type lib
+	public PointerBuffer library;
+
+	// ref to the texture atlas object holding the text texture atlas
+	public TextAtlas atlas;
+
+	// ref to the small texture atlas object holding the small text texture atlas
+	public TextAtlas smallAtlas;
+
+	// ref to the title texture atlas object
+	public TextAtlas titleAtlas;
+	
+	// reference to the GLCapabilities object instantiated by the winodow
+	public GLCapabilities capabilities;
 
 	public Window(String title, int width, int height) {
 		this.title = title;
@@ -92,8 +111,6 @@ public class Window {
 		double[] x = new double[2];
 		double[] y = new double[2];
 		GLFW.glfwGetCursorPos(window, x, y);
-		
-		
 
 		// set not full screen
 		fullscreen = false;
@@ -114,20 +131,21 @@ public class Window {
 				// go from windowed to full screen if not full screen
 				// or full screen to windowed if full screen
 				if (fullscreen == false) {
-					//maximize window so when it is returned to normal, the window is windowed full screen
+					// maximize window so when it is returned to normal, the window is windowed full
+					// screen
 					GLFW.glfwMaximizeWindow(window);
-					//set width and height to their right values
+					// set width and height to their right values
 					width = maxWidth;
 					height = maxHeight;
 					// we need to go full screen
 					GLFW.glfwSetWindowMonitor(window, GLFW.glfwGetPrimaryMonitor(), 0, 0, width, height,
 							GLFW.GLFW_DONT_CARE);
 					fullscreen = true;
-					
+
 				} else {
 					// we need to go windowed
 					GLFW.glfwSetWindowMonitor(window, MemoryUtil.NULL, 0, 0, width, height, GLFW.GLFW_DONT_CARE);
-					//reset x and y
+					// reset x and y
 					GLFW.glfwGetCursorPos(window, x, y);
 					fullscreen = false;
 				}
@@ -142,43 +160,31 @@ public class Window {
 				if (paused) {
 					// start the paused timer
 					Launch.game.startPause();
-					//send the updated pause variable to the fragment shader for darker shading
+					// send the updated pause variable to the fragment shader for darker shading
 					Launch.renderer.send1i(Util.state, 1);
 					// enable mouse movement
 					GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
 					// set the cursor to its position
-					GLFW.glfwSetCursorPos(window, width/2, height/2);
+					GLFW.glfwSetCursorPos(window, width / 2, height / 2);
 				} else {
 					// stop the pause timer
 					Launch.game.stopPause();
-					//send the updated pause variable to the fragment shader for normal shading
+					// send the updated pause variable to the fragment shader for normal shading
 					Launch.renderer.send1i(Util.state, 0);
-					//set the cursor to the position
-					GLFW.glfwSetCursorPos(window, width/2, height/2);
+					// set the cursor to the position
+					GLFW.glfwSetCursorPos(window, width / 2, height / 2);
 					// re disable the mouse movement
 					GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
-					//reset x[0], y[0]
-					x[0] = (double) width/2;
-					y[0] = (double) height/2;
+					// reset x[0], y[0]
+					x[0] = (double) width / 2;
+					y[0] = (double) height / 2;
 				}
 			}
-			
-			//speed up & slow down keys
-			//these keys will speed/slow down up the number of compute iterations in one frame
-			if(key == GLFW.GLFW_KEY_RIGHT_BRACKET && action == GLFW.GLFW_PRESS) {
-				Launch.game.speed();
-			}else if(key == GLFW.GLFW_KEY_LEFT_BRACKET && action == GLFW.GLFW_PRESS) {
-				Launch.game.slow();
-			}
+		});
 
-			// game input keys
-			// because we want multiple keys to act on the camera's movement at the same
-			// time (ex: strafing)
-			// we use a map to update values
-			// so if a game instance has the key, then we can update its value on whether or
-			// not its being pressed right now
-			if (Launch.game.hasKey(key)) {
-				Launch.game.updateValue(key, (action == GLFW.GLFW_RELEASE) ? (false) : (true));
+		GLFW.glfwSetScrollCallback(window, (window, xOffset, yOffset) -> {
+			for (int i = 0; i < Launch.world.getNumScripts(); i++) {
+				Launch.world.getScript(i).scrolled(xOffset, yOffset);
 			}
 		});
 
@@ -203,6 +209,9 @@ public class Window {
 			}
 		});
 
+		// setup callback for scrolling
+		// all scripts that implement scroll will be updated with this callback
+
 		// make the context
 		// this enables us to use opengl (because with the context we can use the opengl
 		// library and it will write/affect the window)
@@ -211,19 +220,19 @@ public class Window {
 		// but first we need to create the capabilities
 		// just because it is affected doesn't mean we can use it just yet (with the
 		// capabilities call, we can though)
-		GL.createCapabilities();
+		capabilities = GL.createCapabilities();
 
 		// set the background color to be black
 		// this is also known as clear color
 		// also the first use of a opengl library call
 		// from now on we can use the opengl library
-		GL11.glClearColor(0, 1, 1, 0);
+		GL11.glClearColor(0, 0, 0, 0);
 
 		// reenable visibility
 		GLFW.glfwWindowHint(GLFW.GLFW_VISIBLE, GLFW.GLFW_TRUE);
 		GLFW.glfwShowWindow(window);
-		
-		//enable video sync for better video results (at the cost of fps)
+
+		// enable video sync for better video results (at the cost of fps)
 		GLFW.glfwSwapInterval(1);
 	}
 
@@ -241,11 +250,11 @@ public class Window {
 			GL11.glViewport(0, 0, width, height);
 			// update the camera with the new width and height
 			camera.windowChanged(width, height);
-			//reset width and height
+			// reset width and height
 			this.width = width;
 			this.height = height;
 		});
-		
+
 	}
 
 	// getter for camera
@@ -298,5 +307,29 @@ public class Window {
 	// getter for paused or not
 	public boolean isPaused() {
 		return paused;
+	}
+
+	public boolean getLMB() {
+		return GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_1) == GLFW.GLFW_PRESS;
+	}
+
+	public boolean getRMB() {
+		return GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_2) == GLFW.GLFW_PRESS;
+	}
+
+	public boolean getMMB() {
+		return GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_3) == GLFW.GLFW_PRESS;
+	}
+
+	public boolean getBackwardMB() {
+		return GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_4) == GLFW.GLFW_PRESS;
+	}
+
+	public boolean getForwardMB() {
+		return GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_5) == GLFW.GLFW_PRESS;
+	}
+
+	public boolean getInput(int keycode) {
+		return GLFW.glfwGetKey(window, keycode) == GLFW.GLFW_PRESS;
 	}
 }

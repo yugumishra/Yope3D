@@ -1,0 +1,394 @@
+#version 430 core
+
+layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+//sphere data
+layout(std430, binding = 2) buffer data {
+    vec4 spheres[];
+    //first vec4: pos + radius
+    //second vec4: vel + mass
+};
+
+//barrier data
+layout(std430, binding = 4) readonly buffer barrierData {
+	vec4 barriers[];
+	//first vec4: pos, padding
+	//second vec4: normal, padding
+};
+
+//bounding box data
+layout(std430, binding = 6) buffer boxData {
+	vec4 boxes[];
+	//vec4 1: xAxis + extent.x
+	//vec4 2: yAxis + extent.y
+	//vec4 3: zAxis + extent.z
+	//vec4 4: position + 1.0f padding
+	//vec4 5: velocity + mass
+	//vec4 6: angularVelocity + padding
+};
+
+layout (location = 1) uniform float dt;
+layout (location = 3) uniform int iterations;
+layout (location = 5) uniform int numSpheres;
+layout (location = 7) uniform int numBarriers;
+layout (location = 9) uniform int collisions;
+layout (location = 11) uniform int numBoxes;
+
+vec3 rodrigues(vec3 vector, float angle, vec3 axis) {
+	vec3 rotated = vector * cos(angle);
+	vec3 rejection = cross(axis, vector);
+	vec3 projection = axis * dot(axis, vector);
+	rotated += rejection * sin(angle);
+	rotated += projection * (1.0 - cos(angle));
+	return rotated;
+}
+
+mat3 calculateInertiaTensor(float mass, vec3 halfExtent) {
+	float factor = mass / 3.0;
+	return mat3(factor*(halfExtent.y * halfExtent.y + halfExtent.z * halfExtent.z), 0.0, 0.0, 0.0, factor*(halfExtent.x * halfExtent.x + halfExtent.z * halfExtent.z), 0.0, 0.0, 0.0, factor*(halfExtent.x * halfExtent.x + halfExtent.y * halfExtent.y));
+}
+
+void main() {
+	//coefficient of restitution
+	float cor = 0.9;
+	
+	for(int iteration = 0; iteration < iterations; iteration++) {
+		uint index = 0;
+		if(gl_WorkGroupID.x < numSpheres) {
+			index = gl_WorkGroupID.x;
+			
+			//sphere logic
+			vec3 position = spheres[index * 2].xyz;
+			float r = spheres[index * 2].w;
+			vec3 velocity = spheres[index * 2 + 1].xyz;
+			float m = spheres[index * 2 + 1].w;
+			if(collisions == 0) {
+				for(int i = 0; i< numSpheres; i++) {
+					//skip this current one to avoid div by 0
+					if(i == gl_WorkGroupID.x) continue;
+					
+					//get the other sphere info
+					float rr = spheres[i*2].w;
+					vec3 oPos = spheres[i*2].xyz;
+					
+					//first collision check
+					vec3 diff = oPos - position;
+					float min = r + rr;
+					float depth = length(diff) - min;
+					
+					if(depth < 0) {
+						//the two spheres are colliding
+						vec3 oVel = spheres[i*2 + 1].xyz;
+						float mm = spheres[i*2 + 1].w;
+						
+						//normalize the line of action vector (used for dot product)
+						diff = normalize(diff);
+						
+						//find the relative velocity
+						vec3 velocityDiff = oVel - velocity;
+						float relativeVelocity = dot(velocityDiff, diff);
+						
+						//impulse calculation
+						float impulse = (1.0 + cor) * (relativeVelocity/(1/m + 1/mm));
+						
+						velocity += (impulse * diff) /m;
+						oVel -= (impulse * diff) /mm;
+						
+						//write back into buffer
+						spheres[index * 2 + 1].x = velocity.x;
+						spheres[index * 2 + 1].y = velocity.y;
+						spheres[index * 2 + 1].z = velocity.z;
+						
+						spheres[i * 2 + 1].x = oVel.x;
+						spheres[i * 2 + 1].y = oVel.y;
+						spheres[i * 2 + 1].z = oVel.z;
+						
+						//resolve any possible penetration
+						float resolution = depth * 0.5;
+						
+						//move each sphere away by the resolution amount
+						position += resolution * diff;
+						oPos -= resolution * diff;
+						
+						//write back into buffer
+						spheres[index * 2].x = position.x;
+						spheres[index * 2].y = position.y;
+						spheres[index * 2].z = position.z;
+						
+						spheres[i * 2].x = oPos.x;
+						spheres[i * 2].y = oPos.y;
+						spheres[i * 2].z = oPos.z;
+						
+					}
+				}
+			}
+			
+			//barrier check
+			for(int i = 0; i< numBarriers; i++) {
+				vec3 bNorm = barriers[i*2+1].xyz;
+				vec3 diff = position - barriers[i*2].xyz;
+				
+				float normalDistance = dot(diff, bNorm);
+				normalDistance -= r; 
+				if(normalDistance < 0) {
+					//the sphere is colliding with the barrier and this needs to be resolved
+					//penetration resolution
+					position -= bNorm * normalDistance;
+					
+					//now to reflect the velocity
+					velocity = reflect(velocity, bNorm);
+					float scal = dot(velocity, bNorm);
+					if(scal > 9.81*dt) {
+						velocity *= 0.5;
+					}
+				}
+			}
+			
+			//gravity
+			velocity.y -= 9.81*dt;
+			
+			//integrate
+			position += velocity*dt;
+			
+			//write back into buffer
+			spheres[index * 2].x = position.x;
+			spheres[index * 2].y = position.y;
+			spheres[index * 2].z = position.z;
+			
+			
+			spheres[index * 2 + 1].x = velocity.x;
+			spheres[index * 2 + 1].y = velocity.y;
+			spheres[index * 2 + 1].z = velocity.z;
+		}else {
+			index = gl_WorkGroupID.x - numSpheres;
+			if(boxes[index*6 +4].w > 0) {
+				//bounding box (which is oriented) logic
+				//bbox will now be referred to as OBB
+				
+				//get the box
+				vec4 v0 = boxes[index * 6 + 0];
+				vec4 v1 = boxes[index * 6 + 1];
+				vec4 v2 = boxes[index * 6 + 2];
+				vec4 v3 = boxes[index * 6 + 3];
+				vec4 v4 = boxes[index * 6 + 4];
+				vec4 v5 = boxes[index * 6 + 5];
+				
+				vec3 pos = v3.xyz;
+				vec3 velocity = v4.xyz;
+				vec3 extent = vec3(v0.w, v1.w, v2.w);
+				vec3 omega = v5.xyz;
+				extent *= 0.5;
+				float mass = v4.w;
+				
+				mat3 transform = mat3(v0.xyz, v1.xyz, v2.xyz);
+				if(v4.w != 314159265) {
+					for(int i =0; i< 6; i++) {
+						vec3 planeNormal = barriers[i*2 + 1].xyz;
+						vec3 diff = barriers[i*2].xyz - pos;
+						
+						//half-proj of first (half because extents are half)
+						float proj1 = abs(dot(extent.x * transform[0], planeNormal)) + abs(dot(extent.y * transform[1], planeNormal)) + abs(dot(extent.z * transform[2], planeNormal));
+						//half-proj of second (half because extents are half)
+						float proj2 = abs(dot(diff, planeNormal));
+						
+						//calc penetration
+						float penetration = proj2 - proj1;
+						if(penetration < 0.0){
+							boxes[index * 6 + 4].w = penetration;
+							vec3 localPenetrationAxis = inverse(transform) * planeNormal;
+							pos -= penetration * planeNormal;
+							
+							velocity = reflect(velocity, planeNormal);
+							vec3 velocityDiff = -1.75 * planeNormal * dot(velocity, planeNormal);
+							velocityDiff = inverse(transform) * velocityDiff;
+							velocity *= 0.75;
+						}
+					}
+				}
+				/*
+				for(int i= 0; i< numBoxes; i++) {
+					if(i == index) continue;
+					//rudimentary sphere check
+					vec3 oPos = vec3(boxes[i*6+3].xyz);
+					vec3 oExtent = vec3(boxes[i*6].w, boxes[i*6+1].w, boxes[i*6+2].w);
+					oExtent *= 0.5;
+					vec3 diff = oPos - pos;
+					if(length(diff) > length(oExtent) + length(extent)) continue;
+					//check if collision enabled for other box
+					if(boxes[i*6 + 4].w > 0) {
+						//collision enabled, get the other box info
+						
+						vec4 o0 = boxes[i*6 + 0];
+						vec4 o1 = boxes[i*6 + 1];
+						vec4 o2 = boxes[i*6 + 2];
+						vec4 o3 = boxes[i*6 + 3];
+						vec4 o4 = boxes[i*6 + 4];
+						
+						mat3 oTransform = mat3(o0.xyz, o1.xyz, o2.xyz);
+						
+						//sat time
+						bool colliding = true;
+						float deepestPenetration = 0.0;
+						vec3 penetrationAxis = vec3(0,1,0);
+						for(int a = 0; a< 15; a++) {
+							vec3 axis;
+							
+							if(a < 3) {
+								axis = transform[a];
+							}else if(a< 6) {
+								axis = oTransform[a-3];
+							}else {
+								axis = cross(transform[a/3 - 2], oTransform[a%3]);
+							}
+							
+							axis = normalize(axis);
+							//half-proj of first (half because extents are half)
+							float proj1 = abs(dot(extent.x * transform[0], axis)) + abs(dot(extent.y * transform[1], axis)) + abs(dot(extent.z * transform[2], axis));
+							//half-proj of second (half because extents are half)
+							float proj2 = abs(dot(oExtent.x * oTransform[0], axis)) + abs(dot(oExtent.y * oTransform[1], axis)) + abs(dot(oExtent.z * oTransform[2], axis));
+							
+							//diff interval on the axis
+							float differval = abs(dot(diff, axis));
+							
+							//calc penetration
+							float penetration = differval - proj1 - proj2;
+							if(penetration > 0.0) {
+								//no collision
+								colliding = false;
+								break;
+							}else if(axis == penetrationAxis && penetration < deepestPenetration){
+								deepestPenetration = penetration;
+								penetrationAxis = axis;
+							}
+						}
+						
+						if(colliding) {
+							vec3 localPenetrationAxis = transpose(inverse(transform)) * penetrationAxis;
+							pos -= deepestPenetration * penetrationAxis;
+							
+							velocity = reflect(velocity, penetrationAxis);
+							vec3 velocityDiff = -1.75 * penetrationAxis * dot(velocity, penetrationAxis);
+							velocityDiff = inverse(transform) * velocityDiff;
+							velocity *= 0.75;
+							
+							
+							//find contact
+							vec3 worldExtent = transform * extent;
+							int min = 0;
+							float[8] penetrations = float[8](10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0, 10000.0);
+							vec3[8] points = vec3[8](
+								-extent,
+								vec3(-extent.x, -extent.y, extent.z),
+								vec3(-extent.x, extent.y, -extent.z),
+								vec3(-extent.x, extent.y, extent.z),
+								vec3(extent.x, -extent.y, -extent.z),
+								vec3(extent.x, -extent.y, extent.z),
+								vec3(extent.x, extent.y, -extent.z),
+								extent
+							);
+							
+							//find max penetration
+							float maxPenetration = 100000.0;
+							for (int p = 0; p < 8; p++) {
+							    float penetration = dot(points[p], localPenetrationAxis);
+							    maxPenetration = min(maxPenetration, penetration);
+							}
+							
+							//find all contact points with max penetration
+							int numContacts = 0;
+							vec3[] contacts = vec3[](vec3(0.0));
+							for (int p = 0; p < 8; p++) {
+							    float penetration = dot(points[p], localPenetrationAxis);
+							    if (abs(penetration - maxPenetration) < 0.1) {
+							        // Add additional contact points to the manifold
+							        contacts[numContacts] = points[p];
+							        numContacts++;
+							    }
+							}
+							
+							boxes[index * 6 + 4].w = velocityDiff.y/dt;
+							//torquey time
+							float l = length(velocityDiff) / dt;
+							vec3 totalTorque;
+							for (int contact = 0; contact < numContacts; contact++) {
+								vec3 torque;
+								if(l > 9.81) {
+									torque = vec3(0,-9.81 * mass, 0);
+								}else {
+									torque = vec3(0,-mass * 9.81, 0);
+								}
+								//transform torque into obb space
+								torque = inverse(transform) * torque;
+								//cross it with the point
+								torque = cross(contacts[contact], torque);
+								
+								//add to tt
+								totalTorque += torque;
+							}
+						
+							//apply total torque to the OBB
+							//mat3 inertiaTensor = calculateInertiaTensor(mass, extent);
+							// Invert to get angular acceleration
+							vec3 angularAcceleration = totalTorque / mass;
+							
+							// Update the angular velocity
+							omega += angularAcceleration * dt;
+							omega *= cor;
+							
+							
+						}
+					}
+				}*/
+				
+				//gravity
+				if(v4.w != 314159265) velocity.y -= 9.81 * dt;
+				
+				//integrate
+				pos += velocity*dt;
+				
+				//integrate again with omega
+				if(v4.w != 314159265 && abs(omega.x) < 0.001 && abs(omega.y) < 0.001 && abs(omega.z) < 0.001) {
+					vec3 X = normalize(rodrigues(rodrigues(rodrigues(v0.xyz, omega.x, vec3(1,0,0)), omega.y, vec3(0,1,0)), omega.z, vec3(0,0,1)));
+					vec3 Y = normalize(rodrigues(rodrigues(rodrigues(v1.xyz, omega.x, vec3(1,0,0)), omega.y, vec3(0,1,0)), omega.z, vec3(0,0,1)));
+					vec3 Z = normalize(rodrigues(rodrigues(rodrigues(v2.xyz, omega.x, vec3(1,0,0)), omega.y, vec3(0,1,0)), omega.z, vec3(0,0,1)));
+					
+					
+					boxes[index * 6 + 0].x = X.x;
+					boxes[index * 6 + 0].y = X.y;
+					boxes[index * 6 + 0].z = X.z;
+					
+					boxes[index * 6 + 1].x = Y.x;
+					boxes[index * 6 + 1].y = Y.y;
+					boxes[index * 6 + 1].z = Y.z;
+				
+					boxes[index * 6 + 2].x = Z.x;
+					boxes[index * 6 + 2].y = Z.y;
+					boxes[index * 6 + 2].z = Z.z;
+				}
+				
+				//write back into buffer
+				boxes[index * 6 + 3].x = pos.x;
+				boxes[index * 6 + 3].y = pos.y;
+				boxes[index * 6 + 3].z = pos.z;
+				
+				
+				boxes[index * 6 + 4].x = velocity.x;
+				boxes[index * 6 + 4].y = velocity.y;
+				boxes[index * 6 + 4].z = velocity.z;
+				
+				boxes[index * 6 + 5].x = omega.x;
+				boxes[index * 6 + 5].y = omega.y;
+				boxes[index * 6 + 5].z = omega.z;
+				
+				
+				//set the extent thing to 0 (since this matrix will be read back for mm setting)
+				boxes[index*6 + 0].w = 0;
+				boxes[index*6 + 1].w = 0;
+				boxes[index*6 + 2].w = 0;
+				
+			}
+			
+		}
+		
+	}
+}

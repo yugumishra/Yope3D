@@ -1,12 +1,6 @@
 package visual;
 
-import java.util.HashMap;
-import java.util.Map;
-
-import org.joml.Vector3f;
-import org.lwjgl.glfw.GLFW;
-
-import physics.Sphere;
+import scripts.Script;
 
 public class Loop {
 	// time of the creation of the loop
@@ -28,10 +22,6 @@ public class Loop {
 	private long lastTime;
 	// camera instance to represent camera information
 	private Camera camera;
-	// mapping of keys to whether or not they are being held currently
-	private Map<Integer, Boolean> keyMap;
-	// array of all keys
-	private int[] keys;
 	// variable to hold the amount of time elapsed during the paused period
 	private long pausedTime;
 	// variable to hold the satrt time of the last pause
@@ -40,9 +30,6 @@ public class Loop {
 	private long lastFrame;
 	// variable to hold the delta time for the most recent interval
 	private float deltaTime;
-	
-	//variable to hold speed multiplier
-	private int speedMultiplier;
 
 	// fps variable
 	// encapsulates the current frames per second of the application
@@ -57,21 +44,10 @@ public class Loop {
 		this.window = w;
 		this.world = world;
 		this.renderer = renderer;
-		// initialize key map
-		keyMap = new HashMap<Integer, Boolean>();
-		// add initial entries for the keys that will be used
-		int[] keys = { GLFW.GLFW_KEY_W, GLFW.GLFW_KEY_A, GLFW.GLFW_KEY_S, GLFW.GLFW_KEY_D, GLFW.GLFW_KEY_SPACE,
-				GLFW.GLFW_KEY_LEFT_SHIFT, };
-		this.keys = keys;
-		for (Integer k : keys) {
-			keyMap.put(k, false);
-		}
 		// initialize paused time to 0
 		pausedTime = 0;
 		// initialize last frame
 		lastFrame = System.currentTimeMillis();
-		
-		speedMultiplier = 1;
 	}
 
 	// how one starts the loop
@@ -85,10 +61,11 @@ public class Loop {
 	// initializes all necessary variables
 	public void init() {
 		window.init();
+
 		renderer.init();
-		world.init();
 		window.initCamera();
 		camera = window.getCamera();
+		world.init();
 	}
 
 	// run method
@@ -125,8 +102,6 @@ public class Loop {
 			render();
 			// update the state
 			update();
-			// check for inputs
-			input();
 
 			// if the window should close, break out of the loop
 			// this stops the updating and, by extension, closes the window
@@ -136,66 +111,7 @@ public class Loop {
 		}
 		cleanup();
 	}
-
-	// this method checks for any inputs and updates the camera based on that
-	public void input() {
-		// do a pause check
-		if (window.isPaused())
-			return;
-		// iterate over each key
-		for (Integer key : keys) {
-			// get whether or not it is being held/pressed
-			boolean is = keyMap.get(key);
-			if (is) {
-				// then do whatever is necessary
-				doInput(key);
-			}
-		}
-	}
-
-	// this method does what action the key needs to do
-	// ex w means move forward
-	public void doInput(Integer key) {
-		float speed = 20f * deltaTime();
-		switch (key) {
-		case GLFW.GLFW_KEY_SPACE:
-			camera.addVelocity(new Vector3f(0, speed, 0));
-			return;
-		case GLFW.GLFW_KEY_LEFT_SHIFT:
-			camera.addVelocity(new Vector3f(0, -speed, 0));
-			return;
-		}
-		// the way the inputs are adjusted for rotation is thru polar coordinates
-		// the reason for the constant -1 multiplier is in the way angles are measured
-		// in the coordinate system we have defined
-		float angle = camera.getRotation().y;
-		angle *= -1;
-		// all keys have radius of speed, but angles 90 degrees offset from each other
-		// and all of them have a base angle of angle
-		// ex: w = angle + 0
-		// ex: a = angle + 90, etc
-		// after adding the correct angle offset, we just convert back to rectangular
-		// coordinates
-
-		switch (key) {
-		case GLFW.GLFW_KEY_W:
-			angle -= (float) (Math.PI / 2);
-			break;
-		case GLFW.GLFW_KEY_A:
-			angle += (float) (Math.PI);
-
-			break;
-		case GLFW.GLFW_KEY_S:
-			angle += (float) (Math.PI / 2);
-			break;
-		}
-		// convert back to rectangular
-		float sin = (float) Math.sin(angle);
-		float cos = (float) Math.cos(angle);
-		// add relevant velocity
-		camera.addVelocity(new Vector3f(cos * speed, 0, sin * speed));
-	}
-
+	
 	// this method cleans up everything
 	public void cleanup() {
 		window.cleanup();
@@ -210,19 +126,13 @@ public class Loop {
 		// on camera update
 		window.update();
 		if (window.isPaused() == false) {
-			camera.update();
-			// here we run the compute shader
-			renderer.compute(world, (speedMultiplier > 0) ? (5 * speedMultiplier) : (0));
 			
-			//add a new sphere
-			if(getTime() > 5.0f && world.getNumMeshes() < 2001) {
-				Sphere s = Sphere.genSphere(10,10, 2.5f);
-				s.translate(new Vector3f(-400, 100, 0));
-				s.addVelocity(new Vector3f(10,0,0));
-				s.setTexture("Assets\\Textures\\brick.jpg");
-				world.addMesh(s);
-				s.loadMesh();
+			//then we run each scripts update method
+			for(int i =0; i< world.getNumScripts(); i++) {
+				Script s = world.getScript(i);
+				s.update();
 			}
+			
 		}
 	}
 
@@ -280,18 +190,6 @@ public class Loop {
 		return fps;
 	}
 
-	// accessor for key map
-	// replaces the old entry with the new entry
-	public void updateValue(Integer key, boolean value) {
-		keyMap.replace(key, keyMap.get(key), value);
-	}
-
-	// accessor for keymap
-	// indicates whether or not this key map has the specific key or no
-	public boolean hasKey(Integer key) {
-		return keyMap.containsKey(key);
-	}
-
 	// methods to start and stop paused time
 	// used by window class to pause the time
 	public void startPause() {
@@ -304,11 +202,35 @@ public class Loop {
 		lastPause = 0;
 	}
 	
-	public void speed() {
-		speedMultiplier++;
+	public int frames() {
+		return frames;
 	}
 	
-	public void slow() {
-		speedMultiplier--;
-}
+	public Camera getCamera() {
+		return camera;
+	}
+	
+	public boolean getLMB() {
+		return window.getLMB();
+	}
+	
+	public boolean getRMB() {
+		return window.getRMB();
+	}
+	
+	public boolean getForwardMB() {
+		return window.getForwardMB();
+	}
+	
+	public boolean getBackwardMB() {
+		return window.getBackwardMB();
+	}
+	
+	public boolean getMMB() {
+		return window.getMMB();
+	}
+	
+	public boolean getKey(int key) {
+		return window.getInput(key);
+	}
 }

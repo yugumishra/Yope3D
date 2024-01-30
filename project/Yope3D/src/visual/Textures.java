@@ -1,6 +1,5 @@
 package visual;
 
-import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -8,7 +7,6 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
-import org.lwjgl.stb.STBImage;
 import org.lwjgl.system.MemoryUtil;
 
 public class Textures {
@@ -25,8 +23,15 @@ public class Textures {
 	// texture loading method
 	// loads the textures
 	public static void loadTexture(String texture) {
+		//null check
+		if(texture == null) {
+			return;
+		}
+		
 		//if this texture is already contained, no need to generate it
-		if(textures.containsKey(texture)) return;
+		if(textures.containsKey(texture)) {
+			return;
+		}
 		//is not contained, so we need to generate
 		
 		// bind to texture unit 0, since that is the unit we operate on
@@ -37,20 +42,7 @@ public class Textures {
 		// bind to the generated texture object
 		GL11.glBindTexture(GL30.GL_TEXTURE_2D, tid);
 
-		// read the image datas
-		// create a byte buffer to hold the data
-		ByteBuffer imageBuffer;
-
-		// load data using STBImage library
-		// but first flip it vertically because image coordinates are different then uv
-		// coordinates
-		STBImage.stbi_set_flip_vertically_on_load(true);
-		// create holders for width, height, and channel number
-		int[] width = new int[1];
-		int[] height = new int[1];
-		int[] channels = new int[1];
-		// load the image using STBImage load
-		imageBuffer = STBImage.stbi_load(texture, width, height, channels, 4);
+		Image image = Util.readImage(texture, true);
 
 		// send to the gpu using texImage2D
 		// first parameter defines format (2d)
@@ -60,8 +52,8 @@ public class Textures {
 		// 6th the format (components, not internal format)
 		// 7th the data type (float, unsigned byte, double, etc)
 		// 8th is the actual data
-		GL30.glTexImage2D(GL20.GL_TEXTURE_2D, 0, GL20.GL_RGBA8, width[0], height[0], 0, GL20.GL_RGBA,
-				GL20.GL_UNSIGNED_BYTE, imageBuffer);
+		GL30.glTexImage2D(GL20.GL_TEXTURE_2D, 0, GL20.GL_RGBA8, image.width, image.height, 0, GL20.GL_RGBA,
+				GL20.GL_UNSIGNED_BYTE, image.buffer);
 
 		// generate the mipmaps on the textures
 		// generates automatically the number of mipmaps needed (using the calculation
@@ -91,7 +83,7 @@ public class Textures {
 		GL11.glBindTexture(GL30.GL_TEXTURE_2D, 0);
 
 		// free the image buffer
-		MemoryUtil.memFree(imageBuffer);
+		MemoryUtil.memFree(image.buffer);
 		
 		textures.put(texture, tid);
 	}
