@@ -3,8 +3,10 @@ package visual;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.joml.Vector4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
@@ -36,13 +38,29 @@ public class Mesh {
 	private String texture;
 	//position variable
 	private Vector3f position;
-	//previous position variable
+	//velocity
 	private Vector3f velocity;
 	//rotation variable
 	private Vector3f rotation;
+	
+	//angular velocity varibale
+	private Vector3f angularVelocity;
 	//scale variable
 	//indicates how to scale the mesh
 	private float scale;
+	//indicates the color of the mesh if not textured
+	private Vector3f color;
+	//a flag for whether or not to be drawn
+	//debug mostly
+	private boolean drawn;
+	
+	//variable that holds the extents of this mesh
+	private Vector4f extent;
+	
+	//matrix
+	private Matrix4f modelMat;
+	
+	private int state;
 
 	// constructor
 	public Mesh(float[] vertices, int[] indices) {
@@ -54,8 +72,14 @@ public class Mesh {
 		position = new Vector3f();
 		rotation = new Vector3f();
 		velocity = new Vector3f();
+		angularVelocity = new Vector3f();
 		//initialize scale to 1
 		scale =1.0f;
+		//initialize color to null to indicate textured
+		color = null;
+		drawn = true;
+		//set extent to null to default to not specifying each mesh as not box
+		extent = null;
 	}
 
 	// loads a mesh, using index based rendering
@@ -140,7 +164,7 @@ public class Mesh {
     
     //this method returns the model matrix that this mesh has
     public Matrix4f getMM() {
-    	Matrix4f modelMat = new Matrix4f();
+    	modelMat = new Matrix4f();
     	modelMat.translate(position)
     	.rotate(rotation.x, new Vector3f(1,0,0))
     	.rotate(rotation.y, new Vector3f(0,1,0))
@@ -158,6 +182,10 @@ public class Mesh {
     //this method sets the position variable to a new one
     public void setPosition(Vector3f n) {
     	position = n;
+    }
+    
+    public void setPosition(float x, float y, float z) {
+    	setPosition(new Vector3f(x,y,z));
     }
     
     //this method adds a rotation (world) to the rotation
@@ -244,6 +272,10 @@ public class Mesh {
 		velocity = n;
 	}
 	
+	public void setVelocity(float x, float y, float z) {
+		setVelocity(new Vector3f(x,y,z));
+	}
+	
 	//updater for velocity
 	public void addVelocity(Vector3f n) {
 		velocity.add(n);
@@ -257,5 +289,86 @@ public class Mesh {
 	//setter for scale
 	public void setScale(float n) {
 		scale = n;
+	}
+	//getter for color
+	public Vector3f getColor() {
+		return color;
+	}
+	
+	//using this method indicates that the mesh is not to be textured and to be colored using texture coordinates (mainly debug)
+	public void setColor(float r, float g, float b) {
+		this.color = new Vector3f(r,g,b);
+	}
+	
+	//getter and setter for drawn
+	public boolean draw() {
+		return drawn;
+	}
+	
+	public void setDraw(boolean draw) {
+		this.drawn = draw;
+	}
+	
+	public Vector3f getRotation() {
+		return rotation;
+	}
+	
+	public void setRotation(Vector3f n) {
+		rotation = n;
+	}
+	
+	public void setState(int s) {
+		state = s;
+	}
+	
+	public int getState() {
+		return state;
+	}
+	
+	//gets the extents of this mesh (max vector - min vector) for bounding box physics
+	public void calcExtent(float mass) {
+		Vector3f max = new Vector3f();
+		Vector3f min = new Vector3f();
+		
+		for(int i =0 ; i< vertices.length/8; i++) {
+			float x = vertices[i*8 + 0];
+			float y = vertices[i*8 + 1];
+			float z = vertices[i*8 + 2];
+			
+			x *= scale;
+			y *= scale;
+			z *= scale;
+			
+			if(x < min.x) min.x = x;
+			if(y < min.y) min.y = y;
+			if(z < min.z) min.z = z;
+			
+			if(x > max.x) max.x = x;
+			if(y > max.y) max.y = y;
+			if(z > max.z) max.z = z;
+		}
+		
+		max.sub(min);
+		extent = new Vector4f(max.x, max.y, max.z, mass);
+	}
+	
+	public Vector4f getExtent() {
+		return extent;
+	}
+	
+	public Matrix3f getNormalMatrix() {
+		return getMM().get3x3(new Matrix3f()).invert().transpose();
+	}
+	
+	public Vector3f getAngularVelocity() {
+		return new Vector3f(angularVelocity);
+	}
+	
+	public void setAngularVelocity(Vector3f n) {
+		angularVelocity = n;
+	}
+	
+	public void setMM(Matrix4f n) {
+		modelMat = n;
 	}
 }

@@ -11,10 +11,16 @@ out vec2 TexCoords;
 uniform mat4 projectionMatrix;
 uniform mat4 viewMatrix;
 uniform mat4 modelMatrix;
+uniform mat3 normalMatrix;
 
 void main() {
     gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(pos, 1.0);
-    Pos = pos;
-    Normal = normal;
+    vec4 res = modelMatrix * vec4(pos, 1.0);
+    Pos = res.xyz;
+    
+    //disable translation of normals
+    
+    Normal = normalMatrix * normal;
+    normalize(Normal);
     TexCoords = texCoords;
 }

@@ -11,7 +11,7 @@ public class Launch {
 	public static Renderer renderer;
 	public static Loop game;
 	
-	public static void main(String[] args) {
+	public static void launch() {
 		//get width and height from the toolkit of the current monitor
 		Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
 		
