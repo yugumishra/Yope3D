@@ -5,9 +5,7 @@ import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 
-import main.Main;
-import visual.Image;
-import visual.Util;
+import visual.*;
 
 public class TexturedBackground extends Background {
 	int texture;
@@ -68,12 +66,25 @@ public class TexturedBackground extends Background {
 	@Override
 	//redefines mesh to be made of just min and max
 	public void redefineMesh() {
-		float[] newMesh = {
-			min.x, min.y, 0.0f, 0.0f,
-			max.x, min.y, 1.0f, 0.0f,
-			max.x, max.y, 1.0f, 1.0f,
-			min.x, max.y, 0.0f, 1.0f
-		};
+		float[] newMesh = new float[FLOATS_PER_VERTEX * 4];
+		newMesh[0] = min.x;
+		newMesh[1] = min.y;
+		
+		newMesh[FLOATS_PER_VERTEX] = max.x;
+		newMesh[FLOATS_PER_VERTEX + 1] = min.y;
+		newMesh[FLOATS_PER_VERTEX + 2] = 1.0f;
+		
+		
+		newMesh[2*FLOATS_PER_VERTEX] = max.x;
+		newMesh[2*FLOATS_PER_VERTEX + 1] = max.y;
+		newMesh[2*FLOATS_PER_VERTEX + 2] = 1.0f;
+		newMesh[2*FLOATS_PER_VERTEX + 3] = 1.0f;
+		
+		
+		newMesh[3*FLOATS_PER_VERTEX] = min.x;
+		newMesh[3*FLOATS_PER_VERTEX + 1] = max.y;
+		newMesh[3*FLOATS_PER_VERTEX + 3] = 1.0f;
+		
 			
 		mesh = newMesh;
 		
@@ -85,7 +96,7 @@ public class TexturedBackground extends Background {
 	
 	@Override
 	public int getTextured() {
-		return 2;
+		return Util.STATES.UI_TEXTURED;
 	}
 	
 	@Override
@@ -93,16 +104,17 @@ public class TexturedBackground extends Background {
 		// bind to the vao that contains the vbo and ebo
 		GL30.glBindVertexArray(vao);
 		
-		GL30.glUniform3f(Main.window.getUniform("col"), r, g, b);
-		GL30.glUniform1i(Main.window.getUniform("state"), getTextured());
+		Launch.renderer.sendVec3(Util.col, new org.joml.Vector3f(r,g,b));
+		Launch.renderer.send1i(Util.state, getTextured());
 		// enable the formatting
 		GL30.glEnableVertexAttribArray(0);
 		GL30.glEnableVertexAttribArray(1);
+		GL30.glEnableVertexAttribArray(2);
 		// bind to the ebo (to draw the indices)
 		GL20.glBindBuffer(GL20.GL_ELEMENT_ARRAY_BUFFER, ebo);
 		
 		// send the texture unit
-		GL20.glUniform1i(Main.window.getUniform("image"), 0);
+		GL20.glUniform1i(Launch.renderer.getUniform("image"), 0);
 		// bind to texture unit and texture
 		GL20.glActiveTexture(GL20.GL_TEXTURE0);
 		// bind to the text texture atlas
@@ -115,6 +127,7 @@ public class TexturedBackground extends Background {
 		
 		// unbind
 		GL20.glBindBuffer(GL20.GL_ELEMENT_ARRAY_BUFFER, 0);
+		GL30.glDisableVertexAttribArray(2);
 		GL30.glDisableVertexAttribArray(1);
 		GL20.glDisableVertexAttribArray(0);
 		GL30.glBindVertexArray(0);

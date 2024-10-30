@@ -9,6 +9,7 @@ import physics.Barrier;
 import physics.Sphere;
 import visual.Launch;
 import visual.Mesh;
+import visual.PointLight;
 import visual.Util.STATES;
 
 public class Shooter extends Script {
@@ -43,10 +44,10 @@ public class Shooter extends Script {
 		star.setColor(1, 1, 1);
 		star.setDraw(true);
 
-		star.setPosition(0, 5000, 0);
+		star.getHull().setPosition(new Vector3f(0, 5000, 0));
 		star.setState(STATES.LIGHT);
 		star.setColor(1.0f, 1.0f, 1.0f);
-		pos = star.getPosition();
+		pos = star.getHull().getPosition();
 
 		world.addMesh(star);
 
@@ -95,14 +96,14 @@ public class Shooter extends Script {
 			loop.getCamera().addVelocity(push);
 		}
 
-		pos = star.getPosition();
+		pos = star.getHull().getPosition();
 
 		loop.getCamera().update();
 
 		loop.getCamera().sendState();
 
 		if (set) {
-			renderer.compute(world, 5);
+			world.advance();
 
 			if (loop.getKey(GLFW.GLFW_KEY_E) && loop.frames() % 4 == 0) {
 				for (int i = 0; i < 25; i++) {
@@ -145,10 +146,10 @@ public class Shooter extends Script {
 
 					s.setColor(r, g, b);
 
-					Vector3f position = star.getPosition();
+					Vector3f position = star.getHull().getPosition();
 					position.add(dir.mul(star.getRadius() + s.getRadius() + 0.1f));
-					s.setPosition(position);
-					s.setVelocity(dir.mul(5));
+					s.getHull().setPosition(position);
+					s.getHull().setVelocity(dir.mul(5));
 					s.setState(STATES.SOLID_COLOR);
 
 					s.loadMesh();
@@ -172,7 +173,7 @@ public class Shooter extends Script {
 					if (m.getClass() == Sphere.class && m != star) {
 						// we can apply the pain
 
-						Vector3f diff = star.getPosition().sub(m.getPosition());
+						Vector3f diff = star.getHull().getPosition().sub(m.getHull().getPosition());
 
 						float multiplier = diff.length();
 						diff.normalize();
@@ -180,13 +181,13 @@ public class Shooter extends Script {
 							multiplier = mult / (multiplier * multiplier);
 						}
 						multiplier *= (loop.getRMB()) ? (-1) : (1);
-						m.addVelocity(diff.mul(multiplier));
+						m.getHull().addImpulse(diff.mul(multiplier * m.getHull().getMass()));
 					}
 				}
 			}
 		}
 
-		Launch.world.setLight(pos);
+		Launch.world.addLight(new PointLight(pos, new Vector3f(1,1,1), new Vector3f(1,0,0)));
 	}
 
 	@Override

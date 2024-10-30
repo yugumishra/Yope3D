@@ -9,7 +9,8 @@ import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.system.MemoryUtil;
 
-import main.Main;
+import visual.Launch;
+import visual.Util;
 
 //a basic label that has a solid color, covers the screen, and is a background
 public class Background extends Label {
@@ -37,13 +38,14 @@ public class Background extends Label {
 	protected Vector2f min;
 	protected Vector2f max;
 
-	// number to represent how many floats per vertex
-	public static final int FLOATS_PER_VERTEX = 4;
+	// number to represent how many floats per vertex (changes if in game or nt)
+	public static int FLOATS_PER_VERTEX = 8;
 
 	public Background(float r, float g, float b, int level) {
 		visibility = true;
 		min = new Vector2f(-1.0f, 1.0f);
 		max = new Vector2f(1.0f, -1.0f);
+		
 		// set colors
 		this.r = r;
 		this.g = g;
@@ -77,8 +79,9 @@ public class Background extends Label {
 		GL20.glBufferData(GL20.GL_ELEMENT_ARRAY_BUFFER, indices, GL20.GL_STATIC_DRAW);
 
 		// layout the buffer
-		GL20.glVertexAttribPointer(0, 2, GL20.GL_FLOAT, false, (2 + 2) * Float.BYTES, 0);
-		GL20.glVertexAttribPointer(1, 2, GL20.GL_FLOAT, false, (2 + 2) * Float.BYTES, 2 * Float.BYTES);
+		GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, (FLOATS_PER_VERTEX) * Float.BYTES, 0);
+		GL20.glVertexAttribPointer(1, 3, GL11.GL_FLOAT, true, (FLOATS_PER_VERTEX) * Float.BYTES, 3 * Float.BYTES);
+		GL20.glVertexAttribPointer(2, 2, GL11.GL_FLOAT, true, (FLOATS_PER_VERTEX) * Float.BYTES, 6 * Float.BYTES);
 
 		// unbind and free
 		GL30.glBindVertexArray(0);
@@ -95,15 +98,16 @@ public class Background extends Label {
 
 	@Override
 	public void render() {
+		Launch.renderer.sendVec3(Util.col, new org.joml.Vector3f(r,g,b));
+		Launch.renderer.send1i(Util.state, Util.STATES.UI);
+		
 		// bind to the vao that contains the vbo and ebo
 		GL30.glBindVertexArray(vao);
-		
-		GL30.glUniform3f(Main.window.getUniform("col"), r, g, b);
-		GL30.glUniform1i(Main.window.getUniform("state"), getTextured());
 
 		// enable the formatting
 		GL30.glEnableVertexAttribArray(0);
 		GL30.glEnableVertexAttribArray(1);
+		GL30.glEnableVertexAttribArray(2);
 
 		// bind to the ebo (to draw the indices)
 		GL20.glBindBuffer(GL20.GL_ELEMENT_ARRAY_BUFFER, ebo);
@@ -113,6 +117,7 @@ public class Background extends Label {
 
 		// unbind
 		GL20.glBindBuffer(GL20.GL_ELEMENT_ARRAY_BUFFER, 0);
+		GL30.glDisableVertexAttribArray(2);
 		GL30.glDisableVertexAttribArray(1);
 		GL20.glDisableVertexAttribArray(0);
 		GL30.glBindVertexArray(0);
@@ -157,9 +162,10 @@ public class Background extends Label {
 		GL20.glBufferData(GL20.GL_ELEMENT_ARRAY_BUFFER, indices, GL20.GL_STATIC_DRAW);
 
 		// layout the buffer
-		GL20.glVertexAttribPointer(0, 2, GL20.GL_FLOAT, false, (2 + 2) * Float.BYTES, 0);
-		GL20.glVertexAttribPointer(1, 2, GL20.GL_FLOAT, false, (2 + 2) * Float.BYTES, 2 * Float.BYTES);
-
+		GL20.glVertexAttribPointer(0, 3, GL20.GL_FLOAT, false, (FLOATS_PER_VERTEX) * Float.BYTES, 0);
+		GL20.glVertexAttribPointer(1, 3, GL20.GL_FLOAT, false, (FLOATS_PER_VERTEX) * Float.BYTES, 3 * Float.BYTES);
+		GL20.glVertexAttribPointer(1, 2, GL20.GL_FLOAT, false, (FLOATS_PER_VERTEX) * Float.BYTES, 6 * Float.BYTES);
+		
 		// unbind and free
 		GL30.glBindVertexArray(0);
 		GL20.glBindBuffer(GL20.GL_ARRAY_BUFFER, 0);
@@ -208,12 +214,18 @@ public class Background extends Label {
 	
 	//redefines mesh to be made of just min and max
 	public void redefineMesh() {
-		float[] newMesh = {
-			min.x, min.y, 0.0f, 0.0f,
-			max.x, min.y, 0.0f, 0.0f,
-			max.x, max.y, 0.0f, 0.0f,
-			min.x, max.y, 0.0f, 0.0f
-		};
+		float[] newMesh = new float[FLOATS_PER_VERTEX * 4];
+		newMesh[0] = min.x;
+		newMesh[1] = min.y;
+		
+		newMesh[FLOATS_PER_VERTEX] = max.x;
+		newMesh[FLOATS_PER_VERTEX + 1] = min.y;
+		
+		newMesh[2*FLOATS_PER_VERTEX] = max.x;
+		newMesh[2*FLOATS_PER_VERTEX + 1] = max.y;
+		
+		newMesh[3*FLOATS_PER_VERTEX] = min.x;
+		newMesh[3*FLOATS_PER_VERTEX + 1] = max.y;
 			
 		mesh = newMesh;
 		
@@ -224,6 +236,6 @@ public class Background extends Label {
 	}
 	
 	public int getTextured() {
-		return 0;
+		return Util.STATES.UI;
 	}
 }

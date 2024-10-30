@@ -1,13 +1,21 @@
 package visual;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import org.joml.Vector2f;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.glfw.GLFWImage;
+import org.lwjgl.glfw.GLFWImage.Buffer;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GLCapabilities;
 import org.lwjgl.system.MemoryUtil;
+import org.lwjgl.util.freetype.FreeType;
 
-import ui.TextAtlas;
+import audio.AudioManager;
+import ui.Label;
 
 public class Window {
 	// window variables
@@ -33,19 +41,20 @@ public class Window {
 
 	// handle to free type lib
 	public PointerBuffer library;
-
-	// ref to the texture atlas object holding the text texture atlas
-	public TextAtlas atlas;
-
-	// ref to the small texture atlas object holding the small text texture atlas
-	public TextAtlas smallAtlas;
-
-	// ref to the title texture atlas object
-	public TextAtlas titleAtlas;
 	
+	public int sourceID;
+
+	// list of labels that is the UI
+	// this list is sorted via depth
+	// so the furthest back labels will be drawn first
+	private List<ArrayList<Label>> UI;
+
 	// reference to the GLCapabilities object instantiated by the winodow
 	public GLCapabilities capabilities;
-
+	
+	//create the audio manager
+	public AudioManager am;
+	
 	public Window(String title, int width, int height) {
 		this.title = title;
 		this.height = height;
@@ -56,6 +65,9 @@ public class Window {
 		maxHeight = height;
 		paused = false;
 		debug = false;
+
+		// init ui
+		UI = new ArrayList<ArrayList<Label>>();
 	}
 
 	// initialize this window instance
@@ -92,7 +104,7 @@ public class Window {
 		// first three specify width, height, and title
 		// the 2nd to last parameter specifies which monitor to go on (if any)
 		// the last memoryutil.null specifies that there is no share
-		window = GLFW.glfwCreateWindow(width / 2, height / 2, title, MemoryUtil.NULL, MemoryUtil.NULL);
+		window = GLFW.glfwCreateWindow(width/2, height/2, title, MemoryUtil.NULL, MemoryUtil.NULL);
 		// failcheck
 		if (window == MemoryUtil.NULL) {
 			System.err.println("Something went wrong with Window Creation. Please try again");
@@ -101,9 +113,9 @@ public class Window {
 		// center the window in the middle of the screen
 		// the over 4 is because you also subtract half of the window width and height
 		// because of screen coordinates
-		GLFW.glfwSetWindowPos(window, width / 4, height / 4);
+		GLFW.glfwSetWindowPos(window, width/4, height/4);
 		// center cursor position
-		GLFW.glfwSetCursorPos(window, 0, 0);
+		GLFW.glfwSetCursorPos(window, width/2, height/2);
 		// this makes width and height half of what they are right now
 		width /= 2;
 		height /= 2;
@@ -114,7 +126,10 @@ public class Window {
 
 		// set not full screen
 		fullscreen = false;
-
+		
+		//set the icon for the application
+		GLFW.glfwSetWindowIcon(window, loadIcons("Assets\\Textures\\tnail.png"));
+		
 		// key callback for all current keys
 		// the 5 parameters are necessary in the lambda expression because that is what
 		// the key callback receives
@@ -156,61 +171,49 @@ public class Window {
 			// (but no camera updates)
 			if (key == GLFW.GLFW_KEY_TAB && action == GLFW.GLFW_PRESS) {
 				// we need to pause or unpause
-				paused = !paused;
-				if (paused) {
-					// start the paused timer
-					Launch.game.startPause();
-					// send the updated pause variable to the fragment shader for darker shading
-					Launch.renderer.send1i(Util.state, 1);
-					// enable mouse movement
-					GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
-					// set the cursor to its position
-					GLFW.glfwSetCursorPos(window, width / 2, height / 2);
-				} else {
-					// stop the pause timer
-					Launch.game.stopPause();
-					// send the updated pause variable to the fragment shader for normal shading
-					Launch.renderer.send1i(Util.state, 0);
-					// set the cursor to the position
-					GLFW.glfwSetCursorPos(window, width / 2, height / 2);
-					// re disable the mouse movement
-					GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
-					// reset x[0], y[0]
-					x[0] = (double) width / 2;
-					y[0] = (double) height / 2;
+				if(paused) {
+					unpause();
+				}else {
+					pause();
+				}
+				pauseChange();
+			}
+		});
+
+		
+		
+		GLFW.glfwSetMouseButtonCallback(window, (window, button, action, mods) -> {
+			for(ArrayList<Label> layer: UI) {
+				for(Label l: layer) {
+					double[] xx = new double[1];
+					double[] yy = new double[1];
+					GLFW.glfwGetCursorPos(window, xx, yy);
+					l.clicked((int) xx[0], (int) yy[0], button, action);
 				}
 			}
 		});
-
-		GLFW.glfwSetScrollCallback(window, (window, xOffset, yOffset) -> {
-			for (int i = 0; i < Launch.world.getNumScripts(); i++) {
-				Launch.world.getScript(i).scrolled(xOffset, yOffset);
-			}
-		});
-
-		// setup input mode for mouse
-		// basically disables the cursor from being visible, so it can move around
-		// infinitely
-		// good for camera controls
-		GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
 
 		// set up callback for the cursor changing virtual position
 		// used to increment rotation
 		GLFW.glfwSetCursorPosCallback(window, (window, xPos, yPos) -> {
 			if (!paused) {
 				// cast to float and subtract from initial
-				float xDiff = (float) xPos - (float) x[0];
-				float yDiff = (float) yPos - (float) y[0];
-
+				float xDiff = (float) xPos - width;
+				float yDiff = (float) yPos - height;
 				// update rotation using camera method
 				camera.mouseMoved(xDiff, yDiff);
 				// reset position back to original
-				GLFW.glfwSetCursorPos(window, x[0], y[0]);
+				GLFW.glfwSetCursorPos(window, width, height);
 			}
 		});
 
 		// setup callback for scrolling
 		// all scripts that implement scroll will be updated with this callback
+		GLFW.glfwSetScrollCallback(window, (window, xOffset, yOffset) -> {
+			for (int i = 0; i < Launch.world.getNumScripts(); i++) {
+				Launch.world.getScript(i).scrolled(xOffset, yOffset);
+			}
+		});
 
 		// make the context
 		// this enables us to use opengl (because with the context we can use the opengl
@@ -221,7 +224,12 @@ public class Window {
 		// just because it is affected doesn't mean we can use it just yet (with the
 		// capabilities call, we can though)
 		capabilities = GL.createCapabilities();
-
+		
+		
+		//enable alpha testing
+		GL11.glEnable(GL11.GL_BLEND);
+		GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+		
 		// set the background color to be black
 		// this is also known as clear color
 		// also the first use of a opengl library call
@@ -234,6 +242,22 @@ public class Window {
 
 		// enable video sync for better video results (at the cost of fps)
 		GLFW.glfwSwapInterval(1);
+
+		// free type setup
+		library = MemoryUtil.memAllocPointer(1);
+		int error = FreeType.FT_Init_FreeType(library);
+		if (error != 0) {
+			System.err.println("Could not initialize FreeType");
+			cleanup();
+			System.exit(0);
+		}
+		
+		//init ui
+		ui.UIInit.init();
+		
+		pauseChange();
+		
+		am = new AudioManager();
 	}
 
 	// this method represents the initialization of the camera
@@ -256,6 +280,22 @@ public class Window {
 		});
 
 	}
+	
+	private static GLFWImage.Buffer loadIcons(String path) {
+        //load icon using STB
+		Image image = Util.readImage(path, false);
+
+        //create GLFWImage object
+        GLFWImage icon = GLFWImage.create();
+        icon.set(image.width, image.height, image.buffer);
+
+        //create GLFWImage.Buffer and add icon to it
+        GLFWImage.Buffer icons = new Buffer(MemoryUtil.memAlloc(image.buffer.capacity()));
+        icons.put(icon);
+        icons.flip();
+
+        return icons;
+    }
 
 	// getter for camera
 	public Camera getCamera() {
@@ -308,6 +348,36 @@ public class Window {
 	public boolean isPaused() {
 		return paused;
 	}
+	
+	public void pause() {
+		paused = true;
+		pauseChange();
+		am.pauseAllMonoSources();
+	}
+	
+	public void unpause() {
+		paused = false;
+		pauseChange();
+		am.playAllMonoSources();
+	}
+	
+	private void pauseChange() {
+		if (paused) {
+			// start the paused timer
+			Launch.game.startPause();
+			// enable mouse movement
+			GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
+			// set the cursor to its position
+			GLFW.glfwSetCursorPos(window, width / 2, height / 2);
+		} else {
+			// stop the pause timer
+			Launch.game.stopPause();
+			// set the cursor to the position
+			GLFW.glfwSetCursorPos(window, width / 2, height / 2);
+			// re disable the mouse movement
+			GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
+		}
+	}
 
 	public boolean getLMB() {
 		return GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_1) == GLFW.GLFW_PRESS;
@@ -331,5 +401,74 @@ public class Window {
 
 	public boolean getInput(int keycode) {
 		return GLFW.glfwGetKey(window, keycode) == GLFW.GLFW_PRESS;
+	}
+
+	public long getWindow() {
+		return window;
+	}
+
+	// pixel to window coordinate transformation
+	public Vector2f pixelToWindow(int x, int y, int width, int height) {
+		float X = 2 * (float) x / (float) width;
+		float Y = 2 * (float) y / (float) height;
+
+		return new Vector2f(X - 2, 2 - Y);
+	}
+
+	// same as above but vector2f format
+	public Vector2f pixelToWindow(Vector2f vector, int width, int height) {
+		float X = 2 * vector.x / (float) width;
+		float Y = 2 * vector.y / (float) height;
+
+		return new Vector2f(X - 1, 1 - Y);
+	}
+
+	// window to pixel coordinate transformation
+	public Vector2f windowToPixel(float x, float y, int width, int height) {
+		float X = x + 1;
+		X *= (float) width / 2;
+
+		float Y = 1 - y;
+		Y *= height / 2;
+
+		// round here to get rid of any floating point error
+		return new Vector2f(Math.round(X), Math.round(Y));
+	}
+
+	// same as above but vector2f format
+	public Vector2f windowToPixel(Vector2f vector, int width, int height) {
+		float X = vector.x + 1;
+		X *= (float) width / 2;
+
+		float Y = 1 - vector.y;
+		Y *= height / 2;
+
+		return new Vector2f(Math.round(X), Math.round(Y));
+	}
+
+	public List<ArrayList<Label>> getUI() {
+		return UI;
+	}
+
+	public void addLabel(Label l) {
+		if (UI.isEmpty() || l.getDepth() >= UI.size()) {
+			for(int i =0; i< l.getDepth() - UI.size(); i++) {
+				UI.add(new ArrayList<Label>());
+			}
+			ArrayList<Label> finalLayer = new ArrayList<Label>();
+			finalLayer.add(l);
+			UI.add(finalLayer);
+		}else if(l.getDepth() < UI.size()) {
+			UI.get(l.getDepth()).add(l);
+			
+		}
+	}
+	
+	public void clearUI() {
+		UI = new ArrayList<ArrayList<Label>>();
+	}
+	
+	public void closeWindow() {
+		GLFW.glfwSetWindowShouldClose(window, true);
 	}
 }

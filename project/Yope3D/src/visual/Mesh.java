@@ -6,11 +6,13 @@ import java.nio.IntBuffer;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
-import org.joml.Vector4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.system.MemoryUtil;
+
+import physics.CSphere;
+import physics.Hull;
 
 //this class encapsulates the data of a mesh and its associated functionality
 public class Mesh {
@@ -34,52 +36,36 @@ public class Mesh {
 	private int vertexCount;
 	// represents whether or not this mesh is loaded or not
 	private boolean loaded;
-	//string variable for the filepath of the texture
+	// string variable for the filepath of the texture
 	private String texture;
-	//position variable
-	private Vector3f position;
-	//velocity
-	private Vector3f velocity;
-	//rotation variable
-	private Vector3f rotation;
-	
-	//angular velocity varibale
-	private Vector3f angularVelocity;
-	//scale variable
-	//indicates how to scale the mesh
+	// scale variable
+	// indicates how to scale the mesh
 	private float scale;
-	//indicates the color of the mesh if not textured
+	// indicates the color of the mesh if not textured
 	private Vector3f color;
-	//a flag for whether or not to be drawn
-	//debug mostly
+	// a flag for whether or not to be drawn
+	// debug mostly
 	private boolean drawn;
-	
-	//variable that holds the extents of this mesh
-	private Vector4f extent;
-	
-	//matrix
-	private Matrix4f modelMat;
-	
+
 	private int state;
+	
+	//physics hull
+	private Hull hull;
 
 	// constructor
 	public Mesh(float[] vertices, int[] indices) {
-		//set values
+		// set values
 		this.vertices = vertices;
 		loaded = false;
 		this.indices = indices;
-		//since the default model mat has nothing, it is simply the identity
-		position = new Vector3f();
-		rotation = new Vector3f();
-		velocity = new Vector3f();
-		angularVelocity = new Vector3f();
-		//initialize scale to 1
-		scale =1.0f;
-		//initialize color to null to indicate textured
+		// initialize scale to 1
+		scale = 1.0f;
+		// initialize color to null to indicate textured
 		color = null;
 		drawn = true;
-		//set extent to null to default to not specifying each mesh as not box
-		extent = null;
+		
+		//init a hull (sphere of rad 1)
+		hull = new CSphere(1.0f, 1.0f, new Vector3f(0,0,0), new Vector3f(0,0,0), new Vector3f(0,0,0), new Vector3f(0,0,0));
 	}
 
 	// loads a mesh, using index based rendering
@@ -146,52 +132,33 @@ public class Mesh {
 
 		// set the vertex count to be the length of the indices
 		vertexCount = indices.length;
-
-		// enable the depth test
-		// needed for culling faces that are behind other faces
-		GL11.glEnable(GL11.GL_DEPTH_TEST);
+		
 		// set loaded to true to indicate that this mesh has been loaded
 		loaded = true;
 
 		// load the texture
 		Textures.loadTexture(texture);
 	}
-	
-	//this method sets the filepath for the texture
+
+	public static Mesh cube() {
+		float[] nvertices = { -1.0f, 1.0f, 1.0f, -1.0f, -0.0f, -0.0f, 0.625f, 0.0f, -1.0f, -1.0f, -1.0f, -0.8944272f,
+				-0.0f, -0.4472136f, 0.375f, 0.25f, -1.0f, -1.0f, 1.0f, -1.0f, -0.0f, -0.0f, 0.375f, 0.0f, -1.0f, 1.0f,
+				-1.0f, -0.4472136f, -0.0f, -0.8944272f, 0.625f, 0.25f, 1.0f, -1.0f, -1.0f, 0.33333334f, -0.6666667f,
+				-0.6666667f, 0.375f, 0.5f, 1.0f, 1.0f, -1.0f, 0.81649655f, 0.40824828f, -0.40824828f, 0.625f, 0.5f,
+				1.0f, -1.0f, 1.0f, 0.81649655f, -0.40824828f, 0.40824828f, 0.375f, 0.75f, 1.0f, 1.0f, 1.0f, 0.33333334f,
+				0.6666667f, 0.6666667f, 0.625f, 0.75f, -1.0f, -1.0f, 1.0f, -0.0f, -0.0f, 1.0f, 0.375f, 1.0f, -1.0f,
+				-1.0f, 1.0f, -0.0f, -1.0f, -0.0f, 0.125f, 0.75f, -1.0f, -1.0f, -1.0f, -0.0f, -1.0f, -0.0f, 0.125f, 0.5f,
+				-1.0f, 1.0f, -1.0f, -0.0f, 1.0f, -0.0f, 0.875f, 0.5f, -1.0f, 1.0f, 1.0f, -0.0f, -0.0f, 1.0f, 0.625f,
+				1.0f, -1.0f, 1.0f, 1.0f, -0.0f, 1.0f, -0.0f, 0.875f, 0.75f };
+		int[] nindices = { 0, 1, 2, 3, 4, 1, 5, 6, 4, 7, 8, 6, 4, 9, 10, 11, 7, 5, 0, 3, 1, 3, 5, 4, 5, 7, 6, 7, 12, 8,
+				4, 6, 9, 11, 13, 7, };
+		return new Mesh(nvertices, nindices);
+	}
+
+	// this method sets the filepath for the texture
 	public void setTexture(String path) {
 		texture = path;
 	}
-    
-    //this method returns the model matrix that this mesh has
-    public Matrix4f getMM() {
-    	modelMat = new Matrix4f();
-    	modelMat.translate(position)
-    	.rotate(rotation.x, new Vector3f(1,0,0))
-    	.rotate(rotation.y, new Vector3f(0,1,0))
-    	.rotate(rotation.z, new Vector3f(0,0,1))
-    	.scale(scale);
-    	return modelMat;
-    }
-    
-    //this method adds a translation (world) to the position
-    public void translate(Vector3f translation) {
-    	//set the initial position
-    	position.add(translation);
-    }
-    
-    //this method sets the position variable to a new one
-    public void setPosition(Vector3f n) {
-    	position = n;
-    }
-    
-    public void setPosition(float x, float y, float z) {
-    	setPosition(new Vector3f(x,y,z));
-    }
-    
-    //this method adds a rotation (world) to the rotation
-    public void rotate(Vector3f rotation) {
-    	this.rotation.add(rotation);
-    }
 
 	// returns whether or not this specific mesh is loaded or not
 	// important to not be repetitively loading the same mesh into memory
@@ -256,119 +223,58 @@ public class Mesh {
 	public String getTexture() {
 		return texture;
 	}
-	
-	// getter for the position of this mesh (as represented by the model matrix)
-	public Vector3f getPosition() {
-		return new Vector3f(position);
-	}
-	
-	//getter for velocity
-	public Vector3f getVelocity() {
-		return velocity;
-	}
-	
-	//setter for velocity
-	public void setVelocity(Vector3f n) {
-		velocity = n;
-	}
-	
-	public void setVelocity(float x, float y, float z) {
-		setVelocity(new Vector3f(x,y,z));
-	}
-	
-	//updater for velocity
-	public void addVelocity(Vector3f n) {
-		velocity.add(n);
-	}
-	
-	//getter for scale
+
+	// getter for scale
 	public float getScale() {
 		return scale;
 	}
-	
-	//setter for scale
+
+	// setter for scale
 	public void setScale(float n) {
 		scale = n;
 	}
-	//getter for color
+
+	// getter for color
 	public Vector3f getColor() {
 		return color;
 	}
-	
-	//using this method indicates that the mesh is not to be textured and to be colored using texture coordinates (mainly debug)
+
+	// using this method indicates that the mesh is not to be textured and to be
+	// colored using texture coordinates (mainly debug)
 	public void setColor(float r, float g, float b) {
-		this.color = new Vector3f(r,g,b);
+		this.color = new Vector3f(r, g, b);
 	}
-	
-	//getter and setter for drawn
+
+	// getter and setter for drawn
 	public boolean draw() {
 		return drawn;
 	}
-	
+
 	public void setDraw(boolean draw) {
 		this.drawn = draw;
 	}
-	
-	public Vector3f getRotation() {
-		return rotation;
-	}
-	
-	public void setRotation(Vector3f n) {
-		rotation = n;
-	}
-	
+
 	public void setState(int s) {
 		state = s;
 	}
-	
+
 	public int getState() {
 		return state;
 	}
 	
-	//gets the extents of this mesh (max vector - min vector) for bounding box physics
-	public void calcExtent(float mass) {
-		Vector3f max = new Vector3f();
-		Vector3f min = new Vector3f();
-		
-		for(int i =0 ; i< vertices.length/8; i++) {
-			float x = vertices[i*8 + 0];
-			float y = vertices[i*8 + 1];
-			float z = vertices[i*8 + 2];
-			
-			x *= scale;
-			y *= scale;
-			z *= scale;
-			
-			if(x < min.x) min.x = x;
-			if(y < min.y) min.y = y;
-			if(z < min.z) min.z = z;
-			
-			if(x > max.x) max.x = x;
-			if(y > max.y) max.y = y;
-			if(z > max.z) max.z = z;
-		}
-		
-		max.sub(min);
-		extent = new Vector4f(max.x, max.y, max.z, mass);
-	}
-	
-	public Vector4f getExtent() {
-		return extent;
+	public Matrix4f getMM() {
+		return hull.getModelMatrix().scale(scale);
 	}
 	
 	public Matrix3f getNormalMatrix() {
-		return getMM().get3x3(new Matrix3f()).invert().transpose();
+		return hull.genTransform().transpose().invert();
 	}
 	
-	public Vector3f getAngularVelocity() {
-		return new Vector3f(angularVelocity);
+	public Hull getHull() {
+		return hull;
 	}
 	
-	public void setAngularVelocity(Vector3f n) {
-		angularVelocity = n;
-	}
-	
-	public void setMM(Matrix4f n) {
-		modelMat = n;
+	public void redefineHull(Hull n) {
+		hull = n;
 	}
 }

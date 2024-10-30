@@ -3,8 +3,6 @@ package visual;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
-import visual.Util.STATES;
-
 public class Vector extends Mesh{
 	Vector3f up;
 	Vector3f forward;
@@ -17,7 +15,7 @@ public class Vector extends Mesh{
 	@Override
 	public Matrix4f getMM() {
 		Matrix4f transform = new Matrix4f();
-		transform.translate(super.getPosition());
+		transform.translate(super.getHull().getPosition());
 		transform.m00(up.x);
 		transform.m01(up.y);
 		transform.m02(up.z);
@@ -50,13 +48,6 @@ public class Vector extends Mesh{
 		up.normalize();
 		
 		Vector vector = new Vector(v.vertices(), v.indices());
-		
-		vector.loadMesh();
-		vector.setPosition(0.0f, 1.0f, 0.0f);
-		vector.setColor(1.0f, 0.0f, 1.0f);
-		vector.setState(STATES.SOLID_COLOR);
-		Launch.world.addMesh(vector);
-		
 		
 		vector.up = up;
 		vector.right = right;

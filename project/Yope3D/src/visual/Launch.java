@@ -30,4 +30,8 @@ public class Launch {
 		//start the loop
 		game.start();
 	}
+	
+	public static void main(String[] args) {
+		launch();
+	}
 }

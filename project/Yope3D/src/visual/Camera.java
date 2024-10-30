@@ -27,7 +27,7 @@ public class Camera {
 	// WARNING: REQUIRES OPENGL CONTEXT TO ALREADY HAVE BEEN CREATED
 	public Camera(int width, int height) {
 		// set fov to constant
-		fov = (float) Math.toRadians(60);
+		fov = (float) Math.toRadians(90);
 		// port over width and height
 		this.windowWidth = width;
 		this.windowHeight = height;
@@ -48,11 +48,6 @@ public class Camera {
 
 		// initialize it to 2
 		moveSpeed = 2.0f;
-	}
-
-	// getter for fov
-	public float getFov() {
-		return fov;
 	}
 
 	// this method resends the projection matrix after a change in window width or
@@ -168,5 +163,22 @@ public class Camera {
 
 	public void addPosition(Vector3f other) {
 		position.add(other);
+	}
+	
+	public void setRotation(Vector3f rot) {
+		rotation = rot;
+	}
+	
+	public void addRotation(Vector3f rot) {
+		rotation.add(rot);
+	}
+	
+	public float getFOV() {
+		return fov;
+	}
+	
+	public void setFOV(float n) {
+		fov = n;
+		Launch.renderer.sendMat4(Util.projectionMatrix, Util.genProjectionMatrix(fov, (float) windowWidth/ (float) windowHeight), false);
 	}
 }
