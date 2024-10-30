@@ -30,14 +30,6 @@
 	</dependency>
 	<dependency>
 		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-assimp</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-bgfx</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
 		<artifactId>lwjgl-cuda</artifactId>
 	</dependency>
 	<dependency>
@@ -58,10 +50,6 @@
 	</dependency>
 	<dependency>
 		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-harfbuzz</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
 		<artifactId>lwjgl-hwloc</artifactId>
 	</dependency>
 	<dependency>
@@ -71,10 +59,6 @@
 	<dependency>
 		<groupId>org.lwjgl</groupId>
 		<artifactId>lwjgl-jemalloc</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-ktx</artifactId>
 	</dependency>
 	<dependency>
 		<groupId>org.lwjgl</groupId>
@@ -94,23 +78,7 @@
 	</dependency>
 	<dependency>
 		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-meow</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-meshoptimizer</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-nanovg</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
 		<artifactId>lwjgl-nfd</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-nuklear</artifactId>
 	</dependency>
 	<dependency>
 		<groupId>org.lwjgl</groupId>
@@ -138,10 +106,6 @@
 	</dependency>
 	<dependency>
 		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-openxr</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
 		<artifactId>lwjgl-opus</artifactId>
 	</dependency>
 	<dependency>
@@ -178,49 +142,11 @@
 	</dependency>
 	<dependency>
 		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-tinyexr</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-tinyfd</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-tootle</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
 		<artifactId>lwjgl-vma</artifactId>
 	</dependency>
 	<dependency>
 		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-vulkan</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-xxhash</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-yoga</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-zstd</artifactId>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
 		<artifactId>lwjgl</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-assimp</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-bgfx</artifactId>
 		<classifier>${lwjgl.natives}</classifier>
 	</dependency>
 	<dependency>
@@ -235,22 +161,7 @@
 	</dependency>
 	<dependency>
 		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-harfbuzz</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-hwloc</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
 		<artifactId>lwjgl-jemalloc</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-ktx</artifactId>
 		<classifier>${lwjgl.natives}</classifier>
 	</dependency>
 	<dependency>
@@ -275,27 +186,7 @@
 	</dependency>
 	<dependency>
 		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-meow</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-meshoptimizer</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-nanovg</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
 		<artifactId>lwjgl-nfd</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-nuklear</artifactId>
 		<classifier>${lwjgl.natives}</classifier>
 	</dependency>
 	<dependency>
@@ -316,11 +207,6 @@
 	<dependency>
 		<groupId>org.lwjgl</groupId>
 		<artifactId>lwjgl-openvr</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-openxr</artifactId>
 		<classifier>${lwjgl.natives}</classifier>
 	</dependency>
 	<dependency>
@@ -366,41 +252,6 @@
 	<dependency>
 		<groupId>org.lwjgl</groupId>
 		<artifactId>lwjgl-stb</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-tinyexr</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-tinyfd</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-tootle</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-vma</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-xxhash</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-yoga</artifactId>
-		<classifier>${lwjgl.natives}</classifier>
-	</dependency>
-	<dependency>
-		<groupId>org.lwjgl</groupId>
-		<artifactId>lwjgl-zstd</artifactId>
 		<classifier>${lwjgl.natives}</classifier>
 	</dependency>
 		<dependency>

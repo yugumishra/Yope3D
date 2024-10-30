@@ -1,0 +1,335 @@
+GPU compute shader code
+/*
+	// this method is what runs the compute shader
+	public void compute(World world, int iterations) {
+		if (world.getDT() < 0.0000001f)
+			return;
+		if (GL20.glGetInteger(GL20.GL_CURRENT_PROGRAM) != cProg)
+			GL20.glUseProgram(cProg);
+		// send if collisions enabled
+
+		// first get the sphere data from the world
+		List<Float> data = new ArrayList<Float>();
+		// bbox data variable
+		List<Float> bboxData = new ArrayList<Float>();
+		// iterate through meshes
+		for (int i = 0; i < world.getNumMeshes(); i++) {
+			Mesh m = world.getMesh(i);
+			if(m.fixed()) continue;
+			// determine if sphere
+			if (m.getClass() == Sphere.class) {
+				// this a sphere and needs to be added
+				// cast to sphere
+				Sphere s = (Sphere) m;
+				// add the necessary data
+				Vector3f pos = s.getPosition();
+				Vector3f vel = s.getVelocity();
+				float radius = s.getRadius();
+				// position & radius (first vec4)
+				data.add(pos.x);
+				data.add(pos.y);
+				data.add(pos.z);
+				data.add(radius);
+				// velocity & mass (second vec4)
+				data.add(vel.x);
+				data.add(vel.y);
+				data.add(vel.z);
+				data.add(s.getMass());
+			} else if(m.getClass() != Spring.class){
+				// check if the extents exist
+				// if not then we don't add to the bounding box list
+				Vector4f extent = m.getExtent();
+				if (extent != null && m.fixed() == false) {
+					Matrix4f mm = new Matrix4f(m.getMM());
+					mm.m03(extent.x);
+					mm.m13(extent.y);
+					mm.m23(extent.z);
+					
+					float[] mat = new float[16];
+					mm.get(mat);
+					
+					for(int entry = 0; entry < 16; entry++) {
+						bboxData.add(mat[entry]);
+					}
+					
+					//add vel
+					Vector3f velocity = m.getVelocity();
+					bboxData.add(velocity.x);
+					bboxData.add(velocity.y);
+					bboxData.add(velocity.z);
+					bboxData.add(extent.w);
+					
+					Vector3f omega = m.getAngularVelocity();
+					bboxData.add(omega.x);
+					bboxData.add(omega.x);
+					bboxData.add(omega.x);
+					bboxData.add(1.0f);
+					
+				}
+			}
+		}
+		// calculate the number of spheres
+		int numSpheres = data.size() / 8;
+		int numBoxes = bboxData.size() / 24;
+		if (numSpheres == 0 && numBoxes == 0) {
+			return;
+		}
+
+		// now get the barrier data (for all possible barriers the spheres might collide
+		// with in the world)
+		float[] barrierData = new float[world.getNumBarriers() * 8];
+		for (int i = 0; i < world.getNumBarriers(); i++) {
+			Barrier b = world.getBarrier(i);
+			Vector3f position = b.getPosition();
+			Vector3f normal = b.getNormal();
+
+			barrierData[i * 8 + 0] = position.x;
+			barrierData[i * 8 + 1] = position.y;
+			barrierData[i * 8 + 2] = position.z;
+			// float of padding
+			barrierData[i * 8 + 3] = 0.0f;
+
+			barrierData[i * 8 + 4] = normal.x;
+			barrierData[i * 8 + 5] = normal.y;
+			barrierData[i * 8 + 6] = normal.z;
+			// float of padding
+			barrierData[i * 8 + 7] = 0.0f;
+		}
+
+		// create the buffer to hold the values
+		ByteBuffer buff = MemoryUtil.memAlloc(data.size() * Float.BYTES);
+
+		// create the barrier buffer to hold the barrier data
+		ByteBuffer barrierBuff = MemoryUtil.memAlloc(barrierData.length * Float.BYTES);
+
+		// create the bbox buffer to hold the bbox data
+		ByteBuffer bboxDataBuffer = MemoryUtil.memAlloc(bboxData.size() * Float.BYTES);
+
+		// add the values to the buffer
+		for (Float d : data) {
+			buff.putFloat(d);
+		}
+
+		// same for barrier data
+		for (Float d : barrierData) {
+			barrierBuff.putFloat(d);
+		}
+
+		// and bbox data
+		for (Float d : bboxData) {
+			bboxDataBuffer.putFloat(d);
+		}
+
+		// flip the buffer
+		// important in order to be able to be read
+		buff.flip();
+
+		// same for barrier buffer
+		barrierBuff.flip();
+
+		// same for bbox data buffer
+		bboxDataBuffer.flip();
+
+		// create the ssbo
+		int ssbo = GL43.glGenBuffers();
+
+		// bind to the ssbo
+		GL43.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, ssbo);
+
+		// buffer the data
+		GL43.glBufferData(GL43.GL_SHADER_STORAGE_BUFFER, buff, GL43.GL_DYNAMIC_DRAW);
+
+		// set the binding index
+		GL43.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 2, ssbo);
+
+		// unbind prior to barrier buffer operations
+		GL43.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, 0);
+
+		// same for barrier
+		int bssbo = GL43.glGenBuffers();
+		GL43.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, bssbo);
+		GL43.glBufferData(GL43.GL_SHADER_STORAGE_BUFFER, barrierBuff, GL43.GL_DYNAMIC_DRAW);
+		GL43.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 4, bssbo);
+
+		// same for bbox
+		int bboxSSBO = GL43.glGenBuffers();
+		GL43.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, bboxSSBO);
+		GL43.glBufferData(GL43.GL_SHADER_STORAGE_BUFFER, bboxDataBuffer, GL43.GL_DYNAMIC_DRAW);
+		GL43.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 6, bboxSSBO);
+
+		// send the number of iterations
+		GL20.glUniform1i(3, iterations);
+		// send the new number of spheres
+		GL20.glUniform1i(5, numSpheres);
+		// send the number of barriers
+		GL20.glUniform1i(7, barrierData.length / 8);
+		// send if collisions are enabled
+		GL20.glUniform1i(9, world.getCollisions());
+		// send the number of bounding boxes
+		GL20.glUniform1i(11, numBoxes);
+		// send the dt value
+		GL20.glUniform1f(1, world.getDT());
+
+		// now run the actual compute shader
+		GL43.glDispatchCompute(numSpheres + numBoxes, 1, 1);
+		GL43.glMemoryBarrier(GL43.GL_SHADER_STORAGE_BARRIER_BIT);
+
+		// now map the buffer back
+		// first bind to the data buffer
+		GL43.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, ssbo);
+		long bufferPointer = GL43.nglMapBuffer(GL43.GL_SHADER_STORAGE_BUFFER, GL43.GL_READ_ONLY);
+		// no need to map the barrier buffer because it is read only, nothing is written
+		// to the barrier buffer
+
+		// read the buffer to update the meshes
+		if (bufferPointer != 0) {
+			FloatBuffer floatBuffer = MemoryUtil.memFloatBuffer(bufferPointer, numSpheres * 8);
+			// access the data using the float buffer
+			// iterate through the world
+			for (int i = 0; i < world.getNumMeshes(); i++) {
+				Mesh m = world.getMesh(i);
+				// check if sphere instance
+				if (m.getClass() == Sphere.class) {
+					// this sphere needs to be updated
+					// get the positions
+					float x = floatBuffer.get();
+					float y = floatBuffer.get();
+					float z = floatBuffer.get();
+					// flush the radius (read only)
+					floatBuffer.get();
+					// the velocity
+					float vx = floatBuffer.get();
+					float vy = floatBuffer.get();
+					float vz = floatBuffer.get();
+					// flush the mass (read only)
+					float mass = floatBuffer.get();
+
+					if (mass == 0) {
+						world.removeMesh(m);
+					} else {
+						// update
+						m.setPosition(new Vector3f(x, y, z));
+						m.setVelocity(new Vector3f(vx, vy, vz));
+					}
+				}
+			}
+			// Unmap the buffer
+			GL43.glUnmapBuffer(GL43.GL_SHADER_STORAGE_BUFFER);
+
+			// unbind and delete the ssbo
+			GL43.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, 0);
+			GL43.glDeleteBuffers(ssbo);
+		} else if(numSpheres != 0){
+			// handle mapping failure
+			System.err.println("Failed to map buffer.");
+		}
+		
+		// same for bbox data
+		GL43.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, bboxSSBO);
+		long bboxPointer = GL43.nglMapBuffer(GL43.GL_SHADER_STORAGE_BUFFER, GL43.GL_READ_ONLY);
+		
+		// read the buffer to update the meshes
+		if (bboxPointer != 0) {
+			FloatBuffer floatBuffer = MemoryUtil.memFloatBuffer(bboxPointer, numBoxes * 24);
+			// access the data using the float buffer
+			// iterate through the world
+			for (int i = 0; i < world.getNumMeshes(); i++) {
+				Mesh m = world.getMesh(i);
+				// check if sphere instance
+				if(m.getClass() != Sphere.class) {
+					Vector4f extent = m.getExtent();
+					if(extent != null && m.fixed() == false) {
+						float[] matrix = new float[16];
+						
+						for(int entry = 0; entry < 16; entry++) {
+							matrix[entry] = floatBuffer.get();
+						}
+						
+						Matrix4f mm = new Matrix4f();
+						mm.set(matrix);
+						
+						m.setMM(mm);
+						
+						Vector3f position = new Vector3f(matrix[12], matrix[13], matrix[14]);
+						Vector3f velocity = new Vector3f(floatBuffer.get(), floatBuffer.get(), floatBuffer.get());
+						float mass = floatBuffer.get();
+						
+						Vector3f omega = new Vector3f(floatBuffer.get(), floatBuffer.get(), floatBuffer.get());
+						floatBuffer.get();
+						
+						if(mass < 0) System.out.println(mass);
+						
+						m.setPosition(position);
+						m.setVelocity(velocity);
+						m.setAngularVelocity(omega);
+					}
+					
+				}
+				
+			}
+			// Unmap the buffer
+			GL43.glUnmapBuffer(GL43.GL_SHADER_STORAGE_BUFFER);
+
+			// unbind and delete the ssbo
+			GL43.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, 0);
+			GL43.glDeleteBuffers(bboxSSBO);
+		} else if(numBoxes != 0) {
+			// handle mapping failure
+			System.err.println("Failed to map buffer.");
+		}
+
+		// unbind and delete the bssbo
+		GL43.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, 0);
+		GL43.glDeleteBuffers(bssbo);
+
+		// free the buffer
+		MemoryUtil.memFree(buff);
+		MemoryUtil.memFree(barrierBuff);
+		MemoryUtil.memFree(bboxDataBuffer);
+	}*/
+
+
+		// now create the shader program
+		// create shader object and read it
+		int cid = GL20.glCreateShader(GL43.GL_COMPUTE_SHADER);
+		String src = Util.readShader("Assets\\Shaders\\physicsStep.comp");
+
+		GL20.glShaderSource(cid, src);
+
+		// error check the shader
+		// compile shader
+		GL20.glCompileShader(cid);
+		// check if compiled
+		if (GL20.glGetShaderi(cid, GL20.GL_COMPILE_STATUS) == GL20.GL_FALSE) {
+			// shader failed to compile
+			// print error message and log
+			// then exit
+			System.err.println("Compute shader failed to compile, please try again.");
+			System.err.println(GL20.glGetShaderInfoLog(cid, 1000));
+			GL20.glDeleteShader(cid);
+			System.exit(0);
+		}
+
+		// create a shader cProg and link the 3 shaders together
+		cProg = GL20.glCreateProgram();
+		GL20.glAttachShader(cProg, cid);
+
+		// check for any link errors
+		GL20.glLinkProgram(cProg);
+		if (GL20.glGetProgrami(cProg, GL20.GL_LINK_STATUS) == GL20.GL_FALSE) {
+			// the cProg did not link
+			System.err.println("Shader cProg failed to link, please try again.");
+			System.err.println(GL20.glGetProgramInfoLog(cProg, 1000));
+			GL20.glDeleteProgram(cProg);
+			GL20.glDeleteShader(cid);
+			System.exit(0);
+		}
+
+		// now we can delete the shader objects since they are stored in the cProg
+		// object now
+		GL20.glDeleteShader(cid);
+
+		// first validate the cProg as fine
+		GL20.glValidateProgram(cProg);
+
+		GL20.glUseProgram(cProg);

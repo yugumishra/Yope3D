@@ -1,11 +1,14 @@
 package visual;
 
+import java.util.ArrayList;
+
+import org.lwjgl.glfw.GLFW;
+import org.lwjgl.opengl.GL11;
+
 import scripts.Script;
+import ui.Label;
 
 public class Loop {
-	// time of the creation of the loop
-	// will be used for time tracking (fps calculation)
-	private long startTime;
 	// window instance to update window
 	private Window window;
 	// world instance to access meshes
@@ -22,10 +25,8 @@ public class Loop {
 	private long lastTime;
 	// camera instance to represent camera information
 	private Camera camera;
-	// variable to hold the amount of time elapsed during the paused period
-	private long pausedTime;
 	// variable to hold the satrt time of the last pause
-	private long lastPause;
+	private float lastPause;
 	// variable to hold the time of the last frame
 	private long lastFrame;
 	// variable to hold the delta time for the most recent interval
@@ -37,15 +38,10 @@ public class Loop {
 
 	// constructor
 	public Loop(Window w, World world, Renderer renderer) {
-		// initialize times
-		startTime = System.currentTimeMillis();
-		lastTime = System.currentTimeMillis();
 		// port over references
 		this.window = w;
 		this.world = world;
 		this.renderer = renderer;
-		// initialize paused time to 0
-		pausedTime = 0;
 		// initialize last frame
 		lastFrame = System.currentTimeMillis();
 	}
@@ -93,9 +89,6 @@ public class Loop {
 				// once you work out the math, the fps is just 10^5 times the inverse in
 				// difference
 				fps = (100 * 1000) / timeDiff;
-
-				// we update the title (once every 1000 frame) to indicate FPS
-				window.setTitle(window.getTitle() + " FPS: " + (int) fps);
 			}
 			
 			// render the current state
@@ -111,9 +104,16 @@ public class Loop {
 		}
 		cleanup();
 	}
-	
+
 	// this method cleans up everything
 	public void cleanup() {
+		// cleanup the labels
+		for (ArrayList<Label> layer : Launch.window.getUI()) {
+			for (Label label : layer) {
+				label.cleanup();
+			}
+		}
+		Launch.window.am.cleanup();
 		window.cleanup();
 		renderer.cleanup();
 		world.cleanup();
@@ -126,13 +126,13 @@ public class Loop {
 		// on camera update
 		window.update();
 		if (window.isPaused() == false) {
-			
-			//then we run each scripts update method
-			for(int i =0; i< world.getNumScripts(); i++) {
+
+			// then we run each scripts update method
+			for (int i = 0; i < world.getNumScripts(); i++) {
 				Script s = world.getScript(i);
 				s.update();
 			}
-			
+
 		}
 	}
 
@@ -147,7 +147,8 @@ public class Loop {
 		// changes
 		// clear the screen before drawing again
 		renderer.clear();
-
+		//enable depth testing
+		GL11.glEnable(GL11.GL_DEPTH_TEST);
 		// iterate over each mesh
 		for (int i = 0; i < world.getNumMeshes(); i++) {
 			// grab the specific mesh
@@ -155,17 +156,23 @@ public class Loop {
 			// render it
 			renderer.render(m);
 		}
+		
+		//disable depth testing
+		GL11.glDisable(GL11.GL_DEPTH_TEST);
+		// draw the ui
+		for (ArrayList<Label> layer : Launch.window.getUI()) {
+			for (Label label : layer) {
+				if (label.draw()) {
+					label.render();
+				}
+				label.update();
+			}
+		}
 	}
 
 	// gets the time from the start in seconds
 	public float getTime() {
-		// get time difference
-		long diff = System.currentTimeMillis() - startTime;
-		// subtract paused time to keep the time accurate
-		diff -= pausedTime;
-		// convert to float and change to seconds
-		float difference = (float) diff / 1000.0f;
-		return difference;
+		return (float) GLFW.glfwGetTime();
 	}
 
 	// delta time method
@@ -193,43 +200,41 @@ public class Loop {
 	// methods to start and stop paused time
 	// used by window class to pause the time
 	public void startPause() {
-		lastPause = System.currentTimeMillis();
+		lastPause = (float) GLFW.glfwGetTime();
 	}
 
 	public void stopPause() {
-		long time = System.currentTimeMillis() - lastPause;
-		pausedTime = pausedTime + time;
-		lastPause = 0;
+		GLFW.glfwSetTime(lastPause);
 	}
-	
+
 	public int frames() {
 		return frames;
 	}
-	
+
 	public Camera getCamera() {
 		return camera;
 	}
-	
+
 	public boolean getLMB() {
 		return window.getLMB();
 	}
-	
+
 	public boolean getRMB() {
 		return window.getRMB();
 	}
-	
+
 	public boolean getForwardMB() {
 		return window.getForwardMB();
 	}
-	
+
 	public boolean getBackwardMB() {
 		return window.getBackwardMB();
 	}
-	
+
 	public boolean getMMB() {
 		return window.getMMB();
 	}
-	
+
 	public boolean getKey(int key) {
 		return window.getInput(key);
 	}

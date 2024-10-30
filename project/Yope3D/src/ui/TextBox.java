@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.joml.Matrix3f;
+import org.joml.Matrix4f;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
 import org.lwjgl.opengl.GL11;
@@ -13,8 +14,9 @@ import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.system.MemoryUtil;
 
-import main.Main;
 import ui.TextAtlas.Glyph;
+import visual.Launch;
+import visual.Util;
 
 public class TextBox extends Label {
 	protected String message;
@@ -27,6 +29,7 @@ public class TextBox extends Label {
 	protected float totalWidth;
 	protected float totalHeight;
 	TextAtlas atlas;
+	boolean draw;
 
 	private Vector3f textColor;
 
@@ -34,7 +37,7 @@ public class TextBox extends Label {
 	int vbo;
 	int ebo;
 
-	public TextBox(Background parent, String message, int size, int text_config, TextAtlas atlas) {
+	public TextBox(Background parent, String message, int size, int text_config, TextAtlas atlas, boolean draw) {
 		this.atlas = atlas;
 		this.parent = parent;
 		this.text_config = text_config;
@@ -46,14 +49,16 @@ public class TextBox extends Label {
 		load(parent.depth, text_config);
 
 		textColor = new Vector3f(1.0f, 1.0f, 1.0f);
+		
+		this.draw = draw;
 
 		// scripting init
 		init();
 	}
 
 	public void generateTextMesh(int text_config) {
-		int w = Main.window.getWidth();
-		int h = Main.window.getHeight();
+		int w = Launch.window.getWidth();
+		int h = Launch.window.getHeight();
 
 		List<Glyph> characters = new ArrayList<Glyph>();
 		Vector2f origin = new Vector2f(-1.0f, 1.0f);
@@ -73,7 +78,6 @@ public class TextBox extends Label {
 				continue;
 			}
 			characters.add(atlas.glyphMap.get(c));
-
 			if (characters.get(counter).rows > baseline) {
 				baseline = characters.get(counter).rows;
 			}
@@ -83,8 +87,9 @@ public class TextBox extends Label {
 
 		// normalize
 		baseline /= (float) h;
-
-		text = new float[16 * characters.size()];
+		
+		int vertSize = Background.FLOATS_PER_VERTEX * 4;
+		text = new float[vertSize * characters.size()];
 		indices = new int[6 * characters.size()];
 
 		float x = 0.0f;
@@ -164,25 +169,25 @@ public class TextBox extends Label {
 			x += width + charIncrement;
 			totalWidth += width + charIncrement;
 
-			text[counter * 16 + 0] = xMin;
-			text[counter * 16 + 1] = yMin;
-			text[counter * 16 + 2] = txMin;
-			text[counter * 16 + 3] = tyMin;
+			text[counter * vertSize + 0] = xMin;
+			text[counter * vertSize + 1] = yMin;
+			text[counter * vertSize + vertSize/4 - 2] = txMin;
+			text[counter * vertSize + vertSize/4 - 1] = tyMin;
 
-			text[counter * 16 + 4] = xMax;
-			text[counter * 16 + 5] = yMin;
-			text[counter * 16 + 6] = txMax;
-			text[counter * 16 + 7] = tyMin;
+			text[counter * vertSize + vertSize/4] = xMax;
+			text[counter * vertSize + vertSize/4 + 1] = yMin;
+			text[counter * vertSize + vertSize/2 - 2] = txMax;
+			text[counter * vertSize + vertSize/2 - 1] = tyMin;
 
-			text[counter * 16 + 8] = xMax;
-			text[counter * 16 + 9] = yMax;
-			text[counter * 16 + 10] = txMax;
-			text[counter * 16 + 11] = tyMax;
+			text[counter * vertSize + vertSize/2] = xMax;
+			text[counter * vertSize + vertSize/2 + 1] = yMax;
+			text[counter * vertSize + 3*vertSize/4 - 2] = txMax;
+			text[counter * vertSize + 3*vertSize/4 - 1] = tyMax;
 
-			text[counter * 16 + 12] = xMin;
-			text[counter * 16 + 13] = yMax;
-			text[counter * 16 + 14] = txMin;
-			text[counter * 16 + 15] = tyMax;
+			text[counter * vertSize + 3*vertSize/4] = xMin;
+			text[counter * vertSize + 3*vertSize/4 + 1] = yMax;
+			text[counter * vertSize + vertSize - 2] = txMin;
+			text[counter * vertSize + vertSize - 1] = tyMax;
 
 			indices[counter * 6 + 0] = 0 + 4 * counter;
 			indices[counter * 6 + 1] = 1 + 4 * counter;
@@ -199,7 +204,7 @@ public class TextBox extends Label {
 			objMatrix.m20(origin.x);
 			objMatrix.m21(origin.y);
 			
-		} else if (text_config == TEXT_CONFIGURATIONS.CENTERED && totalHeight > boundary.y) {
+		} else if (text_config == TEXT_CONFIGURATIONS.CENTERED&& totalHeight > boundary.y) {
 			if (totalWidth < boundary.x) {
 				
 				totalHeight += maxHeight;
@@ -230,7 +235,6 @@ public class TextBox extends Label {
 			
 		} else if (text_config == TEXT_CONFIGURATIONS.CENTERED && totalHeight > boundary.y) {
 			if (totalWidth < boundary.x) {
-				System.out.println(boundary);
 				objMatrix.m20(origin.x + boundary.x/2 - totalWidth/2);
 				objMatrix.m21(origin.y + boundary.y/2 + totalHeight/2);
 			} else {
@@ -240,6 +244,8 @@ public class TextBox extends Label {
 		}
 		
 		objMatrix.m22(1.0f);
+		
+		
 	}
 
 	private void load(int level, int text_config) {
@@ -271,8 +277,9 @@ public class TextBox extends Label {
 		GL20.glBufferData(GL20.GL_ELEMENT_ARRAY_BUFFER, indices, GL20.GL_STATIC_DRAW);
 
 		// layout the buffer
-		GL20.glVertexAttribPointer(0, 2, GL20.GL_FLOAT, false, (2 + 2) * Float.BYTES, 0);
-		GL20.glVertexAttribPointer(1, 2, GL20.GL_FLOAT, false, (2 + 2) * Float.BYTES, 2 * Float.BYTES);
+		GL20.glVertexAttribPointer(0, 3, GL20.GL_FLOAT, false, (Background.FLOATS_PER_VERTEX) * Float.BYTES, 0);
+		GL20.glVertexAttribPointer(1, 3, GL20.GL_FLOAT, false, (Background.FLOATS_PER_VERTEX) * Float.BYTES, 3 * Float.BYTES);
+		GL20.glVertexAttribPointer(2, 2, GL11.GL_FLOAT, true, (Background.FLOATS_PER_VERTEX) * Float.BYTES, (6) * Float.BYTES);
 
 		// unbind and free
 		GL30.glBindVertexArray(0);
@@ -280,6 +287,8 @@ public class TextBox extends Label {
 		GL20.glBindBuffer(GL20.GL_ELEMENT_ARRAY_BUFFER, 0);
 		MemoryUtil.memFree(vertices);
 		MemoryUtil.memFree(indices);
+		
+		depth = level+1;
 	}
 
 	public void reload() {
@@ -309,9 +318,9 @@ public class TextBox extends Label {
 		GL20.glBufferData(GL20.GL_ELEMENT_ARRAY_BUFFER, indices, GL20.GL_STATIC_DRAW);
 
 		// layout the buffer
-		GL20.glVertexAttribPointer(0, 2, GL20.GL_FLOAT, false, (2 + 2) * Float.BYTES, 0);
-		GL20.glVertexAttribPointer(1, 2, GL20.GL_FLOAT, false, (2 + 2) * Float.BYTES, 2 * Float.BYTES);
-
+		GL20.glVertexAttribPointer(0, 3, GL20.GL_FLOAT, false, (Background.FLOATS_PER_VERTEX) * Float.BYTES, 0);
+		GL20.glVertexAttribPointer(1, 3, GL20.GL_FLOAT, false, (Background.FLOATS_PER_VERTEX) * Float.BYTES, 3 * Float.BYTES);
+		GL20.glVertexAttribPointer(2, 2, GL20.GL_FLOAT, false, (Background.FLOATS_PER_VERTEX) * Float.BYTES, 6 * Float.BYTES);
 		// unbind and free
 		GL30.glBindVertexArray(0);
 		GL20.glBindBuffer(GL20.GL_ARRAY_BUFFER, 0);
@@ -329,7 +338,7 @@ public class TextBox extends Label {
 
 	@Override
 	public int getDepth() {
-		return super.depth;
+		return depth;
 	}
 
 	@Override
@@ -340,21 +349,22 @@ public class TextBox extends Label {
 		// enable the formatting
 		GL30.glEnableVertexAttribArray(0);
 		GL30.glEnableVertexAttribArray(1);
+		GL30.glEnableVertexAttribArray(2);
 
 		// send uniforms
-		GL20.glUniform1i(Main.window.getUniform("state"), getTextured());
-		GL20.glUniform3f(Main.window.getUniform("col"), textColor.x, textColor.y, textColor.z);
+		Launch.renderer.send1i(Util.state, getTextured());
+		Launch.renderer.sendVec3(Util.col, new org.joml.Vector3f(textColor));
 		
-		FloatBuffer buffer = MemoryUtil.memAllocFloat(9);
-		objMatrix.get(buffer);
-		GL20.glUniformMatrix3fv(Main.window.getUniform("objMatrix"), false, buffer);
+		Matrix4f transform = new Matrix4f();
+		transform.set3x3(new Matrix3f(objMatrix));
+		Launch.renderer.sendMat4(Util.modelMatrix, transform, false);
 		
-
+		
 		// bind to ebo
 		GL20.glBindBuffer(GL20.GL_ELEMENT_ARRAY_BUFFER, ebo);
 
 		// send the texture unit
-		GL20.glUniform1i(Main.window.getUniform("image"), 0);
+		GL20.glUniform1i(Launch.renderer.getUniform("image"), 0);
 
 		// bind to texture unit and texture
 		GL20.glActiveTexture(GL20.GL_TEXTURE0);
@@ -366,12 +376,11 @@ public class TextBox extends Label {
 
 		// unbind and disable
 		GL20.glBindBuffer(GL20.GL_ELEMENT_ARRAY_BUFFER, 0);
-
+		
+		GL30.glDisableVertexAttribArray(2);
 		GL30.glDisableVertexAttribArray(1);
 		GL20.glDisableVertexAttribArray(0);
 		GL30.glBindVertexArray(0);
-		
-		MemoryUtil.memFree(buffer);
 	}
 
 	public void updateColor(float r, float g, float b) {
@@ -393,11 +402,15 @@ public class TextBox extends Label {
 	}
 
 	public boolean draw() {
-		return parent.visibility;
+		return draw;
+	}
+	
+	public void setVisibility(boolean n) {
+		draw = n;
 	}
 	
 	public int getTextured() {
-		return 1;
+		return Util.STATES.TEXT;
 	}
 
 	public static class TEXT_CONFIGURATIONS {

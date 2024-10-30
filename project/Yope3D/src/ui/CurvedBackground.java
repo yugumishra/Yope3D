@@ -3,7 +3,7 @@ package ui;
 import java.util.ArrayList;
 import java.util.List;
 
-import main.Main;
+import visual.*;
 
 public class CurvedBackground extends Background {
 	
@@ -15,28 +15,56 @@ public class CurvedBackground extends Background {
 
 	@Override
 	public void redefineMesh() {
-		float aspectRatio = (float) Main.window.getWidth() / (float) Main.window.getHeight();
+		float aspectRatio = (float) Launch.window.getWidth() / (float) Launch.window.getHeight();
 		int subdiv = 64;
 		List<Float> vertices = new ArrayList<Float>();
 		List<Integer> indices = new ArrayList<Integer>();
 
 		vertices.add(min.x);
 		vertices.add(min.y);
+		if(FLOATS_PER_VERTEX == 8) {
+			// add filler floats
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+		}
 		vertices.add(0.0f);
 		vertices.add(0.0f);
 
 		vertices.add(max.x);
 		vertices.add(min.y);
+		if(FLOATS_PER_VERTEX == 8) {
+			// add filler floats
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+		}
 		vertices.add(0.0f);
 		vertices.add(0.0f);
 
 		vertices.add(max.x);
 		vertices.add(max.y);
+		if(FLOATS_PER_VERTEX == 8) {
+			// add filler floats
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+		}
 		vertices.add(0.0f);
 		vertices.add(0.0f);
 
 		vertices.add(min.x);
 		vertices.add(max.y);
+		if(FLOATS_PER_VERTEX == 8) {
+			// add filler floats
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+		}
 		vertices.add(0.0f);
 		vertices.add(0.0f);
 
@@ -54,12 +82,26 @@ public class CurvedBackground extends Background {
 		// center 1
 		vertices.add(min.x);
 		vertices.add(min.y - radius);
+		if(FLOATS_PER_VERTEX == 8) {
+			// add filler floats
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+		}
 		vertices.add(0.0f);
 		vertices.add(0.0f);
 
 		// center 2
 		vertices.add(max.x);
 		vertices.add(min.y - radius);
+		if(FLOATS_PER_VERTEX == 8) {
+			// add filler floats
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+			vertices.add(0.0f);
+		}
 		vertices.add(0.0f);
 		vertices.add(0.0f);
 
@@ -86,6 +128,13 @@ public class CurvedBackground extends Background {
 
 			vertices.add(c);
 			vertices.add(s);
+			if(FLOATS_PER_VERTEX == 8) {
+				// add filler floats
+				vertices.add(0.0f);
+				vertices.add(0.0f);
+				vertices.add(0.0f);
+				vertices.add(0.0f);
+			}
 			vertices.add(0.0f);
 			vertices.add(0.0f);
 
@@ -104,7 +153,7 @@ public class CurvedBackground extends Background {
 		int[] newIndices = new int[indices.size()];
 		for (int i = 0; i < indices.size(); i++)
 			newIndices[i] = indices.get(i);
-
+		
 		super.mesh = newMesh;
 		super.indices = newIndices;
 	}

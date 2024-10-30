@@ -19,7 +19,7 @@ import org.lwjgl.util.freetype.FT_Bitmap;
 import org.lwjgl.util.freetype.FT_Face;
 import org.lwjgl.util.freetype.FreeType;
 
-import main.Main;
+import visual.Launch;
 import visual.Textures;
 import visual.Util;
 
@@ -119,25 +119,25 @@ public class TextAtlas {
 				os.close();
 			} catch (FileNotFoundException e) {
 				System.err.println("The font file (" + fontFilePath + ") was not found");
-				Main.window.cleanup();
+				Launch.window.cleanup();
 				System.exit(0);
 			} catch (IOException e) {
 				System.err.println("something went wrong reading the font file");
 				System.err.println(e.getMessage());
-				Main.window.cleanup();
+				Launch.window.cleanup();
 				System.exit(0);
 			}
 		}
 
 		// create the font face
 		PointerBuffer pointerToFace = MemoryUtil.memAllocPointer(1);
-		int error = FreeType.FT_New_Memory_Face(Main.window.library.get(), data, 0, pointerToFace);
-		Main.window.library.position(0);
+		int error = FreeType.FT_New_Memory_Face(Launch.window.library.get(), data, 0, pointerToFace);
+		Launch.window.library.position(0);
 
 		if (error != 0) {
 			System.err.println("Font file could not be processed");
 			System.err.println(error);
-			Main.window.cleanup();
+			Launch.window.cleanup();
 			System.exit(0);
 		}
 
@@ -149,7 +149,7 @@ public class TextAtlas {
 		if (error != 0) {
 			System.err.println("Fotn size could not be set");
 			System.err.println(error);
-			Main.window.cleanup();
+			Launch.window.cleanup();
 			System.exit(0);
 		}
 
@@ -167,13 +167,14 @@ public class TextAtlas {
 			FreeType.FT_Load_Char(face, Character.codePointAt(msg, i), FreeType.FT_LOAD_RENDER);
 
 			FT_Bitmap bm = face.glyph().bitmap();
-
+			
 			buffers[i] = MemoryUtil.memAlloc(bm.rows() * bm.pitch());
 			buffers[i].put(bm.buffer(bm.rows() * bm.pitch()));
 			buffers[i].position(0);
 
 			if (bm.width() + x > ATLAS_SIZE) {
-				y += maxHeight;
+				//add one pixel of spacing for insurance
+				y += maxHeight + 1;
 				x = 0;
 				maxHeight = 0;
 			}
@@ -190,7 +191,8 @@ public class TextAtlas {
 					indices[yi][xi] = i;
 				}
 			}
-			x += g.width;
+			//add one pixel of spacing for insurance
+			x += g.width + 1;
 		}
 
 		ByteBuffer total = MemoryUtil.memAlloc(ATLAS_SIZE * ATLAS_SIZE);
@@ -200,7 +202,12 @@ public class TextAtlas {
 			for (int xi = 0; xi < ATLAS_SIZE; xi++) {
 				int index = indices[yi][xi];
 				if (index != -1) {
-					total.put(buffers[index].get());
+					byte val = buffers[index].get();
+					if(val < 1) {
+						total.put(val);
+					}else {
+						total.put((byte) 0);
+					}
 				} else {
 					total.put((byte) 0);
 				}

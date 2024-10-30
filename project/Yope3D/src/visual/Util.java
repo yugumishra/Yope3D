@@ -3,10 +3,13 @@ package visual;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
+import java.nio.ShortBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -16,7 +19,10 @@ import java.util.Scanner;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.stb.STBImage;
+import org.lwjgl.stb.STBVorbis;
 import org.lwjgl.system.MemoryUtil;
+
+import audio.Sound;
 
 //this class contains utility methods
 //that can't be contained anywhere else
@@ -25,7 +31,6 @@ public class Util {
 	// constants for uniform names
 	public static final String projectionMatrix = "projectionMatrix";
 	public static final String viewMatrix = "viewMatrix";
-	public static final String lightPos = "lightPos";
 	public static final String cameraPos = "cameraPos";
 	public static final String image = "image";
 	public static final String modelMatrix = "modelMatrix";
@@ -33,6 +38,7 @@ public class Util {
 	public static final String state = "state";
 	public static final String dt = "dt";
 	public static final String col = "col";
+	public static final String numLights = "numLights";
 	// constant for mouse sensitivity
 	public static final float mouseSensitivity = 0.5f;
 
@@ -100,7 +106,7 @@ public class Util {
 		Matrix4f projectionMatrix = new Matrix4f();
 		// these 2 define how far in the z-direction the camera can see
 		float near = 0.01f;
-		float far = 20000.0f;
+		float far = 2000.0f;
 		// these 2 define how far in the y direction the camera can see (near plane)
 		// here the fov variable is used to determine how much the camera can see
 		// the fact that the fov is adjustable makes it so that its just not pixel
@@ -385,7 +391,7 @@ public class Util {
 		} else {
 			// create a temp file and have STBI lib read from that
 			// get image input stream
-			InputStream image = Textures.class.getResourceAsStream("/" + src.replace('\\', '/'));
+			InputStream image = Util.class.getResourceAsStream("/" + src.replace('\\', '/'));
 			// split string into parts (used later)
 			String[] parts = new String[2];
 			// find location of the .
@@ -444,10 +450,71 @@ public class Util {
 		return new Image(imageBuffer, width[0], height[0]);
 	}
 	
+	public static Sound readOggFile(String src) {
+		//instantiate our sound & stream vars
+		Sound sound = null;
+		InputStream stream = null;
+		try {
+			//open the stream based on running from jar or not
+			if(Util.isRunningFromJAR()) {
+				stream = Util.class.getResourceAsStream("/" + src.replace('\\', '/'));
+			}else {
+				stream = new FileInputStream("src\\" + src);
+			}
+			//read raw data into buffer
+			byte[] dat = stream.readAllBytes();
+			ByteBuffer vorbisData = MemoryUtil.memAlloc(dat.length);
+			vorbisData.put(dat);
+			vorbisData.flip();
+			
+			//init buffers for channels & sample rate
+			IntBuffer channels = MemoryUtil.memAllocInt(1);
+			IntBuffer sampleRate = MemoryUtil.memAllocInt(1);
+			
+			//use stbvorbis to decode the data
+			ShortBuffer data = STBVorbis.stb_vorbis_decode_memory(vorbisData, channels, sampleRate);
+			
+			//null check
+			if(data != null) {
+				//success, we have a sound
+				sound = new Sound(data, sampleRate.get(), channels.get());
+			}else {
+				System.err.println("Something went wrong reading " + src + " :(");
+			}
+			//free all the buffers
+			MemoryUtil.memFree(vorbisData);
+			MemoryUtil.memFree(channels);
+			MemoryUtil.memFree(sampleRate);
+		}catch(IOException e) {
+			//catch the exception with a friendly message
+			System.err.println("Something went wrong reading " + src + " :(");
+			e.printStackTrace();
+		}finally {
+			//finally close the input stream (if existing)
+			try {
+				if(stream != null) {
+					stream.close();
+				}
+			}catch(IOException e) {
+				//another catch
+				System.err.println("Something went wrong closing " + src + "'s input stream :(");
+				e.printStackTrace();
+			}
+		}
+		return sound;
+	}
+	
+	public static void processCollisionMesh(Mesh m) {
+		
+	}
+	
 	public static final class STATES {
 		public static final int TEXTURED = 5;
 		public static final int SOLID_COLOR = 2;
 		public static final int LIGHT = 314;
+		public static final int UI = 1729;
+		public static final int TEXT = UI+1;
+		public static final int UI_TEXTURED = UI+2;
 		
 		//constant for floor mass (used in compute shader)
 		public static final int FLOOR_MASS = 314159265;
