@@ -3,7 +3,6 @@ package visual;
 import java.util.ArrayList;
 
 import org.lwjgl.glfw.GLFW;
-import org.lwjgl.opengl.GL11;
 
 import scripts.Script;
 import ui.Label;
@@ -147,27 +146,12 @@ public class Loop {
 		// changes
 		// clear the screen before drawing again
 		renderer.clear();
-		//enable depth testing
-		GL11.glEnable(GL11.GL_DEPTH_TEST);
-		// iterate over each mesh
-		for (int i = 0; i < world.getNumMeshes(); i++) {
-			// grab the specific mesh
-			Mesh m = world.getMesh(i);
-			// render it
-			renderer.render(m);
-		}
+
+		//render the world
+		renderer.render(world);
 		
-		//disable depth testing
-		GL11.glDisable(GL11.GL_DEPTH_TEST);
-		// draw the ui
-		for (ArrayList<Label> layer : Launch.window.getUI()) {
-			for (Label label : layer) {
-				if (label.draw()) {
-					label.render();
-				}
-				label.update();
-			}
-		}
+		//render ui after (so it appears on top)
+		renderer.renderUI();
 	}
 
 	// gets the time from the start in seconds

@@ -19,9 +19,9 @@ public class UIInit {
 		
 		// initialize a text atlas
 		
-		smallAtlas = new TextAtlas("Assets\\fonts\\nunito_sans_semibold_italic.ttf", pxSize/2);
-		normalAtlas = new TextAtlas("Assets\\fonts\\nunito_sans_semibold_italic.ttf", pxSize);
-		titleAtlas = new TextAtlas("Assets\\fonts\\nunito_sans_semibold_italic.ttf", pxSize*2, "SPRINGDEMO");
+		//smallAtlas = new TextAtlas("Assets\\fonts\\nunito_sans_semibold_italic.ttf", pxSize/2);
+		//normalAtlas = new TextAtlas("Assets\\fonts\\nunito_sans_semibold_italic.ttf", pxSize);
+		//titleAtlas = new TextAtlas("Assets\\fonts\\nunito_sans_semibold_italic.ttf", pxSize*2, "SPRINGDEMO");
 		/*
 		
 
@@ -160,7 +160,7 @@ public class UIInit {
 		Launch.window.addLabel(instructions);
 		*/
 		
-		
+		/*
 		Background timerBacking = new Background(0.0f, 0.0f, 0.0f, 0);
 		timerBacking.setVisible(false);
 		
@@ -334,6 +334,7 @@ public class UIInit {
 		Launch.window.addLabel(xButton);
 		Launch.window.addLabel(timerBacking);
 		Launch.window.addLabel(timer);
+		*/
 	}
 	
 	public static void deathScreen(int var) {

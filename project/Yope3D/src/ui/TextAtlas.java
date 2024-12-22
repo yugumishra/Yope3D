@@ -45,7 +45,7 @@ public class TextAtlas {
 
 			// create a temp file and have STBI lib read from that
 			// get image input stream
-			InputStream image = Textures.class.getResourceAsStream("/" + fontFilePath.replace('\\', '/'));
+			InputStream image = Textures.class.getResourceAsStream("/src/" + fontFilePath.replace('\\', '/'));
 			// split string into parts (used later)
 			String[] parts = new String[2];
 			// find location of the .

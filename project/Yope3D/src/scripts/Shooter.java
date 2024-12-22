@@ -33,6 +33,8 @@ public class Shooter extends Script {
 				new Barrier(new Vector3f(0,0,-1), new Vector3f(0,0,5000)),
 		};
 		
+		world.instantiateCollisionTree(new Vector3f(-50, 0, -50), new Vector3f(50, 75, 50), 3);
+		
 		for(Barrier b: barriers) {
 			world.addBarrier(b);
 		}
@@ -144,13 +146,14 @@ public class Shooter extends Script {
 					float g = (float) Math.random();
 					float b = (float) Math.random();
 
-					s.setColor(r, g, b);
+					
 
 					Vector3f position = star.getHull().getPosition();
 					position.add(dir.mul(star.getRadius() + s.getRadius() + 0.1f));
 					s.getHull().setPosition(position);
 					s.getHull().setVelocity(dir.mul(5));
 					s.setState(STATES.SOLID_COLOR);
+					s.setColor(r, g, b);
 
 					s.loadMesh();
 

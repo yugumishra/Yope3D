@@ -338,6 +338,10 @@ public class Window {
 	public int getHeight() {
 		return height;
 	}
+	
+	public float getAspectRatio() {
+		return (float) width/ (float) height;
+	}
 
 	// returns if the window should close yet
 	public boolean shouldClose() {

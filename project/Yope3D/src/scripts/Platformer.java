@@ -16,6 +16,7 @@ import physics.Hull;
 import physics.Raycast;
 import physics.Sphere;
 import physics.Spring;
+import visual.Launch;
 import visual.Mesh;
 import visual.PointLight;
 import visual.Util;
@@ -223,7 +224,7 @@ public class Platformer extends Script {
 
 		loop.getCamera().sendState();
 		
-		/*
+		
 		// dashing code
 		if(loop.getKey(GLFW.GLFW_KEY_F) && loop.frames() - startFrame > 240 && loop.frames() % 4 == 0 && !dashing) {
 			dashing = true;
@@ -292,27 +293,6 @@ public class Platformer extends Script {
 			}
 			Launch.window.pause();
 			//ui.UIInit.winScreen(winningVariable);
-		}*/
-		
-		if (loop.getRMB() && loop.frames() % 4 == 0) {
-			// remove all cubes
-			for (int i = 0; i < world.getNumMeshes(); i++) {
-				Mesh m = world.getMesh(i);
-				if (m.getClass() != Sphere.class && m != floor) {
-					world.removeMesh(m);
-				}
-			}
-		}
-
-		for (int i = 0; i < world.getNumMeshes(); i++) {
-			Mesh m = world.getMesh(i);
-			if (m.getClass() == Spring.class) {
-				Spring s = (Spring) m;
-				s.update();
-			}
-		}
-		if (one != null && two != null) {
-			Collider.CCD(one.getHull(), two.getHull());
 		}
 
 		

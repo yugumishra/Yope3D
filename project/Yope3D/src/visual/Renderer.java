@@ -1,6 +1,7 @@
 package visual;
 
 import java.nio.FloatBuffer;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -13,6 +14,8 @@ import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL43;
 import org.lwjgl.system.MemoryUtil;
 
+import ui.Label;
+
 //this class manages the rendering of meshes, and everything related to rendering
 public class Renderer {
 	// this variable holds the program id that is associated with the vertex &
@@ -20,9 +23,9 @@ public class Renderer {
 	private int program;
 	// this variable holds the mappings from uniform variable names to its integer
 	// id in opengl
-	private Map<String, Integer> uniforms;
-	//variable for the light buffer
-	private int lightBufferID;
+	public Map<String, Integer> uniforms;
+	
+	int lightSSBO;
 
 	// constructor for the renderer class
 	public Renderer() {
@@ -63,6 +66,7 @@ public class Renderer {
 		// the second parameter indicates whether or not this matrix should be
 		// transposed or not (false for now)
 		// the third parameter is just the buffer hold the matrix
+		if(uniforms.get(name) == null) return;
 		GL20.glUniformMatrix4fv(uniforms.get(name), transposed, buffer);
 		// free the buffer from memory
 		MemoryUtil.memFree(buffer);
@@ -76,6 +80,8 @@ public class Renderer {
 		//place into buffer
 		values.get(buffer);
 		
+		if(uniforms.get(name) == null) return;
+		
 		//send to gpu
 		GL20.glUniformMatrix3fv(uniforms.get(name), transposed, buffer);
 		
@@ -86,6 +92,7 @@ public class Renderer {
 	// send vec3 using vector3f instance
 	public void sendVec3(String name, Vector3f values) {
 		// send to the gpu
+		if(uniforms.get(name) == null) return;
 		GL20.glUniform3f(uniforms.get(name), values.x, values.y, values.z);
 	}
 
@@ -96,6 +103,7 @@ public class Renderer {
 		// put the single value into the buffer
 		buffer.put(value);
 		// send to the gpu
+		if(uniforms.get(name) == null) return;
 		GL20.glUniform1fv(uniforms.get(name), buffer);
 		// free the buffer from memory
 		MemoryUtil.memFree(buffer);
@@ -103,6 +111,7 @@ public class Renderer {
 
 	// send a integer using integer
 	public void send1i(String name, int value) {
+		if(uniforms.get(name) == null) return;
 		GL20.glUniform1i(uniforms.get(name), value);
 	}
 	
@@ -192,9 +201,19 @@ public class Renderer {
 		// reenable the drawing portion of the program
 		GL20.glUseProgram(program);
 	}
+	
+	//this method is what renders a whole world
+	public void render(World w) {
+		//enable depth testing because objects have depth
+		GL11.glEnable(GL11.GL_DEPTH_TEST);
+		for(int i = 0; i< w.getNumMeshes(); i++) {
+			Mesh m = w.getMesh(i);
+			if(m.draw()) renderMesh(m);
+		}
+	}
 
 	// this method is what renders a mesh
-	public void render(Mesh m) {
+	public void renderMesh(Mesh m) {
 		if (m.draw() == false)
 			return;
 		// use the vertex.vs & fragment.fs program
@@ -279,17 +298,24 @@ public class Renderer {
 	public void cleanup() {
 		GL20.glDeleteProgram(program);
 	}
+	
+	//this method renders a ui
+	public void renderUI() {
+		//disable depth testing (because ui components are flat)
+		GL11.glDisable(GL11.GL_DEPTH_TEST);
+		// draw the ui
+		for (ArrayList<Label> layer : Launch.window.getUI()) {
+			for (Label label : layer) {
+				if (label.draw()) {
+					label.render();
+				}
+				label.update();
+			}
+		}
+	}
 
 	public int getMainProgram() {
 		return program;
-	}
-	
-	public void setLightBufferID(int n) {
-		lightBufferID = n;
-	}
-	
-	public int getLightBufferID() {
-		return lightBufferID;
 	}
 	
 	//returns the int id for the light ssbo
@@ -303,7 +329,7 @@ public class Renderer {
 			Vector3f lightColor = light.getColor();
 			Vector3f characteristics = light.getLightCharacteristics();
 			float theta = 0.0f, phi = 0.0f;
-			if(light.getClass() == SpotLight.class) {
+			if(light.getClass() == SpotLight.class && light.getClass() != FlashLight.class) {
 				Vector3f direction = ((SpotLight) light).getDirection();
 				//convert to theta phi
 				theta = (float) Math.atan2(direction.z, direction.x);
@@ -316,12 +342,19 @@ public class Renderer {
 					lightData[i * 12 + 0] = position.x;
 					lightData[i * 12+ 1] = position.y;
 					lightData[i * 12 + 2] = position.z;
-				}else {
+				}else if(light.getClass() != FlashLight.class) {
 					SpotLight l = (SpotLight) light;
 					Vector3f position = l.getPosition();
 					lightData[i * 12 + 0] = position.x;
 					lightData[i * 12 + 1] = position.y;
 					lightData[i * 12 + 2] = position.z;
+				}else {
+					//flashlight
+					FlashLight l = (FlashLight) light;
+					Vector3f d = l.getDirection();
+					lightData[i * 12 + 0] = d.x;
+					lightData[i * 12 + 1] = d.y;
+					lightData[i * 12 + 2] = d.z;
 				}
 				lightData[i * 12 + 3] = Float.POSITIVE_INFINITY;
 			}else {
@@ -331,7 +364,7 @@ public class Renderer {
 				lightData[i * 12 + 2] = Float.POSITIVE_INFINITY;
 				lightData[i * 12 + 3] = Float.POSITIVE_INFINITY;
 			}
-			if(light.getClass() == SpotLight.class) {
+			if(light.getClass() == SpotLight.class && light.getClass() != FlashLight.class) {
 				lightData[i * 12 + 3] = theta;
 			}
 			
@@ -339,7 +372,7 @@ public class Renderer {
 			lightData[i * 12 + 4] = lightColor.x;
 			lightData[i * 12 + 5] = lightColor.y;
 			lightData[i * 12 + 6] = lightColor.z;
-			if(light.getClass() == SpotLight.class) {
+			if(light.getClass() == SpotLight.class && light.getClass() != FlashLight.class) {
 				lightData[i * 12 + 7] = phi;
 			}
 			
@@ -364,6 +397,14 @@ public class Renderer {
 			}else if(light.getClass() == PointLight.class){
 				//dummy value
 				lightData[i*12 + 11] = Float.POSITIVE_INFINITY;
+			}else if(light.getClass() == FlashLight.class) {
+				FlashLight l = (FlashLight) light;
+				lightData[i * 12 + 3] = l.getInnerConeAngle();
+				lightData[i * 12 + 7] = l.getOuterConeAngle();
+				lightData[i * 12 + 8]  = Float.POSITIVE_INFINITY;
+				lightData[i * 12 + 9] = l.getLightCharacteristics().x;
+				lightData[i * 12 + 10] = l.getLightCharacteristics().y;
+				lightData[i * 12 + 11] = l.getLightCharacteristics().z;
 			}
 		}
 		
@@ -374,19 +415,21 @@ public class Renderer {
 		//flip the buffer for reading
 		lightBuffer.flip();
 		
-		int ssboID = GL30.glGenBuffers();
+		GL30.glDeleteBuffers(lightSSBO);
+		
+		lightSSBO = GL30.glGenBuffers();
 		//bind the buffer obj
-		GL43.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, ssboID);
+		GL43.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, lightSSBO);
 		//buffer the data
 		GL43.glBufferData(GL43.GL_SHADER_STORAGE_BUFFER, lightBuffer, GL43.GL_STATIC_READ);
 		//set the binding index (always 1)
-		GL43.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 1, ssboID);
+		GL43.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 1, lightSSBO);
 		//unbind
 		GL43.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, 0);
 		
 		//send the number of lights here as well
 		send1i(Util.numLights, Launch.world.getNumLights());
 		
-		return ssboID;
+		return lightSSBO;
 	}
 }
