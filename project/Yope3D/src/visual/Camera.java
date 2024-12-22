@@ -62,6 +62,11 @@ public class Camera {
 		aspectRatio = (float) windowWidth / windowHeight;
 		// send matrix
 		Launch.renderer.sendMat4(Util.projectionMatrix, Util.genProjectionMatrix(fov, aspectRatio), false);
+		
+		if(Launch.renderer.getClass() == Raytracer.class) {
+			Raytracer tracer = (Raytracer) Launch.renderer;
+			tracer.windowChanged(newWidth, newHeight);
+		}
 	}
 
 	// this method updates the mouse's current rotation based on the x and y
@@ -104,7 +109,7 @@ public class Camera {
 		// this could be updated to implement verlet integration further down the line
 		position.add(velocity);
 
-		velocity.add(velocity.mul(-0.2f));
+		velocity.mul(0.8f);
 	}
 
 	public void sendState() {
@@ -125,6 +130,22 @@ public class Camera {
 		viewMatrix.rotate(-rotation.x, new Vector3f(1, 0, 0)).rotate(-rotation.y, new Vector3f(0, 1, 0))
 				.rotate(-rotation.z, new Vector3f(0, 0, 1)).translate(new Vector3f(position).mul(-1.0f));
 		// then we return the rotation matrix
+		return viewMatrix;
+	}
+	
+	public Matrix4f genCamToWorldMatrix() {
+		/*
+		return new Matrix4f().rotate(-rotation.x, new Vector3f(1, 0, 0)).rotate(-rotation.y, new Vector3f(0, 1, 0))
+				.rotate(-rotation.z, new Vector3f(0, 0, 1)).translate(new Vector3f(position).mul(-1.0f));
+		*/
+		Matrix4f viewMatrix = new Matrix4f();
+		
+		viewMatrix.m30(position.x);
+		viewMatrix.m31(position.y);
+		viewMatrix.m32(position.z);
+		viewMatrix.rotateZ(rotation.z);
+		viewMatrix.rotateY(rotation.y);
+		viewMatrix.rotateX(rotation.x);
 		return viewMatrix;
 	}
 
@@ -179,6 +200,6 @@ public class Camera {
 	
 	public void setFOV(float n) {
 		fov = n;
-		Launch.renderer.sendMat4(Util.projectionMatrix, Util.genProjectionMatrix(fov, (float) windowWidth/ (float) windowHeight), false);
+		Launch.renderer.sendMat4(Util.projectionMatrix, Util.genProjectionMatrix(fov, Launch.window.getAspectRatio()), false);
 	}
 }

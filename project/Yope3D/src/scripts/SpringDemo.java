@@ -61,10 +61,10 @@ public class SpringDemo extends Script{
 		//set the world time step
 		world.setDT(1.0f/100.0f);
 		
-		world.addLight(new PointLight(new Vector3f( 40,50,-40), new Vector3f(1,1,1), new Vector3f(0.5f,0.01f, 0.00001f)));
-		world.addLight(new PointLight(new Vector3f( 40,50, 40), new Vector3f(1,1,1), new Vector3f(0.5f,0.01f, 0.00001f)));
-		world.addLight(new PointLight(new Vector3f(-40,50, 40), new Vector3f(1,1,1), new Vector3f(0.5f,0.01f, 0.00001f)));
-		world.addLight(new PointLight(new Vector3f(40,50, -40), new Vector3f(1,1,1), new Vector3f(0.5f,0.01f, 0.00001f)));
+		world.addLight(new PointLight(new Vector3f( 40,50,-40), new Vector3f(1,1,1), new Vector3f(3f,0.01f, 0.00001f)));
+		world.addLight(new PointLight(new Vector3f( 40,50, 40), new Vector3f(1,1,1), new Vector3f(3f,0.01f, 0.00001f)));
+		world.addLight(new PointLight(new Vector3f(-40,50, 40), new Vector3f(1,1,1), new Vector3f(3f,0.01f, 0.00001f)));
+		world.addLight(new PointLight(new Vector3f(-40,50, -40), new Vector3f(1,1,1), new Vector3f(3f,0.01f, 0.00001f)));
 		
 		Launch.world.lightChanged();
 		
@@ -100,8 +100,7 @@ public class SpringDemo extends Script{
 			moveDir.mul(inv);
 			Vector3f forwardRay = new Vector3f(moveDir.x, moveDir.y, moveDir.z);
 			
-			Vector3f up = new Vector3f(0, 1, 0);
-			forwardRay.sub(up.mul(forwardRay.dot(up)));
+			forwardRay.mul(new Vector3f(1, 0, 1));
 			
 			if(Math.abs(forwardRay.x) >0.001f && Math.abs(forwardRay.z)> 0.001f) {
 				forwardRay.normalize();
@@ -129,28 +128,46 @@ public class SpringDemo extends Script{
 		//advance world
 		world.advance();
 		
+		
 		//update cam and send state
 		loop.getCamera().setPosition(cameraCollider.getHull().getPosition());
 		loop.getCamera().update();
 		loop.getCamera().sendState();
 		
+		
+		//initial spring mass initialization
 		if (loop.getForwardMB() && loop.frames() % 4 == 0) {
+			//create the cloth holder
 			cloth = new Mesh[30][30];
+			
+			//instantiate each component with a drawable mesh
 			for (int j = 0; j < cloth.length; j++) {
 				for (int i = 0; i < cloth.length; i++) {
+					//built in cube function
 					Mesh cube = Mesh.cube();
 					
+					//set it to vary color on a spectrum
 					cube.setColor((i/30.0f), (j/30.0f), (0.4f + (i+j)/120.0f));
+					//indicate rendering style
 					cube.setState(STATES.SOLID_COLOR);
+					
+					//set initial position
 					cube.getHull().setPosition(new Vector3f(-cloth.length + 2 * i, 75 - 2 * j, 0));
-
+					
+					//load and add to world
 					cube.loadMesh();
 					world.addMesh(cube);
+					
+					//place into holder
 					cloth[i][j] = cube;
+					
+					//set top row to be fixed in place
 					if (j == 0)
 						cloth[i][j].getHull().fix();
 				}
 			}
+			
+			//instantiate the spring connections between each component and the next one (diagonals included)
 			for (int j = 0; j < cloth.length; j++) {
 				for (int i = 0; i < cloth.length - 1; i++) {
 					initSpring(cloth[i][j], cloth[i + 1][j]);
@@ -159,12 +176,17 @@ public class SpringDemo extends Script{
 			}
 
 		}
+		
+		
+		
+		//pushing action
 		if (loop.getRMB() && loop.frames() % 4 == 0) {
 			// get a forward ray
 			Matrix4f invCam = loop.getCamera().genViewMatrix().transpose();
 			Vector4f forward = new Vector4f(0, 0, -1, 1);
 			forward.mul(invCam);
-
+			
+			//create and normalize
 			Vector3f forwardRay = new Vector3f(forward.x, forward.y, forward.z);
 			forwardRay.normalize();
 
@@ -172,29 +194,45 @@ public class SpringDemo extends Script{
 			for (int i = 1; i < cloth.length - 1; i++) {
 				for (int j = 1; j < cloth.length - 1; j++) {
 					Mesh m = cloth[i][j];
+					//check for a hit against this component
 					float hit = Raycast.raycastSphere(forwardRay, loop.getCamera().getPosition(), m.getHull().getPosition(),
 							1.0f);
 					if (hit != -1.0f) {
-						// yay
+						// hit successful
+						// how much to push the component forward by
 						Vector3f push = new Vector3f(forwardRay).mul(30.0f);
+						
+						//apply the push to the intersecting component
 						m.getHull().addVelocity(push);
+						
+						//find the neighboring components
 						Mesh next = cloth[i + 1][j];
 						Mesh down = cloth[i][j + 1];
 						Mesh behind = cloth[i - 1][j];
 						Mesh up = cloth[i][j - 1];
+						
+						//apply the push to the components around the intersection
 						next.getHull().addVelocity(new Vector3f(push).div(next.getHull().getMass()));
 						down.getHull().addVelocity(new Vector3f(push).div(down.getHull().getMass()));
 						behind.getHull().addVelocity(new Vector3f(push).div(behind.getHull().getMass()));
 						up.getHull().addVelocity(new Vector3f(push).div(up.getHull().getMass()));
 					}
+					
+					
 				}
 			}
+			
+			
 		}
 	}
 	
 	public void initSpring(Mesh one, Mesh two) {
+		//initialize the spring between the 2 meshes to 500 N/m and a rest length of 2m
 		Spring spring = Spring.spring(one, two, 500.0f, 2.0f, 0);
+		//set the spring to be invisible
+		spring.loadMesh();
 		spring.setDraw(false);
+		//add it to the world for physics updates
 		world.addMesh(spring);
 	}
 }

@@ -72,7 +72,7 @@ public class Util {
 		} else {
 			String shader = "";
 			// try different method for reading file
-			try (InputStream inputStream = Util.class.getResourceAsStream("/" + source.replace('\\', '/'))) {
+			try (InputStream inputStream = Util.class.getResourceAsStream("/src/" + source.replace('\\', '/'))) {
 				// null check
 				if (inputStream != null) {
 					// use buffered reader instead of scanner
@@ -391,7 +391,8 @@ public class Util {
 		} else {
 			// create a temp file and have STBI lib read from that
 			// get image input stream
-			InputStream image = Util.class.getResourceAsStream("/" + src.replace('\\', '/'));
+			System.out.println("/" + src.replace('\\', '/'));
+			InputStream image = Util.class.getResourceAsStream("/src/" + src.replace('\\', '/'));
 			// split string into parts (used later)
 			String[] parts = new String[2];
 			// find location of the .

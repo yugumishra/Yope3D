@@ -10,7 +10,6 @@ import physics.CollisionTree;
 import physics.Hull;
 import physics.Spring;
 import scripts.Script;
-import scripts.SpringDemo;
 
 //this class encapsulates the world, which contains many meshes
 //this class is mainly used to consolidate the various meshes that exist in the world, acting as a getter for all universal meshes
@@ -126,7 +125,18 @@ public class World {
 
 	// world initialization method
 	public void init() {
-		addScript(new SpringDemo());
+		Script script = null;
+		try {
+			script = (Script) Launch.toScript.getDeclaredConstructor().newInstance();
+		}catch(Exception e) {
+			e.printStackTrace();
+		}
+		if(script == null) {
+			System.err.println("Provided a invalid starting script!");
+			Launch.game.cleanup();
+			System.exit(0);
+		}
+		addScript(script);
 
 		// run the init for each script
 		for (Script s : scripts) {
@@ -215,17 +225,19 @@ public class World {
 		}
 		
 		//use the tree
-		for(int i =0; i< meshes.size(); i++) {
-			Mesh mesh = meshes.get(i);
-			if(mesh == null) continue;
-			if(mesh.getHull() == null) continue;
-			if(mesh.getHull().fixed() == false) {
-				//use the tree to get the viable list of colliders
-				ArrayList<Hull> possibles = tree.getObjects(mesh.getHull());
-				if(possibles != null) {
-					for(Hull h: possibles) {
-						//do the collision
-						Collider.CCD(mesh.getHull(), h);
+		if(tree != null) {
+			for(int i =0; i< meshes.size(); i++) {
+				Mesh mesh = meshes.get(i);
+				if(mesh == null) continue;
+				if(mesh.getHull() == null) continue;
+				if(mesh.getHull().fixed() == false) {
+					//use the tree to get the viable list of colliders
+					ArrayList<Hull> possibles = tree.getObjects(mesh.getHull());
+					if(possibles != null) {
+						for(Hull h: possibles) {
+							//do the collision
+							Collider.CCD(mesh.getHull(), h);
+						}
 					}
 				}
 			}

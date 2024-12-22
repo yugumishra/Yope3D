@@ -3,6 +3,8 @@ package visual;
 import java.awt.Dimension;
 import java.awt.Toolkit;
 
+import scripts.RaytracingTest;
+
 public class Launch {
 	//create static variables that hold the important variables concerning the application
 	//so they can be accessed by other classes to run methods or get data
@@ -10,6 +12,10 @@ public class Launch {
 	public static World world;
 	public static Renderer renderer;
 	public static Loop game;
+	
+	
+	public static Class<?> toScript = RaytracingTest.class;
+	public static Class<?> renderType = Raytracer.class;
 	
 	public static void launch() {
 		//get width and height from the toolkit of the current monitor
@@ -23,6 +29,9 @@ public class Launch {
 		
 		//create a Renderer instance, which is used to render the meshes in the World instance
 		renderer = new Renderer();
+		if(renderType == Raytracer.class) {
+			renderer = new Raytracer();
+		}
 		
 		//create the loop instance
 		game = new Loop(window, world, renderer);

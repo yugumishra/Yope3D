@@ -28,40 +28,61 @@ void main() {
 			vec3 totalDiffuse = vec3(0.0);
 			vec3 totalSpecular = vec3(0.0);
 			vec3 totalAmbient = vec3(0.0);
+			
 			for(int i= 0; i< numLights; i++) {
 				vec4 a = lightData[i*3 + 0];
 				vec4 b = lightData[i*3 + 1];
 				vec4 c = lightData[i*3 + 2];
+				
 				//no need to do anything if no light lol
 				if(c.x == 0) continue;
-				
-				
-
-				//intensity (for directional & point)
-				float intensity = c.x;
 				
 				vec3 diffuseColor = vec3(0.0);
 				vec3 specularColor = vec3(0.0);
 				
-				if(!isPositiveInfinity(a.x) && isPositiveInfinity(a.w)) {
+				if(isPositiveInfinity(c.x)){
+					//its the same as a spot light but its a flashlight so its in the camera direction
+					float linearAttenuation = c.z;
+					
+					float distance = length(cameraPos - Pos);
+					
+					//calc attenuation
+					float attenuation = 1.0/(c.y+linearAttenuation * distance + c.w * distance * distance);
+					vec3 col = attenuation * b.xyz;
+					
+		    		vec3 lightDir = normalize(vec3(cameraPos - Pos));
+		    		float dot = dot(-lightDir, a.xyz);
+		    		
+		    		float e = a.w - b.w;
+			    	float intensity = clamp((dot - b.w)/e, 0.0, 1.0);
+			    	
+		    		float diffuse = max(dot(lightDir, Normal), 0.0);
+		    		diffuseColor = diffuse * col * intensity;
+		    		
+		    		vec3 viewDir = normalize(cameraPos - Pos);
+		    		vec3 h = normalize(lightDir + viewDir);
+		    		float specular = pow(max(dot(Normal, h), 0.0), 64);
+		    		specularColor = specular * col * intensity;
+				}else if(!isPositiveInfinity(a.x) && isPositiveInfinity(a.w)) {
+					//point light
 					//dist between light and fragment
 					float distance = length(a.xyz - Pos);
 					
 					//calc attenuation
-					float attenuation = 1.0/(1+c.y * distance + c.z * distance * distance);
+					float attenuation = 1.0/(c.x+c.y * distance + c.z * distance * distance);
 					vec3 col = attenuation * b.xyz;
 					//point light
 					
 			    	//diffuse
 			    	vec3 lightDirection = normalize(a.xyz- Pos);
 			    	float diffuse = max(dot(lightDirection, Normal), 0.0);
-			    	diffuseColor = diffuse * col * intensity;
+			    	diffuseColor = diffuse * col;
 			    	
 			    	//specular
 			    	vec3 viewDir = normalize(cameraPos-Pos);
 			    	vec3 h = normalize(lightDirection + viewDir);
 			    	float specular = pow(max(dot(Normal, h), 0.0), 64);
-			    	specularColor = specular * col * intensity;
+			    	specularColor = specular * col;
 			    	
 		    	}else if(isPositiveInfinity(a.x) && isPositiveInfinity(a.w)) {
 		    		//directional light
@@ -70,20 +91,21 @@ void main() {
 		    		vec3 dir = -c.yzw;
 		    		
 		    		float diffuse = max(dot(Normal, dir), 0.0);
-		    		diffuseColor = b.xyz * diffuse * intensity;
+		    		diffuseColor = b.xyz * diffuse;
 		    		//specular
 		    		vec3 viewDir = normalize(cameraPos-Pos);
 		    		vec3 reflectDir = reflect(-dir, Normal);
 		    		float specular = pow(max(dot(viewDir, reflectDir), 0.0), 64);
-		    		specularColor = specular * b.xyz * intensity;
+		    		specularColor = specular * b.xyz;
 		    		
 		    	}else if(!isPositiveInfinity(a.x) && !isPositiveInfinity(a.w)) {
+		    		//spot light
 					float linearAttenuation = c.y;
 					
 					float distance = length(a.xyz - Pos);
 					
 					//calc attenuation
-					float attenuation = 1.0/(1+linearAttenuation * distance + c.z * distance * distance);
+					float attenuation = 1.0/(c.x+linearAttenuation * distance + c.z * distance * distance);
 					vec3 col = attenuation * b.xyz;
 					
 		    		float co = cos(b.w);
@@ -94,7 +116,7 @@ void main() {
 		    		
 		    		float unpackedLambda = 0.8;
 		    		float e = c.w - unpackedLambda;
-			    	intensity = clamp((dot - unpackedLambda)/e, 0.0, 1.0);
+			    	float intensity = clamp((dot - unpackedLambda)/e, 0.0, 1.0);
 			    	
 		    		float diffuse = max(dot(lightDir, Normal), 0.0);
 		    		diffuseColor = diffuse * col * intensity;
