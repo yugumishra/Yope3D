@@ -1,0 +1,6 @@
+build/
+
+# vcpkg-specific ignore entries
+vcpkg_installed/
+vcpkg/
+scripts/buildsystems/vcpkg.cmake

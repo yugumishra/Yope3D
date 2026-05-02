@@ -1,0 +1,11 @@
+{
+  "name": "yope3d",
+  "version": "0.1.0",
+  "dependencies": [
+    "glfw3",
+    "freetype",
+    "openal-soft",
+    "stb",
+    "catch2"
+  ]
+}
