@@ -14,25 +14,37 @@
     {
     "name": "mac-release",
     "inherits": "base",
-    "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" },
+    "cacheVariables": { 
+        "CMAKE_BUILD_TYPE": "Release", 
+        "YOPE_EMBED_ASSETS": "ON"
+      },
     "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
     },
     {
       "name": "mac-debug",
       "inherits": "base",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
+      "cacheVariables": { 
+        "CMAKE_BUILD_TYPE": "Debug", 
+        "YOPE_EMBED_ASSETS": "OFF"
+      },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
     },
     {
     "name": "win-release",
     "inherits": "base",
-    "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" },
+    "cacheVariables": { 
+        "CMAKE_BUILD_TYPE": "Release", 
+        "YOPE_EMBED_ASSETS": "ON"
+      },
     "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
     },
     {
       "name": "win-debug",
       "inherits": "base",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
+      "cacheVariables": { 
+        "CMAKE_BUILD_TYPE": "Debug", 
+        "YOPE_EMBED_ASSETS": "OFF"
+      },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
     }
   ]
