@@ -45,8 +45,8 @@ bool Engine::init() {
     //set icon here
     window->setIcon("textures/tnail.png");
 
-    // Milestone 3: gpu    = std::make_unique<GpuDevice>(*window);
-    // Milestone 3: renderer = std::make_unique<Renderer>(*gpu, *window);
+    gpu      = std::make_unique<GpuDevice>(*window);
+    renderer = std::make_unique<Renderer>(*gpu, *window);
     // Milestone 7: audio  = std::make_unique<AudioSystem>();
     // Milestone 8: assets = std::make_unique<AssetManager>();
     // Milestone 8: Instantiate and init() the active Script via ScriptFactory.
@@ -81,11 +81,7 @@ void Engine::update() {
 void Engine::render() {
     // Milestone 2: nothing to render — no Vulkan context exists yet.
 
-    // Milestone 3:
-    //   renderer->beginFrame();
-    //   renderer->render(*world);
-    //   renderer->renderUI();
-    //   renderer->endFrame();   // vkQueuePresentKHR lives here
+    renderer->drawFrame(*gpu, *window);
 }
 
 // ---------------------------------------------------------------------------
@@ -96,12 +92,13 @@ void Engine::render() {
 // would do the same thing but the ordering would be implicit.
 
 void Engine::cleanup() {
-    // Milestone 8: script->cleanup() (or just let ScriptContext go out of scope)
+    // Milestone 8: script->cleanup()
     // Milestone 7: audio.reset();
     // Milestone 8: assets.reset();
-    // Milestone 3: renderer.reset();   // pipelines before device
-    // Milestone 3: gpu.reset();        // device before window/surface
+    renderer->waitIdle(*gpu);   // flushes GPU, destroys pipeline/swapchain/sync objects
+    renderer.reset();
 
-    window.reset(); // destroys GLFW window + calls glfwTerminate
-    input.reset();  // pure data, safe last
+    gpu.reset();     // logical device (vkDeviceWaitIdle), then surface, then instance
+    window.reset();  // destroys GLFW window + calls glfwTerminate
+    input.reset();   // pure data, safe last
 }

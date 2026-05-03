@@ -16,6 +16,36 @@ find_package(Vulkan   REQUIRED)
 find_package(Stb      REQUIRED)         # header-only; provides Stb_INCLUDE_DIR
 
 # ---------------------------------------------------------------------------
+# Shader compilation — GLSL → SPIR-V via glslc (bundled in the Vulkan SDK)
+# ---------------------------------------------------------------------------
+
+find_program(GLSLC glslc HINTS "$ENV{VULKAN_SDK}/bin" REQUIRED)
+
+set(SHADER_SRC_DIR      "${CMAKE_SOURCE_DIR}/shaders")
+set(SHADER_COMPILED_DIR "${CMAKE_SOURCE_DIR}/compiled_shaders")
+file(MAKE_DIRECTORY "${SHADER_COMPILED_DIR}")
+
+set(SHADER_SOURCES
+    "${SHADER_SRC_DIR}/triangle.vert"
+    "${SHADER_SRC_DIR}/triangle.frag"
+)
+
+set(COMPILED_SHADERS "")
+foreach(SHADER ${SHADER_SOURCES})
+    get_filename_component(SHADER_NAME ${SHADER} NAME)
+    set(SPV "${SHADER_COMPILED_DIR}/${SHADER_NAME}.spv")
+    add_custom_command(
+        OUTPUT  "${SPV}"
+        COMMAND "${GLSLC}" "${SHADER}" -o "${SPV}"
+        DEPENDS "${SHADER}"
+        COMMENT "Compiling shader ${SHADER_NAME}"
+    )
+    list(APPEND COMPILED_SHADERS "${SPV}")
+endforeach()
+
+add_custom_target(compile_shaders ALL DEPENDS ${COMPILED_SHADERS})
+
+# ---------------------------------------------------------------------------
 # Embed option — must be declared before the block that uses it
 # ---------------------------------------------------------------------------
 
@@ -68,7 +98,18 @@ add_executable(yope3d
     src/Engine.cpp
     src/math/MathImpl.cpp
     src/stb_impl.cpp               # owns STB_IMAGE_IMPLEMENTATION
+    src/gpu/VulkanInstance.cpp
+    src/gpu/Surface.cpp
+    src/gpu/PhysicalDevice.cpp
+    src/gpu/LogicalDevice.cpp
+    src/gpu/GpuDevice.cpp
+    src/gpu/Swapchain.cpp
+    src/gpu/RenderPass.cpp
+    src/gpu/ShaderModule.cpp
+    src/rendering/Renderer.cpp
 )
+
+add_dependencies(yope3d compile_shaders)
 
 target_include_directories(yope3d PRIVATE
     "${CMAKE_SOURCE_DIR}/src"
@@ -85,6 +126,7 @@ endif()
 
 target_compile_definitions(yope3d PRIVATE
     YOPE_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+    YOPE_SHADER_DIR="${CMAKE_SOURCE_DIR}/compiled_shaders"
     $<$<BOOL:${YOPE_EMBED_ASSETS}>:YOPE_EMBED_ASSETS>  # no space after colon
 )
 

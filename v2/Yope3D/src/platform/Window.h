@@ -37,6 +37,10 @@ public:
     void pause();
     void unpause();
 
+    // Set by the framebuffer resize callback; cleared by Renderer after recreation.
+    bool wasResized()      const { return resized; }
+    void clearResizedFlag()      { resized = false; }
+
     //asset path is always relative to assets folder
     void setIcon(const std::string& assetPath);
 
@@ -51,6 +55,7 @@ private:
 
     bool paused     = false;
     bool fullscreen = false;
+    bool resized    = false;
 
     // Previous cursor position — used to compute per-frame delta.
     // 'firstMouse' prevents a large spike on the very first callback.
