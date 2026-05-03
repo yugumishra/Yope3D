@@ -4,3 +4,6 @@ build/
 vcpkg_installed/
 vcpkg/
 scripts/buildsystems/vcpkg.cmake
+
+#ignore claude specific stuff
+claude.md
