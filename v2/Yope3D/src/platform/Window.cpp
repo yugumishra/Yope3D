@@ -122,9 +122,9 @@ void Window::applyCursorMode() const {
 
 void Window::framebufferResizeCallback(GLFWwindow* w, int newWidth, int newHeight) {
     auto* self   = static_cast<Window*>(glfwGetWindowUserPointer(w));
-    self->width  = newWidth;
-    self->height = newHeight;
-    // Milestone 3: signal swapchain recreation here (e.g. set a 'resized' flag).
+    self->width   = newWidth;
+    self->height  = newHeight;
+    self->resized = true;
 }
 
 void Window::keyCallback(GLFWwindow* w, int key, int /*scancode*/, int action, int /*mods*/) {
