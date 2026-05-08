@@ -5,6 +5,9 @@
 // ---------------------------------------------------------------------------
 
 void Input::beginFrame() {
+    //place current into previous (current will get wiped)
+    prevMouseDelta = mouseDelta;
+
     // Clear one-shot transition flags from the previous frame's callbacks.
     keyJustPressed.fill(false);
     keyJustReleased.fill(false);

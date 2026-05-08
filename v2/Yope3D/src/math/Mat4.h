@@ -2,6 +2,7 @@
 #include "Vec3.h"
 #include "Mat3.h"
 #include <array>
+#include <cmath>
 
 namespace math {
     struct Mat4 {
@@ -15,6 +16,9 @@ namespace math {
 
         // get upper 3x3 (rotation portion of 4x4)
         Mat3 getRotationScale() const;
+
+        // sets upper 3x3 to provided matrix
+        void setRotationScale(const Mat3& rotation);
         
         // Matrix Multiplication (Simplified loop for clarity)
         Mat4 operator*(const Mat4& other) const;
@@ -27,6 +31,15 @@ namespace math {
 
         //transforms given vec4 by this matrix
         Vec4 operator*(const Vec4& v) const;
+
+        // Perspective projection matrix
+        static Mat4 perspective(float fov, float aspectRatio, float near, float far);
+
+        // View matrix (camera transform)
+        static Mat4 view(const Vec3& position, const Vec3& rotation);
+        
+        // Frustum utility (used by perspective)
+        static Mat4 frustum(float left, float right, float bottom, float top, float near, float far);
     };
 }
 
@@ -57,6 +70,12 @@ namespace math {
         res.m[3] = m[4]; res.m[4] = m[5]; res.m[5] = m[6]; // Col 1
         res.m[6] = m[8]; res.m[7] = m[9]; res.m[8] = m[10]; // Col 2
         return res;
+    }
+
+    void Mat4::setRotationScale(const Mat3& rotation) {
+        m[0] = rotation.m[0]; m[1] = rotation.m[1]; m[2] = rotation.m[2]; // Col 0
+        m[4] = rotation.m[3]; m[5] = rotation.m[4]; m[6] = rotation.m[5]; // Col 1
+        m[8] = rotation.m[6]; m[9] = rotation.m[7]; m[10] = rotation.m[8]; // Col 2
     }
     
     // Matrix Multiplication (Simplified loop for clarity)
@@ -144,6 +163,55 @@ namespace math {
             m[2]*v.x + m[6]*v.y + m[10]*v.z + m[14]*v.w,
             m[3]*v.x + m[7]*v.y + m[11]*v.z + m[15]*v.w
         };
+    }
+
+    // Implementation of the frustum logic used by JOML
+    Mat4 Mat4::frustum(float left, float right, float bottom, float top, float near, float far) {
+        Mat4 res; // Starts as identity
+        res.m[0] = (2.0f * near) / (right - left);
+        res.m[5] = -(2.0f * near) / (top - bottom); // Vulkan NDC Y is down; negate to un-flip
+        res.m[8] = (right + left) / (right - left);
+        res.m[9] = (top + bottom) / (top - bottom);
+        res.m[10] = -(far + near) / (far - near);
+        res.m[11] = -1.0f;
+        res.m[14] = -(2.0f * far * near) / (far - near);
+        res.m[15] = 0.0f;
+        return res;
+    }
+
+    // Port of your genProjectionMatrix
+    Mat4 Mat4::perspective(float fov, float aspectRatio, float near, float far) {
+        float top = std::tan(fov / 2.0f) * near;
+        float bottom = -top;
+        float right = top * aspectRatio;
+        float left = -right;
+
+        return frustum(left, right, bottom, top, near, far);
+    }
+
+    // Port of your genViewMatrix using setRotationScale
+    Mat4 Mat4::view(const Vec3& position, const Vec3& rotation) {
+        // 1. Calculate individual rotation components as Mat3
+        // Using negative rotation values as per your Java source
+        Mat3 rx = Mat3::rotation(Vec3(1, 0, 0), -rotation.x);
+        Mat3 ry = Mat3::rotation(Vec3(0, 1, 0), -rotation.y);
+        Mat3 rz = Mat3::rotation(Vec3(0, 0, 1), -rotation.z);
+
+        // 2. Chain rotations:
+        Mat3 combinedRot = rz * (rx * ry);
+
+        // 3. Create a Mat4 and set its rotation portion
+        Mat4 res; // Identity by default
+        res.setRotationScale(combinedRot);
+
+        // 4. Create translation matrix for the camera position
+        Mat4 translation = Mat4::translate(position * -1.0f);
+
+        // 5. Final View Matrix = Rotation * Translation
+        // post multiplication
+        // This ensures the translation is applied after the orientation 
+        // has been set for the world relative to the camera.
+        return res * translation;
     }
 }
 #endif

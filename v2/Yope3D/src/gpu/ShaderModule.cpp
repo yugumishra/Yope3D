@@ -2,16 +2,38 @@
 #include <fstream>
 #include <stdexcept>
 #include <vector>
+#include <filesystem>
+#include <cstring>
+
+#ifdef YOPE_EMBED_ASSETS
+#include "generated/embedded_assets.h"
+#endif
 
 ShaderModule::ShaderModule(VkDevice device, const std::string& spvPath) : device(device) {
+    std::vector<char> code;
+    size_t size = 0;
+
+#ifdef YOPE_EMBED_ASSETS
+    // Extract just the filename (e.g., "triangle.vert.spv") for embedded lookup
+    std::string shaderName = std::filesystem::path(spvPath).filename().string();
+    EmbeddedAsset asset = getEmbeddedAsset(shaderName.c_str());
+    if (asset.data) {
+        code.resize(asset.size);
+        std::memcpy(code.data(), asset.data, asset.size);
+        size = asset.size;
+    } else {
+        throw std::runtime_error("Failed to find embedded shader: " + shaderName);
+    }
+#else
     std::ifstream file(spvPath, std::ios::binary | std::ios::ate);
     if (!file)
         throw std::runtime_error("Failed to open shader: " + spvPath);
 
-    auto size = static_cast<size_t>(file.tellg());
-    std::vector<char> code(size);
+    size = static_cast<size_t>(file.tellg());
+    code.resize(size);
     file.seekg(0);
     file.read(code.data(), static_cast<std::streamsize>(size));
+#endif
 
     VkShaderModuleCreateInfo ci{};
     ci.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
