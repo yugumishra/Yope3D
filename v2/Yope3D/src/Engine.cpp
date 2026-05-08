@@ -1,6 +1,7 @@
 #include "Engine.h"
 #include "math/Math.h"
 #include "rendering/Light.h"
+#include "assets/Primitives.h"
 #include <GLFW/glfw3.h>
 
 // ---------------------------------------------------------------------------
@@ -41,62 +42,14 @@ bool Engine::init() {
 
     // ----------------------------- TEST SCENE INIT FOR MILESTONE 4C -----------------------------
 
-    // Add the default cube mesh to the world.
-    static const std::vector<Vertex> kDefaultVertices = {
-        {{-0.5f, -0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-        {{ 0.5f,  0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
-        {{-0.5f,  0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
-        {{ 0.5f, -0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-
-        {{-0.5f, -0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {0.0f, 1.0f}},
-        {{ 0.5f,  0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {1.0f, 0.0f}},
-        {{-0.5f,  0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {0.0f, 0.0f}},
-        {{ 0.5f, -0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {1.0f, 1.0f}},
-
-        {{-0.5f,  0.5f,-0.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
-        {{ 0.5f,  0.5f, 0.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-        {{-0.5f,  0.5f, 0.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-        {{ 0.5f,  0.5f,-0.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
-
-        {{-0.5f, -0.5f,-0.5f}, { 0.0f, -1.0f, 0.0f}, {0.0f, 1.0f}},
-        {{ 0.5f, -0.5f, 0.5f}, { 0.0f, -1.0f, 0.0f}, {1.0f, 0.0f}},
-        {{-0.5f, -0.5f, 0.5f}, { 0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
-        {{ 0.5f, -0.5f,-0.5f}, { 0.0f, -1.0f, 0.0f}, {1.0f, 1.0f}},
-
-        {{ 0.5f, -0.5f,-0.5f}, { 1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
-        {{ 0.5f,  0.5f, 0.5f}, { 1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-        {{ 0.5f, -0.5f, 0.5f}, { 1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-        {{ 0.5f,  0.5f,-0.5f}, { 1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
-
-        {{-0.5f, -0.5f,-0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
-        {{-0.5f,  0.5f, 0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-        {{-0.5f, -0.5f, 0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-        {{-0.5f,  0.5f,-0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
-    };
-    static const std::vector<uint32_t> kDefaultIndices = {
-        0, 1, 2, 0, 3, 1,
-        4, 5, 6, 4, 7, 5,
-        8, 9, 10, 8, 11, 9,
-        12, 13, 14, 12, 15, 13,
-        16, 17, 18, 16, 19, 17,
-        20, 21, 22, 20, 23, 21,
-    };
-
-    static const std::vector<Vertex> planeVertices = {
-        {{-500.0f,-1.0f,-500.0f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-        {{ 500.0f,-1.0f, 500.0f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
-        {{-500.0f,-1.0f, 500.0f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
-        {{ 500.0f,-1.0f,-500.0f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-    };
-    static const std::vector<uint32_t> planeIndices = {
-        0, 1, 2, 0, 3, 1,
-    };
-    // Add meshes to the world.
-    world->addRenderMesh(*gpu, renderer->getCommandPool(), kDefaultVertices, kDefaultIndices);
-    world->addRenderMesh(*gpu, renderer->getCommandPool(), planeVertices, planeIndices);
+    // Add meshes to the world using Primitives.
+    //auto* cubeMesh  = world->addRenderMesh(*gpu, renderer->getCommandPool(), Primitives::cube());
+    auto* planeMesh = world->addRenderMesh(*gpu, renderer->getCommandPool(), Primitives::plane());
+    auto* sphereMesh = world->addRenderMesh(*gpu, renderer->getCommandPool(), Primitives::icosphere());
 
     // Configure the cube mesh: textured (try to load test.png)
-    if (auto cubeMesh = world->getRenderMesh(0)) {
+    /*
+    if (cubeMesh) {
         try {
             cubeMesh->texture = assets->loadTexture(*gpu, "textures/test.png");
             cubeMesh->color[0] = 1.0f;
@@ -110,14 +63,30 @@ bool Engine::init() {
             cubeMesh->color[2] = 1.0f;
             cubeMesh->state = 0;  // STATE_SOLID
         }
-    }
+    }*/
 
     // Configure the plane mesh: solid color
-    if (auto planeMesh = world->getRenderMesh(1)) {
+    if (planeMesh) {
         planeMesh->color[0] = 0.3f;
         planeMesh->color[1] = 0.3f;
         planeMesh->color[2] = 0.3f;
         planeMesh->state = 0;  // STATE_SOLID
+    }
+
+    if (sphereMesh) {
+        try {
+            sphereMesh->texture = assets->loadTexture(*gpu, "textures/test.png");
+            sphereMesh->color[0] = 1.0f;
+            sphereMesh->color[1] = 1.0f;
+            sphereMesh->color[2] = 1.0f;  // white tint for texture modulation
+            sphereMesh->state = 1;  // STATE_TEXTURED
+        } catch (const std::exception& e) {
+            // If texture load fails, fall back to solid color
+            sphereMesh->color[0] = 0.0f;
+            sphereMesh->color[1] = 1.0f;
+            sphereMesh->color[2] = 1.0f;
+            sphereMesh->state = 0;  // STATE_SOLID
+        }
     }
 
     // Add test lights for milestone 4c lighting (variable-length SSBO)

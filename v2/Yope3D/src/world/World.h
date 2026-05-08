@@ -3,6 +3,7 @@
 #include <vector>
 #include "RenderMesh.h"
 #include "../rendering/Light.h"
+#include "../assets/ObjLoader.h"
 
 class GpuDevice;
 class Window;
@@ -24,9 +25,14 @@ public:
     void cleanup(GpuDevice& gpu);
 
     // Renderables
-    void addRenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
-                       const std::vector<Vertex>&   vertices,
-                       const std::vector<uint32_t>& indices);
+    RenderMesh* addRenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
+                              const std::vector<Vertex>&   vertices,
+                              const std::vector<uint32_t>& indices);
+
+    // Convenience overload for LoadedMesh (from ObjLoader or Primitives).
+    RenderMesh* addRenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
+                              const LoadedMesh& mesh);
+
     const std::vector<std::unique_ptr<RenderMesh>>& getRenderMeshes() const;
     RenderMesh* getRenderMesh(size_t index);  // Get mesh by index
 

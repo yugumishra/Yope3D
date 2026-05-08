@@ -1,6 +1,8 @@
 #include "AssetManager.h"
 #include "../gpu/Texture.h"
 #include "../gpu/GpuDevice.h"
+#include "../world/RenderMesh.h"
+#include "ObjLoader.h"
 #include <stb_image.h>
 #include <filesystem>
 #include <stdexcept>
@@ -51,7 +53,15 @@ void AssetManager::init(GpuDevice& gpu, VkCommandPool commandPool,
 
 void AssetManager::cleanup(VkDevice dev)
 {
-    // Explicitly destroy all loaded textures first.
+    // Explicitly destroy all loaded meshes first.
+    for (auto& pair : meshes) {
+        if (pair.second) {
+            pair.second->destroy(dev);
+        }
+    }
+    meshes.clear();
+
+    // Explicitly destroy all loaded textures.
     for (auto& pair : textures) {
         if (pair.second) {
             pair.second->destroy(dev);
@@ -121,4 +131,39 @@ Texture* AssetManager::loadTexture(GpuDevice& gpu, const std::string& path)
 Texture* AssetManager::getDefaultTexture() const
 {
     return defaultTexture.get();
+}
+
+RenderMesh* AssetManager::loadMesh(GpuDevice& gpu, const std::string& path)
+{
+    // Check if already loaded.
+    auto it = meshes.find(path);
+    if (it != meshes.end())
+        return it->second.get();
+
+    // ---------------------------------------------------------------------------
+    // Load and parse OBJ file.
+    // ---------------------------------------------------------------------------
+
+    std::string fullPath = (std::filesystem::path(YOPE_ASSETS_DIR) / path).string();
+    LoadedMesh loaded = ObjLoader::load(fullPath);
+
+    // ---------------------------------------------------------------------------
+    // Create Vulkan mesh from loaded data.
+    // ---------------------------------------------------------------------------
+
+    auto mesh = std::make_unique<RenderMesh>(gpu, commandPool, loaded.vertices, loaded.indices);
+    RenderMesh* meshPtr = mesh.get();
+    meshes[path] = std::move(mesh);
+
+    // TODO: Apply material data (loaded.material) to the mesh if needed.
+    // For now, the caller can manually set texture via mesh->texture.
+
+    return meshPtr;
+}
+
+RenderMesh* AssetManager::addMesh(GpuDevice& gpu, const std::string& cacheKey)
+{
+    // This is a placeholder for future use (e.g., dynamic mesh creation).
+    // For Milestone 5, it's not used; Primitives are added directly to World.
+    return nullptr;
 }
