@@ -3,7 +3,7 @@
 
 class RenderPass {
 public:
-    RenderPass(VkDevice device, VkFormat colorFormat);
+    RenderPass(VkDevice device, VkFormat colorFormat, VkFormat depthFormat);
     ~RenderPass();
 
     VkRenderPass get() const { return renderPass; }

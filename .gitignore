@@ -7,3 +7,6 @@ scripts/buildsystems/vcpkg.cmake
 
 #ignore claude specific stuff
 claude.md
+
+#ignore old source directory (already tracked)
+old_src_java/

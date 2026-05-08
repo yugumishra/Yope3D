@@ -66,7 +66,7 @@ public:
     // Mouse movement  (delta since last beginFrame)
     // ------------------------------------------------------------------
 
-    MouseDelta getMouseDelta() const { return mouseDelta; }
+    MouseDelta getMouseDelta() const { return prevMouseDelta; }
 
     // ------------------------------------------------------------------
     // Scroll  (accumulated since last beginFrame)
@@ -97,6 +97,7 @@ private:
 
     // Per-frame delta — accumulated by onMouseMove, cleared by beginFrame.
     MouseDelta mouseDelta;
+    MouseDelta prevMouseDelta;
 
     // Accumulated scroll since last beginFrame.
     double scrollX = 0.0;

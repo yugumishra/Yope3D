@@ -1,27 +1,75 @@
 #include "Renderer.h"
+#include "Camera.h"
 #include "gpu/GpuDevice.h"
 #include "gpu/Swapchain.h"
 #include "gpu/RenderPass.h"
 #include "gpu/ShaderModule.h"
+#include "gpu/DescriptorSetLayout.h"
+#include "gpu/DescriptorPool.h"
+#include "math/Mat4.h"
 #include "platform/Window.h"
 #include <GLFW/glfw3.h>
 #include <stdexcept>
 #include <array>
+#include <vector>
 #include <cstring>
 
 // ---------------------------------------------------------------------------
-// Default triangle (RGB, NDC coordinates)
+// GlobalUBO — must match the std140 layout in triangle.vert exactly.
+// view + proj: column-major Mat4 (16 floats each).
+// cameraPos:   vec3 padded to 16 bytes per std140.
+// ---------------------------------------------------------------------------
+
+struct GlobalUBO {
+    math::Mat4 view;        // 64 bytes
+    math::Mat4 proj;        // 64 bytes
+    float      cameraPos[3]; // 12 bytes — vec3 body
+    float      _pad;         //  4 bytes — std140 pads vec3 to vec4
+};
+static_assert(sizeof(GlobalUBO) == 144, "GlobalUBO size must match std140 layout");
+
+// ---------------------------------------------------------------------------
+// Default quad (normals pointing toward camera at +Z)
 // ---------------------------------------------------------------------------
 
 static const std::vector<Vertex> kDefaultVertices = {
-    {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
-    {{ 0.5f,  0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},
-    {{-0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},
-    {{ 0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}}
+    {{-0.5f, -0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+    {{ 0.5f,  0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+    {{-0.5f,  0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    {{ 0.5f, -0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+
+    {{-0.5f, -0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {0.0f, 0.0f}},
+    {{ 0.5f,  0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {1.0f, 1.0f}},
+    {{-0.5f,  0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {0.0f, 1.0f}},
+    {{ 0.5f, -0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {1.0f, 0.0f}},
+
+    {{-0.5f,  0.5f,-0.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+    {{ 0.5f,  0.5f, 0.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
+    {{-0.5f,  0.5f, 0.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
+    {{ 0.5f,  0.5f,-0.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+
+    {{-0.5f, -0.5f,-0.5f}, { 0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
+    {{ 0.5f, -0.5f, 0.5f}, { 0.0f, -1.0f, 0.0f}, {1.0f, 1.0f}},
+    {{-0.5f, -0.5f, 0.5f}, { 0.0f, -1.0f, 0.0f}, {0.0f, 1.0f}},
+    {{ 0.5f, -0.5f,-0.5f}, { 0.0f, -1.0f, 0.0f}, {1.0f, 0.0f}},
+
+    {{ 0.5f, -0.5f,-0.5f}, { 1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+    {{ 0.5f,  0.5f, 0.5f}, { 1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
+    {{ 0.5f, -0.5f, 0.5f}, { 1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
+    {{ 0.5f,  0.5f,-0.5f}, { 1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+
+    {{-0.5f, -0.5f,-0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+    {{-0.5f,  0.5f, 0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
+    {{-0.5f, -0.5f, 0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
+    {{-0.5f,  0.5f,-0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
 };
 static const std::vector<uint32_t> kDefaultIndices = { 
-    0,1,2,
-    0,1,3
+    0, 1, 2, 0, 3, 1,
+    4, 5, 6, 4, 7, 5,
+    8, 9, 10, 8, 11, 9,
+    12, 13, 14, 12, 15, 13,
+    16, 17, 18, 16, 19, 17,
+    20, 21, 22, 20, 23, 21,
 };
 
 // ---------------------------------------------------------------------------
@@ -30,7 +78,12 @@ static const std::vector<uint32_t> kDefaultIndices = {
 
 Renderer::Renderer(GpuDevice& gpu, Window& window) {
     swapchain = std::make_unique<Swapchain>(gpu, window);
+    depthBuffer = std::make_unique<DepthBuffer>(gpu, swapchain->extent().width, swapchain->extent().height);
     createRenderPass(gpu);
+    createUBOLayout(gpu.device());
+    createUniformBuffers(gpu);
+    createDescriptorPool(gpu.device());
+    createDescriptorSets(gpu.device());
     createPipeline(gpu.device());
     createFramebuffers(gpu.device());
     createCommandPool(gpu);
@@ -41,29 +94,31 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
 
 Renderer::~Renderer() {
     // Caller must have called waitIdle() before destroying.
-    // All Vulkan objects are destroyed here in reverse construction order.
 }
 
 void Renderer::waitIdle(GpuDevice& gpu) {
     vkDeviceWaitIdle(gpu.device());
 
-    destroyMesh(gpu.device());
+    if (mesh) { mesh->destroy(gpu.device()); mesh.reset(); }
 
     for (int i = 0; i < MAX_FRAMES; ++i) {
         vkDestroySemaphore(gpu.device(), imageAvailable[i], nullptr);
         vkDestroyFence(gpu.device(), inFlightFence[i], nullptr);
     }
-    for (auto& sem : renderFinished)
-        vkDestroySemaphore(gpu.device(), sem, nullptr);
+    for (auto& sem : renderFinished) vkDestroySemaphore(gpu.device(), sem, nullptr);
     renderFinished.clear();
 
     vkDestroyCommandPool(gpu.device(), commandPool, nullptr);
-
     destroyFramebuffers(gpu.device());
 
     vkDestroyPipeline(gpu.device(), pipeline, nullptr);
     vkDestroyPipelineLayout(gpu.device(), pipelineLayout, nullptr);
 
+    for (auto& ub : uniformBuffers) ub.destroy(gpu.device());
+    descriptorPool.reset();  // all descriptor sets freed implicitly
+    uboLayout.reset();
+
+    depthBuffer.reset();
     renderPass.reset();
     swapchain.reset();
 }
@@ -73,7 +128,60 @@ void Renderer::waitIdle(GpuDevice& gpu) {
 // ---------------------------------------------------------------------------
 
 void Renderer::createRenderPass(GpuDevice& gpu) {
-    renderPass = std::make_unique<RenderPass>(gpu.device(), swapchain->imageFormat());
+    renderPass = std::make_unique<RenderPass>(gpu.device(), swapchain->imageFormat(), depthBuffer->format());
+}
+
+// ---------------------------------------------------------------------------
+// Descriptor layout + pool + sets
+// ---------------------------------------------------------------------------
+
+void Renderer::createUBOLayout(VkDevice device) {
+    VkDescriptorSetLayoutBinding b{};
+    b.binding         = 0;
+    b.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    b.descriptorCount = 1;
+    // accessible from both stages; fragment will need cameraPos in Milestone 4c
+    b.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    uboLayout = std::make_unique<DescriptorSetLayout>(device, std::vector{b});
+}
+
+void Renderer::createUniformBuffers(GpuDevice& gpu) {
+    for (auto& ub : uniformBuffers)
+        ub = UniformBuffer(gpu, sizeof(GlobalUBO));
+}
+
+void Renderer::createDescriptorPool(VkDevice device) {
+    VkDescriptorPoolSize ps{};
+    ps.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    ps.descriptorCount = MAX_FRAMES;
+    descriptorPool = std::make_unique<DescriptorPool>(device, std::vector{ps}, MAX_FRAMES);
+}
+
+void Renderer::createDescriptorSets(VkDevice device) {
+    std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES, uboLayout->get());
+    VkDescriptorSetAllocateInfo ai{};
+    ai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    ai.descriptorPool     = descriptorPool->get();
+    ai.descriptorSetCount = MAX_FRAMES;
+    ai.pSetLayouts        = layouts.data();
+    if (vkAllocateDescriptorSets(device, &ai, descriptorSets.data()) != VK_SUCCESS)
+        throw std::runtime_error("Failed to allocate descriptor sets");
+
+    for (int i = 0; i < MAX_FRAMES; ++i) {
+        VkDescriptorBufferInfo buf{};
+        buf.buffer = uniformBuffers[i].get();
+        buf.offset = 0;
+        buf.range  = sizeof(GlobalUBO);
+
+        VkWriteDescriptorSet w{};
+        w.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w.dstSet          = descriptorSets[i];
+        w.dstBinding      = 0;
+        w.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        w.descriptorCount = 1;
+        w.pBufferInfo     = &buf;
+        vkUpdateDescriptorSets(device, 1, &w, 0, nullptr);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -94,34 +202,34 @@ void Renderer::createPipeline(VkDevice device) {
     stages[1].module = frag.get();
     stages[1].pName  = "main";
 
-    // Vertex input — one binding, two attributes (position + color)
+    // Vertex input — one binding, three attributes (position, normal, uv)
     VkVertexInputBindingDescription binding{};
     binding.binding   = 0;
     binding.stride    = sizeof(Vertex);
     binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    VkVertexInputAttributeDescription attrs[2]{};
-    attrs[0].location = 0;
-    attrs[0].binding  = 0;
+    VkVertexInputAttributeDescription attrs[3]{};
+    attrs[0].location = 0; attrs[0].binding = 0;
     attrs[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
     attrs[0].offset   = offsetof(Vertex, position);
-    attrs[1].location = 1;
-    attrs[1].binding  = 0;
+    attrs[1].location = 1; attrs[1].binding = 0;
     attrs[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
-    attrs[1].offset   = offsetof(Vertex, color);
+    attrs[1].offset   = offsetof(Vertex, normal);
+    attrs[2].location = 2; attrs[2].binding = 0;
+    attrs[2].format   = VK_FORMAT_R32G32_SFLOAT;
+    attrs[2].offset   = offsetof(Vertex, uv);
 
     VkPipelineVertexInputStateCreateInfo vertexInput{};
     vertexInput.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInput.vertexBindingDescriptionCount   = 1;
     vertexInput.pVertexBindingDescriptions      = &binding;
-    vertexInput.vertexAttributeDescriptionCount = 2;
+    vertexInput.vertexAttributeDescriptionCount = 3;
     vertexInput.pVertexAttributeDescriptions    = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
-    // Viewport and scissor are dynamic — set each frame to match swapchain extent.
     VkDynamicState dynStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
     VkPipelineDynamicStateCreateInfo dynamicState{};
     dynamicState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
@@ -150,12 +258,31 @@ void Renderer::createPipeline(VkDevice device) {
         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
     VkPipelineColorBlendStateCreateInfo colorBlend{};
-    colorBlend.sType             = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    colorBlend.attachmentCount   = 1;
-    colorBlend.pAttachments      = &blendAttachment;
+    colorBlend.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlend.attachmentCount = 1;
+    colorBlend.pAttachments    = &blendAttachment;
 
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable       = VK_TRUE;
+    depthStencil.depthWriteEnable      = VK_TRUE;
+    depthStencil.depthCompareOp        = VK_COMPARE_OP_LESS;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable     = VK_FALSE;
+
+    // Per-object model matrix via push constants (64 bytes, vertex stage only).
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pushRange.offset     = 0;
+    pushRange.size       = 64;  // sizeof(mat4)
+
+    VkDescriptorSetLayout setLayout = uboLayout->get();
     VkPipelineLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount         = 1;
+    layoutInfo.pSetLayouts            = &setLayout;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges    = &pushRange;
     if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
         throw std::runtime_error("Failed to create pipeline layout");
 
@@ -169,6 +296,7 @@ void Renderer::createPipeline(VkDevice device) {
     pipelineInfo.pRasterizationState = &rasterizer;
     pipelineInfo.pMultisampleState   = &multisampling;
     pipelineInfo.pColorBlendState    = &colorBlend;
+    pipelineInfo.pDepthStencilState  = &depthStencil;
     pipelineInfo.pDynamicState       = &dynamicState;
     pipelineInfo.layout              = pipelineLayout;
     pipelineInfo.renderPass          = renderPass->get();
@@ -186,11 +314,13 @@ void Renderer::createFramebuffers(VkDevice device) {
     const auto& views = swapchain->imageViews();
     framebuffers.resize(views.size());
     for (size_t i = 0; i < views.size(); ++i) {
+        VkImageView attachments[2] = {views[i], depthBuffer->imageView()};
+
         VkFramebufferCreateInfo fi{};
         fi.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         fi.renderPass      = renderPass->get();
-        fi.attachmentCount = 1;
-        fi.pAttachments    = &views[i];
+        fi.attachmentCount = 2;
+        fi.pAttachments    = attachments;
         fi.width           = swapchain->extent().width;
         fi.height          = swapchain->extent().height;
         fi.layers          = 1;
@@ -234,7 +364,7 @@ void Renderer::allocateCommandBuffers(VkDevice device) {
 void Renderer::createSyncObjects(VkDevice device) {
     VkSemaphoreCreateInfo si{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     VkFenceCreateInfo     fi{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-    fi.flags = VK_FENCE_CREATE_SIGNALED_BIT; // start signaled so frame 0 doesn't deadlock
+    fi.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
     for (int i = 0; i < MAX_FRAMES; ++i) {
         if (vkCreateSemaphore(device, &si, nullptr, &imageAvailable[i]) != VK_SUCCESS ||
@@ -242,10 +372,7 @@ void Renderer::createSyncObjects(VkDevice device) {
             throw std::runtime_error("Failed to create sync objects");
     }
 
-    // One renderFinished semaphore per swapchain image.  imageAvailable is per-frame
-    // (safe because the fence ensures the prior submit consuming it is done before reuse),
-    // but renderFinished is waited on by vkQueuePresentKHR, which holds it until the image
-    // is re-acquired.  In MAILBOX mode images can be skipped, so frame-indexed reuse races.
+    // renderFinished is per-swapchain-image (not per-frame) to avoid MAILBOX reuse races.
     renderFinished.resize(swapchain->imageCount());
     for (auto& sem : renderFinished)
         if (vkCreateSemaphore(device, &si, nullptr, &sem) != VK_SUCCESS)
@@ -265,128 +392,8 @@ void Renderer::setMesh(GpuDevice& gpu,
                        const std::vector<uint32_t>& indices)
 {
     vkDeviceWaitIdle(gpu.device());
-    destroyMesh(gpu.device());
-
-    uploadViaStaging(gpu,
-        vertices.data(), sizeof(Vertex) * vertices.size(),
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        vertexBuffer, vertexMemory);
-
-    uploadViaStaging(gpu,
-        indices.data(), sizeof(uint32_t) * indices.size(),
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        indexBuffer, indexMemory);
-
-    indexCount = static_cast<uint32_t>(indices.size());
-}
-
-void Renderer::destroyMesh(VkDevice device) {
-    if (indexBuffer  != VK_NULL_HANDLE) { vkDestroyBuffer(device, indexBuffer,  nullptr); indexBuffer  = VK_NULL_HANDLE; }
-    if (indexMemory  != VK_NULL_HANDLE) { vkFreeMemory(device, indexMemory,  nullptr); indexMemory  = VK_NULL_HANDLE; }
-    if (vertexBuffer != VK_NULL_HANDLE) { vkDestroyBuffer(device, vertexBuffer, nullptr); vertexBuffer = VK_NULL_HANDLE; }
-    if (vertexMemory != VK_NULL_HANDLE) { vkFreeMemory(device, vertexMemory, nullptr); vertexMemory = VK_NULL_HANDLE; }
-}
-
-// ---------------------------------------------------------------------------
-// Buffer utilities
-// ---------------------------------------------------------------------------
-
-uint32_t Renderer::findMemoryType(VkPhysicalDevice pd, uint32_t filter, VkMemoryPropertyFlags props) {
-    VkPhysicalDeviceMemoryProperties memProps{};
-    vkGetPhysicalDeviceMemoryProperties(pd, &memProps);
-    for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i)
-        if ((filter & (1u << i)) && (memProps.memoryTypes[i].propertyFlags & props) == props)
-            return i;
-    throw std::runtime_error("Failed to find suitable memory type");
-}
-
-void Renderer::createBuffer(GpuDevice& gpu, VkDeviceSize size,
-                            VkBufferUsageFlags usage, VkMemoryPropertyFlags props,
-                            VkBuffer& buf, VkDeviceMemory& mem)
-{
-    VkBufferCreateInfo bi{};
-    bi.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bi.size        = size;
-    bi.usage       = usage;
-    bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    if (vkCreateBuffer(gpu.device(), &bi, nullptr, &buf) != VK_SUCCESS)
-        throw std::runtime_error("Failed to create buffer");
-
-    VkMemoryRequirements req{};
-    vkGetBufferMemoryRequirements(gpu.device(), buf, &req);
-
-    VkMemoryAllocateInfo ai{};
-    ai.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    ai.allocationSize  = req.size;
-    ai.memoryTypeIndex = findMemoryType(gpu.physicalDevice(), req.memoryTypeBits, props);
-    if (vkAllocateMemory(gpu.device(), &ai, nullptr, &mem) != VK_SUCCESS)
-        throw std::runtime_error("Failed to allocate buffer memory");
-
-    vkBindBufferMemory(gpu.device(), buf, mem, 0);
-}
-
-void Renderer::uploadViaStaging(GpuDevice& gpu, const void* data, VkDeviceSize size,
-                                VkBufferUsageFlags dstUsage,
-                                VkBuffer& outBuffer, VkDeviceMemory& outMemory)
-{
-    VkBuffer       stagingBuf;
-    VkDeviceMemory stagingMem;
-    createBuffer(gpu, size,
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        stagingBuf, stagingMem);
-
-    void* mapped;
-    vkMapMemory(gpu.device(), stagingMem, 0, size, 0, &mapped);
-    memcpy(mapped, data, size);
-    vkUnmapMemory(gpu.device(), stagingMem);
-
-    createBuffer(gpu, size,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | dstUsage,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        outBuffer, outMemory);
-
-    copyBuffer(gpu, stagingBuf, outBuffer, size);
-
-    vkDestroyBuffer(gpu.device(), stagingBuf, nullptr);
-    vkFreeMemory(gpu.device(), stagingMem, nullptr);
-}
-
-VkCommandBuffer Renderer::beginOneTimeCommands(VkDevice device) {
-    VkCommandBufferAllocateInfo ai{};
-    ai.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    ai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    ai.commandPool        = commandPool;
-    ai.commandBufferCount = 1;
-
-    VkCommandBuffer cmd;
-    vkAllocateCommandBuffers(device, &ai, &cmd);
-
-    VkCommandBufferBeginInfo bi{};
-    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmd, &bi);
-    return cmd;
-}
-
-void Renderer::endOneTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer cmd) {
-    vkEndCommandBuffer(cmd);
-
-    VkSubmitInfo si{};
-    si.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    si.commandBufferCount = 1;
-    si.pCommandBuffers    = &cmd;
-    vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE);
-    vkQueueWaitIdle(queue);
-
-    vkFreeCommandBuffers(device, commandPool, 1, &cmd);
-}
-
-void Renderer::copyBuffer(GpuDevice& gpu, VkBuffer src, VkBuffer dst, VkDeviceSize size) {
-    VkCommandBuffer cmd = beginOneTimeCommands(gpu.device());
-    VkBufferCopy region{ 0, 0, size };
-    vkCmdCopyBuffer(cmd, src, dst, 1, &region);
-    endOneTimeCommands(gpu.device(), gpu.graphicsQueue(), cmd);
+    if (mesh) { mesh->destroy(gpu.device()); mesh.reset(); }
+    mesh = std::make_unique<RenderMesh>(gpu, commandPool, vertices, indices);
 }
 
 // ---------------------------------------------------------------------------
@@ -394,7 +401,6 @@ void Renderer::copyBuffer(GpuDevice& gpu, VkBuffer src, VkBuffer dst, VkDeviceSi
 // ---------------------------------------------------------------------------
 
 void Renderer::recreateSwapchain(GpuDevice& gpu, Window& window) {
-    // Wait while minimised — framebuffer size reports 0x0.
     int w = 0, h = 0;
     while (w == 0 || h == 0) {
         glfwGetFramebufferSize(window.getHandle(), &w, &h);
@@ -403,14 +409,13 @@ void Renderer::recreateSwapchain(GpuDevice& gpu, Window& window) {
 
     vkDeviceWaitIdle(gpu.device());
 
-    // Destroy renderFinished semaphores before recreating the swapchain — image
-    // count may change, so we resize the vector to match the new swapchain.
-    for (auto& sem : renderFinished)
-        vkDestroySemaphore(gpu.device(), sem, nullptr);
+    for (auto& sem : renderFinished) vkDestroySemaphore(gpu.device(), sem, nullptr);
     renderFinished.clear();
 
     destroyFramebuffers(gpu.device());
+    depthBuffer.reset();
     swapchain->recreate(gpu, window);
+    depthBuffer = std::make_unique<DepthBuffer>(gpu, swapchain->extent().width, swapchain->extent().height);
     createFramebuffers(gpu.device());
 
     VkSemaphoreCreateInfo si{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
@@ -429,7 +434,9 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex) {
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
 
-    VkClearValue clearColor{ .color = {0.05f, 0.05f, 0.05f, 1.0f} };
+    VkClearValue clearValues[2]{};
+    clearValues[0].color = {0.05f, 0.05f, 0.05f, 1.0f};
+    clearValues[1].depthStencil = {1.0f, 0};
 
     VkRenderPassBeginInfo rpbi{};
     rpbi.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -437,8 +444,8 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex) {
     rpbi.framebuffer       = framebuffers[imageIndex];
     rpbi.renderArea.offset = {0, 0};
     rpbi.renderArea.extent = swapchain->extent();
-    rpbi.clearValueCount   = 1;
-    rpbi.pClearValues      = &clearColor;
+    rpbi.clearValueCount   = 2;
+    rpbi.pClearValues      = clearValues;
 
     vkCmdBeginRenderPass(cmd, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -455,10 +462,16 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex) {
     VkRect2D scissor{ {0, 0}, swapchain->extent() };
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
-    vkCmdBindIndexBuffer(cmd, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
+    // Bind the per-frame global UBO (view + proj + cameraPos).
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+        0, 1, &descriptorSets[currentFrame], 0, nullptr);
+
+    // Push identity model matrix — per-object matrix for the single default mesh.
+    math::Mat4 model;  // default-constructed = identity
+    vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,
+        0, 64, model.m);
+
+    if (mesh) mesh->draw(cmd);
 
     vkCmdEndRenderPass(cmd);
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
@@ -468,7 +481,8 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex) {
 // ---------------------------------------------------------------------------
 // drawFrame
 // ---------------------------------------------------------------------------
-void Renderer::drawFrame(GpuDevice& gpu, Window& window) {
+
+void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera) {
     vkWaitForFences(gpu.device(), 1, &inFlightFence[currentFrame], VK_TRUE, UINT64_MAX);
 
     uint32_t imageIndex;
@@ -478,13 +492,22 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window) {
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         recreateSwapchain(gpu, window);
-        return; // fence stays signaled — safe to wait on it again next frame
+        return;
     }
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
         throw std::runtime_error("Failed to acquire swapchain image");
 
-    // Only reset after confirming we will submit work this frame.
     vkResetFences(gpu.device(), 1, &inFlightFence[currentFrame]);
+
+    // Write camera matrices into this frame's UBO before recording commands.
+    GlobalUBO uboData{};
+    uboData.view         = camera.genViewMatrix();
+    uboData.proj         = camera.genProjectionMatrix();
+    math::Vec3 pos       = camera.getPosition();
+    uboData.cameraPos[0] = pos.x;
+    uboData.cameraPos[1] = pos.y;
+    uboData.cameraPos[2] = pos.z;
+    uniformBuffers[currentFrame].write(&uboData, sizeof(GlobalUBO));
 
     vkResetCommandBuffer(cmdBuffers[currentFrame], 0);
     recordCommandBuffer(cmdBuffers[currentFrame], imageIndex);
@@ -498,7 +521,7 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window) {
     si.commandBufferCount   = 1;
     si.pCommandBuffers      = &cmdBuffers[currentFrame];
     si.signalSemaphoreCount = 1;
-    si.pSignalSemaphores    = &renderFinished[imageIndex]; // per-image, not per-frame
+    si.pSignalSemaphores    = &renderFinished[imageIndex];
 
     if (vkQueueSubmit(gpu.graphicsQueue(), 1, &si, inFlightFence[currentFrame]) != VK_SUCCESS)
         throw std::runtime_error("Failed to submit draw command buffer");
@@ -507,7 +530,7 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window) {
     VkPresentInfoKHR pi{};
     pi.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     pi.waitSemaphoreCount = 1;
-    pi.pWaitSemaphores    = &renderFinished[imageIndex]; // must match what submit signaled
+    pi.pWaitSemaphores    = &renderFinished[imageIndex];
     pi.swapchainCount     = 1;
     pi.pSwapchains        = &sc;
     pi.pImageIndices      = &imageIndex;

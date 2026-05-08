@@ -3,23 +3,17 @@
 #include <vector>
 #include <memory>
 #include <array>
+#include "RenderMesh.h"
+#include "gpu/UniformBuffer.h"
+#include "gpu/DepthBuffer.h"
 
 class GpuDevice;
 class Window;
+class Camera;
 class Swapchain;
 class RenderPass;
-
-// ---------------------------------------------------------------------------
-// Vertex
-//
-// position: NDC xyz; z is unused until transformation matrices are added.
-// color:    RGB vertex color, linearly interpolated by the rasteriser.
-// ---------------------------------------------------------------------------
-
-struct Vertex {
-    float position[3];
-    float color[3];
-};
+class DescriptorSetLayout;
+class DescriptorPool;
 
 // ---------------------------------------------------------------------------
 // Renderer
@@ -27,17 +21,13 @@ struct Vertex {
 // Owns everything between the logical device and the screen:
 //   - Swapchain + image views
 //   - Render pass
-//   - Graphics pipeline
+//   - Descriptor set layout + pool + per-frame sets (binding 0 → GlobalUBO)
+//   - Per-frame UniformBuffers (view, proj, cameraPos — written before draw)
+//   - Graphics pipeline (push constants carry the per-object model matrix)
 //   - Framebuffers (one per swapchain image, rebuilt on resize)
 //   - Command pool + per-frame command buffers
 //   - Synchronisation objects (2 frames in flight)
-//   - Active vertex + index buffers
-//
-// Resize handling: Window sets a resized flag when the framebuffer changes.
-// drawFrame() checks that flag and VK_ERROR_OUT_OF_DATE_KHR return codes,
-// calling recreateSwapchain() which only rebuilds the swapchain-dependent
-// objects (swapchain, image views, framebuffers).  Pipeline and render pass
-// survive resize unchanged.
+//   - Active RenderMesh
 // ---------------------------------------------------------------------------
 
 class Renderer {
@@ -45,12 +35,12 @@ public:
     Renderer(GpuDevice& gpu, Window& window);
     ~Renderer();
 
-    // Upload a new mesh.  Destroys previous buffers.  Safe before render loop.
+    // Upload a new mesh. Replaces any existing mesh. Safe before the render loop.
     void setMesh(GpuDevice& gpu,
                  const std::vector<Vertex>&   vertices,
                  const std::vector<uint32_t>& indices);
 
-    void drawFrame(GpuDevice& gpu, Window& window);
+    void drawFrame(GpuDevice& gpu, Window& window, const Camera& camera);
     void waitIdle(GpuDevice& gpu);
 
     Renderer(const Renderer&) = delete;
@@ -59,8 +49,15 @@ public:
 private:
     static constexpr int MAX_FRAMES = 2;
 
-    std::unique_ptr<Swapchain>  swapchain;
-    std::unique_ptr<RenderPass> renderPass;
+    std::unique_ptr<Swapchain>           swapchain;
+    std::unique_ptr<RenderPass>          renderPass;
+    std::unique_ptr<DepthBuffer>         depthBuffer;
+    std::unique_ptr<RenderMesh>          mesh;
+    std::unique_ptr<DescriptorSetLayout> uboLayout;
+    std::unique_ptr<DescriptorPool>      descriptorPool;
+
+    std::array<UniformBuffer,    MAX_FRAMES> uniformBuffers;
+    std::array<VkDescriptorSet,  MAX_FRAMES> descriptorSets{};
 
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkPipeline       pipeline       = VK_NULL_HANDLE;
@@ -71,17 +68,15 @@ private:
     std::array<VkCommandBuffer, MAX_FRAMES> cmdBuffers{};
 
     std::array<VkSemaphore, MAX_FRAMES> imageAvailable{};
-    std::vector<VkSemaphore>            renderFinished;  // one per swapchain image, not per frame
+    std::vector<VkSemaphore>            renderFinished;  // one per swapchain image
     std::array<VkFence,     MAX_FRAMES> inFlightFence{};
     uint32_t currentFrame = 0;
 
-    VkBuffer       vertexBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory vertexMemory = VK_NULL_HANDLE;
-    VkBuffer       indexBuffer  = VK_NULL_HANDLE;
-    VkDeviceMemory indexMemory  = VK_NULL_HANDLE;
-    uint32_t       indexCount   = 0;
-
     void createRenderPass(GpuDevice& gpu);
+    void createUBOLayout(VkDevice device);
+    void createUniformBuffers(GpuDevice& gpu);
+    void createDescriptorPool(VkDevice device);
+    void createDescriptorSets(VkDevice device);
     void createPipeline(VkDevice device);
     void createFramebuffers(VkDevice device);
     void createCommandPool(GpuDevice& gpu);
@@ -91,22 +86,6 @@ private:
 
     void recreateSwapchain(GpuDevice& gpu, Window& window);
     void destroyFramebuffers(VkDevice device);
-    void destroyMesh(VkDevice device);
 
     void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex);
-
-    void createBuffer(GpuDevice& gpu, VkDeviceSize size,
-                      VkBufferUsageFlags usage, VkMemoryPropertyFlags props,
-                      VkBuffer& buf, VkDeviceMemory& mem);
-
-    void uploadViaStaging(GpuDevice& gpu, const void* data, VkDeviceSize size,
-                          VkBufferUsageFlags dstUsage,
-                          VkBuffer& outBuffer, VkDeviceMemory& outMemory);
-    
-    void copyBuffer(GpuDevice& gpu, VkBuffer src, VkBuffer dst, VkDeviceSize size);
-
-    VkCommandBuffer beginOneTimeCommands(VkDevice device);
-    void            endOneTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer cmd);
-
-    static uint32_t findMemoryType(VkPhysicalDevice pd, uint32_t filter, VkMemoryPropertyFlags props);
 };
