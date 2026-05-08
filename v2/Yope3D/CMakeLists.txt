@@ -107,7 +107,6 @@ add_executable(yope3d
     src/gpu/LogicalDevice.cpp
     src/gpu/GpuDevice.cpp
     src/gpu/Swapchain.cpp
-    src/gpu/RenderPass.cpp
     src/gpu/DepthBuffer.cpp
     src/gpu/ShaderModule.cpp
     src/gpu/Buffer.cpp
@@ -115,8 +114,9 @@ add_executable(yope3d
     src/gpu/DescriptorPool.cpp
     src/gpu/UniformBuffer.cpp
     src/rendering/Renderer.cpp
-    src/rendering/RenderMesh.cpp
     src/rendering/Camera.cpp
+    src/world/World.cpp
+    src/world/RenderMesh.cpp
 )
 
 add_dependencies(yope3d compile_shaders)

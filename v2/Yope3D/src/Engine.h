@@ -6,6 +6,7 @@
 #include "gpu/GpuDevice.h"
 #include "rendering/Renderer.h"
 #include "rendering/Camera.h"
+#include "world/World.h"
 
 // ---------------------------------------------------------------------------
 // Engine
@@ -28,12 +29,11 @@ struct Engine {
     std::unique_ptr<GpuDevice> gpu;
     std::unique_ptr<Renderer>  renderer;
     std::unique_ptr<Camera>    camera;
+    std::unique_ptr<World>     world;
 
     // lastTime tracks the previous frame's timestamp for dt calculation.
     double lastTime = 0.0;
 
-    // Milestone 6+:
-    // std::unique_ptr<World>        world;
     // Milestone 7+:
     // std::unique_ptr<AudioSystem>  audio;
     // Milestone 8+:
