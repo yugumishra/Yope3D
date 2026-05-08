@@ -122,6 +122,8 @@ add_executable(yope3d
     src/world/World.cpp
     src/world/RenderMesh.cpp
     src/assets/AssetManager.cpp
+    src/assets/ObjLoader.cpp
+    src/assets/Primitives.cpp
 )
 
 add_dependencies(yope3d compile_shaders)

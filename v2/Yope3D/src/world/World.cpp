@@ -1,5 +1,6 @@
 #include "World.h"
 #include "../gpu/GpuDevice.h"
+#include "../assets/ObjLoader.h"
 
 World::~World() {
 }
@@ -18,13 +19,20 @@ void World::cleanup(GpuDevice& gpu) {
     lights.clear();
 }
 
-void World::addRenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
-                          const std::vector<Vertex>&   vertices,
-                          const std::vector<uint32_t>& indices)
+RenderMesh* World::addRenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
+                                  const std::vector<Vertex>&   vertices,
+                                  const std::vector<uint32_t>& indices)
 {
     renderMeshes.push_back(
         std::make_unique<RenderMesh>(gpu, commandPool, vertices, indices)
     );
+    return renderMeshes.back().get();
+}
+
+RenderMesh* World::addRenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
+                                  const LoadedMesh& mesh)
+{
+    return addRenderMesh(gpu, commandPool, mesh.vertices, mesh.indices);
 }
 
 const std::vector<std::unique_ptr<RenderMesh>>& World::getRenderMeshes() const {
