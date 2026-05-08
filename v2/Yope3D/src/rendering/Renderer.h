@@ -5,7 +5,10 @@
 #include <array>
 #include "../world/RenderMesh.h"
 #include "gpu/UniformBuffer.h"
+#include "gpu/StorageBuffer.h"
 #include "gpu/DepthBuffer.h"
+#include "Light.h"
+#include "../world/World.h"
 
 class GpuDevice;
 class Window;
@@ -54,6 +57,7 @@ private:
     std::unique_ptr<DescriptorPool>      descriptorPool;
 
     std::array<UniformBuffer,    MAX_FRAMES> uniformBuffers;
+    std::array<StorageBuffer,    MAX_FRAMES> lightBuffers;
     std::array<VkDescriptorSet,  MAX_FRAMES> descriptorSets{};
 
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
@@ -79,6 +83,7 @@ private:
     void createCommandPool(GpuDevice& gpu);
     void allocateCommandBuffers(VkDevice device);
     void createSyncObjects(VkDevice device);
+    void createLightBuffers(GpuDevice& gpu);
 
     void recreateSwapchain(GpuDevice& gpu, Window& window);
     void destroyFramebuffers(VkDevice device);

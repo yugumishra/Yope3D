@@ -5,7 +5,8 @@ World::~World() {
 }
 
 void World::init(GpuDevice& gpu) {
-    // Milestone 5: initialize with default mesh for now.
+    // Milestone 4: initialize with default mesh for now.
+    
     // Later milestones will load from assets/scripts.
 }
 
@@ -14,6 +15,7 @@ void World::cleanup(GpuDevice& gpu) {
         if (mesh) mesh->destroy(gpu.device());
     }
     renderMeshes.clear();
+    lights.clear();
 }
 
 void World::addRenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
@@ -27,4 +29,24 @@ void World::addRenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
 
 const std::vector<std::unique_ptr<RenderMesh>>& World::getRenderMeshes() const {
     return renderMeshes;
+}
+
+void World::addLight(const Light& light) {
+    lights.push_back(light);
+    lightsDirty = true;
+}
+
+void World::removeLight(int index) {
+    if (index >= 0 && index < static_cast<int>(lights.size())) {
+        lights.erase(lights.begin() + index);
+        lightsDirty = true;
+    }
+}
+
+void World::lightChanged() {
+    lightsDirty = true;
+}
+
+const std::vector<Light>& World::getLights() const {
+    return lights;
 }
