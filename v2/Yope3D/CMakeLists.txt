@@ -115,11 +115,13 @@ add_executable(yope3d
     src/gpu/DescriptorPool.cpp
     src/gpu/UniformBuffer.cpp
     src/gpu/StorageBuffer.cpp
+    src/gpu/Texture.cpp
     src/rendering/Renderer.cpp
     src/rendering/Camera.cpp
     src/rendering/Light.cpp
     src/world/World.cpp
     src/world/RenderMesh.cpp
+    src/assets/AssetManager.cpp
 )
 
 add_dependencies(yope3d compile_shaders)

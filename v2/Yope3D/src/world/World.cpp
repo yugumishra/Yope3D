@@ -31,6 +31,12 @@ const std::vector<std::unique_ptr<RenderMesh>>& World::getRenderMeshes() const {
     return renderMeshes;
 }
 
+RenderMesh* World::getRenderMesh(size_t index) {
+    if (index < renderMeshes.size())
+        return renderMeshes[index].get();
+    return nullptr;
+}
+
 void World::addLight(const Light& light) {
     lights.push_back(light);
     lightsDirty = true;

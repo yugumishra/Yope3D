@@ -11,6 +11,14 @@ layout(std430, set = 0, binding = 1) readonly buffer LightBuffer {
     float lightData[];
 };
 
+layout(set = 1, binding = 0) uniform sampler2D texSampler;
+
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    vec3 color;
+    int  state;
+} push;
+
 layout(location = 0) in vec3 fragNormal;
 layout(location = 1) in vec2 fragUV;
 layout(location = 2) in vec3 fragPos;
@@ -21,8 +29,15 @@ void main() {
     // Re-normalize interpolated normal (rasterization denormalizes it)
     vec3 N = normalize(fragNormal);
 
-    // Mesh color: hardcoded white for now (milestone 4d adds texturing and per-object color).
-    vec3 meshColor = vec3(1.0);
+    // Determine mesh color based on render state: SOLID (0) or TEXTURED (1).
+    vec3 meshColor;
+    if (push.state == 1) {
+        // Textured: sample from the texture and modulate by push.color
+        meshColor = texture(texSampler, fragUV).rgb * push.color;
+    } else {
+        // Solid color
+        meshColor = push.color;
+    }
 
     vec3 totalDiffuse = vec3(0.0);
     vec3 totalSpecular = vec3(0.0);

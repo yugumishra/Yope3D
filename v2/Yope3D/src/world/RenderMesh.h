@@ -29,6 +29,8 @@ struct Vertex {
 // Call destroy() before destroying the GpuDevice.
 // ---------------------------------------------------------------------------
 
+class Texture;
+
 class RenderMesh {
 public:
     RenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
@@ -39,6 +41,11 @@ public:
 
     // Bind vertex + index buffers and issue vkCmdDrawIndexed.
     void draw(VkCommandBuffer cmd) const;
+
+    // Rendering properties (set during initialization or per-frame updates)
+    Texture*    texture = nullptr;  // Non-owning pointer; nullptr = use default white texture
+    float       color[3] = {1.0f, 1.0f, 1.0f};  // Solid color or texture modulation
+    int         state = 0;  // Render state: STATE_SOLID (0) or STATE_TEXTURED (1)
 
     RenderMesh(const RenderMesh&) = delete;
     RenderMesh& operator=(const RenderMesh&) = delete;

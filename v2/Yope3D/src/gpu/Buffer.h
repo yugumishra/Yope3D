@@ -21,6 +21,10 @@ public:
                                const void* data, VkDeviceSize size,
                                VkBufferUsageFlags dstUsage);
 
+    // Create a buffer with specified usage and memory properties.
+    static Buffer create(GpuDevice& gpu, VkDeviceSize size,
+                        VkBufferUsageFlags usage, VkMemoryPropertyFlags props);
+
     Buffer() = default;
     Buffer(Buffer&&) noexcept;
     Buffer& operator=(Buffer&&) noexcept;
@@ -30,8 +34,9 @@ public:
 
     void destroy(VkDevice device);
 
-    VkBuffer     get()     const { return buffer; }
-    VkDeviceSize getSize() const { return size;   }
+    VkBuffer       get()        const { return buffer; }
+    VkDeviceMemory getMemory()  const { return memory; }
+    VkDeviceSize   getSize()    const { return size;   }
 
     //map memory method to allow for persistent memory mapped buffers
     void mapMemory(GpuDevice& gpu, void* mappedPointer);
@@ -40,8 +45,6 @@ private:
     Buffer(VkBuffer buf, VkDeviceMemory mem, VkDeviceSize sz)
         : buffer(buf), memory(mem), size(sz) {}
 
-    static Buffer   create(GpuDevice& gpu, VkDeviceSize size,
-                           VkBufferUsageFlags usage, VkMemoryPropertyFlags props);
     static uint32_t findMemoryType(VkPhysicalDevice pd, uint32_t filter,
                                    VkMemoryPropertyFlags props);
 

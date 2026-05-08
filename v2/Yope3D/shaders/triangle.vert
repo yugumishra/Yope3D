@@ -9,6 +9,8 @@ layout(set = 0, binding = 0) uniform GlobalUBO {
 
 layout(push_constant) uniform PushConstants {
     mat4 model;
+    vec3 color;
+    int  state;
 } push;
 
 layout(location = 0) in vec3 inPosition;
