@@ -32,6 +32,7 @@ public:
     math::Mat4 genProjectionMatrix() const;
 
     math::Vec3 getPosition() const { return position; }
+    math::Vec3 getForward()  const;  // Returns the camera's forward direction in world space
 
 private:
     static constexpr float SENSITIVITY = 0.002f;   // radians per pixel

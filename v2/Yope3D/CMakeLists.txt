@@ -110,11 +110,14 @@ add_executable(yope3d
     src/gpu/DepthBuffer.cpp
     src/gpu/ShaderModule.cpp
     src/gpu/Buffer.cpp
+    src/gpu/RenderPass.cpp
     src/gpu/DescriptorSetLayout.cpp
     src/gpu/DescriptorPool.cpp
     src/gpu/UniformBuffer.cpp
+    src/gpu/StorageBuffer.cpp
     src/rendering/Renderer.cpp
     src/rendering/Camera.cpp
+    src/rendering/Light.cpp
     src/world/World.cpp
     src/world/RenderMesh.cpp
 )

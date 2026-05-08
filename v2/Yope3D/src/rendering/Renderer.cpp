@@ -18,13 +18,14 @@
 // GlobalUBO — must match the std140 layout in triangle.vert exactly.
 // view + proj: column-major Mat4 (16 floats each).
 // cameraPos:   vec3 padded to 16 bytes per std140.
+// numLights:   int (replaces _pad, same 4-byte slot).
 // ---------------------------------------------------------------------------
 
 struct GlobalUBO {
     math::Mat4 view;        // 64 bytes
     math::Mat4 proj;        // 64 bytes
     float      cameraPos[3]; // 12 bytes — vec3 body
-    float      _pad;         //  4 bytes — std140 pads vec3 to vec4
+    int        numLights;    //  4 bytes — std140 pads vec3 to vec4, now holds light count
 };
 static_assert(sizeof(GlobalUBO) == 144, "GlobalUBO size must match std140 layout");
 
@@ -82,6 +83,7 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
     createRenderPass(gpu);
     createUBOLayout(gpu.device());
     createUniformBuffers(gpu);
+    createLightBuffers(gpu);
     createDescriptorPool(gpu.device());
     createDescriptorSets(gpu.device());
     createPipeline(gpu.device());
@@ -112,6 +114,7 @@ void Renderer::waitIdle(GpuDevice& gpu) {
     vkDestroyPipelineLayout(gpu.device(), pipelineLayout, nullptr);
 
     for (auto& ub : uniformBuffers) ub.destroy(gpu.device());
+    for (auto& sb : lightBuffers) sb.destroy(gpu.device());
     descriptorPool.reset();  // all descriptor sets freed implicitly
     uboLayout.reset();
 
@@ -133,13 +136,21 @@ void Renderer::createRenderPass(GpuDevice& gpu) {
 // ---------------------------------------------------------------------------
 
 void Renderer::createUBOLayout(VkDevice device) {
-    VkDescriptorSetLayoutBinding b{};
-    b.binding         = 0;
-    b.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    b.descriptorCount = 1;
-    // accessible from both stages; fragment will need cameraPos in Milestone 4c
-    b.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    uboLayout = std::make_unique<DescriptorSetLayout>(device, std::vector{b});
+    // Binding 0: GlobalUBO (view, proj, cameraPos, numLights)
+    VkDescriptorSetLayoutBinding uboBinding{};
+    uboBinding.binding         = 0;
+    uboBinding.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboBinding.descriptorCount = 1;
+    uboBinding.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    // Binding 1: LightBuffer SSBO (read-only storage buffer for lights)
+    VkDescriptorSetLayoutBinding ssboBinding{};
+    ssboBinding.binding         = 1;
+    ssboBinding.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    ssboBinding.descriptorCount = 1;
+    ssboBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;  // Fragment stage only
+
+    uboLayout = std::make_unique<DescriptorSetLayout>(device, std::vector{uboBinding, ssboBinding});
 }
 
 void Renderer::createUniformBuffers(GpuDevice& gpu) {
@@ -147,11 +158,25 @@ void Renderer::createUniformBuffers(GpuDevice& gpu) {
         ub = UniformBuffer(gpu, sizeof(GlobalUBO));
 }
 
+void Renderer::createLightBuffers(GpuDevice& gpu) {
+    // Allocate worst-case size: YOPE_MAX_LIGHTS * LIGHT_MAX_FLOATS * sizeof(float)
+    // (SpotLight needs 15 floats, which is the max)
+    VkDeviceSize lightBufferSize = YOPE_MAX_LIGHTS * LIGHT_MAX_FLOATS * sizeof(float);
+    for (auto& sb : lightBuffers)
+        sb = StorageBuffer(gpu, lightBufferSize);
+}
+
 void Renderer::createDescriptorPool(VkDevice device) {
-    VkDescriptorPoolSize ps{};
-    ps.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    ps.descriptorCount = MAX_FRAMES;
-    descriptorPool = std::make_unique<DescriptorPool>(device, std::vector{ps}, MAX_FRAMES);
+    // Pool sizes for both UBO (binding 0) and SSBO (binding 1) per frame
+    VkDescriptorPoolSize poolSizes[2]{};
+
+    poolSizes[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[0].descriptorCount = MAX_FRAMES;  // one UBO per frame
+
+    poolSizes[1].type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSizes[1].descriptorCount = MAX_FRAMES;  // one SSBO per frame
+
+    descriptorPool = std::make_unique<DescriptorPool>(device, std::vector{poolSizes[0], poolSizes[1]}, MAX_FRAMES);
 }
 
 void Renderer::createDescriptorSets(VkDevice device) {
@@ -165,19 +190,36 @@ void Renderer::createDescriptorSets(VkDevice device) {
         throw std::runtime_error("Failed to allocate descriptor sets");
 
     for (int i = 0; i < MAX_FRAMES; ++i) {
-        VkDescriptorBufferInfo buf{};
-        buf.buffer = uniformBuffers[i].get();
-        buf.offset = 0;
-        buf.range  = sizeof(GlobalUBO);
+        // Write binding 0: GlobalUBO
+        VkDescriptorBufferInfo uboBuf{};
+        uboBuf.buffer = uniformBuffers[i].get();
+        uboBuf.offset = 0;
+        uboBuf.range  = sizeof(GlobalUBO);
 
-        VkWriteDescriptorSet w{};
-        w.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        w.dstSet          = descriptorSets[i];
-        w.dstBinding      = 0;
-        w.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        w.descriptorCount = 1;
-        w.pBufferInfo     = &buf;
-        vkUpdateDescriptorSets(device, 1, &w, 0, nullptr);
+        VkWriteDescriptorSet uboWrite{};
+        uboWrite.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        uboWrite.dstSet          = descriptorSets[i];
+        uboWrite.dstBinding      = 0;
+        uboWrite.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        uboWrite.descriptorCount = 1;
+        uboWrite.pBufferInfo     = &uboBuf;
+
+        // Write binding 1: LightBuffer SSBO
+        VkDescriptorBufferInfo ssboBuf{};
+        ssboBuf.buffer = lightBuffers[i].get();
+        ssboBuf.offset = 0;
+        ssboBuf.range  = lightBuffers[i].getSize();
+
+        VkWriteDescriptorSet ssboWrite{};
+        ssboWrite.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        ssboWrite.dstSet          = descriptorSets[i];
+        ssboWrite.dstBinding      = 1;
+        ssboWrite.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        ssboWrite.descriptorCount = 1;
+        ssboWrite.pBufferInfo     = &ssboBuf;
+
+        VkWriteDescriptorSet writes[2] = {uboWrite, ssboWrite};
+        vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
     }
 }
 
@@ -488,6 +530,27 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, c
     uboData.cameraPos[0] = pos.x;
     uboData.cameraPos[1] = pos.y;
     uboData.cameraPos[2] = pos.z;
+
+    // Pack and upload lights from the world.
+    const auto& worldLights = world.getLights();
+    uint32_t numLights = static_cast<uint32_t>(worldLights.size());
+    if (numLights > YOPE_MAX_LIGHTS) numLights = YOPE_MAX_LIGHTS;
+    uboData.numLights = static_cast<int>(numLights);
+
+    // Pack lights into variable-length float stream.
+    std::vector<float> packedLights;
+    math::Vec3 camDir = camera.getForward();  // Camera forward direction
+    for (uint32_t i = 0; i < numLights; ++i) {
+        auto lightData = packLight(worldLights[i], pos, camDir);
+        packedLights.insert(packedLights.end(), lightData.begin(), lightData.end());
+    }
+
+    // Upload light data to the SSBO. Write only the actual packed size.
+    if (!packedLights.empty()) {
+        lightBuffers[currentFrame].write(packedLights.data(), packedLights.size() * sizeof(float));
+    }
+
+    // Upload UBO with updated numLights.
     uniformBuffers[currentFrame].write(&uboData, sizeof(GlobalUBO));
 
     vkResetCommandBuffer(cmdBuffers[currentFrame], 0);

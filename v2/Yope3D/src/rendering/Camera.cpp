@@ -57,3 +57,15 @@ Mat4 Camera::genViewMatrix() const {
 Mat4 Camera::genProjectionMatrix() const {
     return Mat4::perspective(fov, aspectRatio, NEAR_PLANE, FAR_PLANE);
 }
+
+Vec3 Camera::getForward() const {
+    // Compute forward direction from yaw (rotation.y) and pitch (rotation.x).
+    // This is the 3D direction the camera is looking along (camera -Z axis in world space).
+    float sy = std::sin(rotation.y);
+    float cy = std::cos(rotation.y);
+    float sp = std::sin(rotation.x);
+    float cp = std::cos(rotation.x);
+
+    // Forward = (-sin(yaw)*cos(pitch), -sin(pitch), -cos(yaw)*cos(pitch))
+    return Vec3{-sy * cp, -sp, -cy * cp};
+}
