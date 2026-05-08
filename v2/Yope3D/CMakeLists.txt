@@ -123,6 +123,8 @@ add_executable(yope3d
     src/world/RenderMesh.cpp
     src/assets/AssetManager.cpp
     src/assets/ObjLoader.cpp
+    src/assets/ImageLoader.cpp
+    src/assets/AudioLoader.cpp
     src/assets/Primitives.cpp
 )
 
@@ -166,3 +168,23 @@ add_executable(yope_tests
 
 target_include_directories(yope_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(yope_tests PRIVATE Catch2::Catch2WithMain)
+
+# ---------------------------------------------------------------------------
+# Package version test — verifies external dependencies are linked correctly
+# ---------------------------------------------------------------------------
+
+add_executable(package_version_tests
+    tests/package_version_tests.cpp
+    src/stb_impl.cpp
+)
+
+target_include_directories(package_version_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+    "${Stb_INCLUDE_DIR}"
+)
+
+target_link_libraries(package_version_tests PRIVATE
+    glfw
+    freetype
+    OpenAL::OpenAL
+)
