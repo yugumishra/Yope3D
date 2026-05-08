@@ -28,6 +28,7 @@ public:
                        const std::vector<Vertex>&   vertices,
                        const std::vector<uint32_t>& indices);
     const std::vector<std::unique_ptr<RenderMesh>>& getRenderMeshes() const;
+    RenderMesh* getRenderMesh(size_t index);  // Get mesh by index
 
     // Lights
     void addLight(const Light& light);

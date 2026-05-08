@@ -31,6 +31,8 @@ bool Engine::init() {
 
     gpu      = std::make_unique<GpuDevice>(*window);
     renderer = std::make_unique<Renderer>(*gpu, *window);
+    assets   = std::make_unique<AssetManager>();
+    assets->init(*gpu, renderer->getCommandPool(), renderer->getTextureSetLayout());
     world    = std::make_unique<World>();
 
     // 90° FOV in radians.
@@ -41,35 +43,35 @@ bool Engine::init() {
 
     // Add the default cube mesh to the world.
     static const std::vector<Vertex> kDefaultVertices = {
-        {{-0.5f, -0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
-        {{ 0.5f,  0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-        {{-0.5f,  0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-        {{ 0.5f, -0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+        {{-0.5f, -0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+        {{ 0.5f,  0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+        {{-0.5f,  0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+        {{ 0.5f, -0.5f, 0.5f}, { 0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
 
-        {{-0.5f, -0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {0.0f, 0.0f}},
-        {{ 0.5f,  0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {1.0f, 1.0f}},
-        {{-0.5f,  0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {0.0f, 1.0f}},
-        {{ 0.5f, -0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {1.0f, 0.0f}},
+        {{-0.5f, -0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {0.0f, 1.0f}},
+        {{ 0.5f,  0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {1.0f, 0.0f}},
+        {{-0.5f,  0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {0.0f, 0.0f}},
+        {{ 0.5f, -0.5f,-0.5f}, { 0.0f, 0.0f,-1.0f}, {1.0f, 1.0f}},
 
-        {{-0.5f,  0.5f,-0.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-        {{ 0.5f,  0.5f, 0.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
-        {{-0.5f,  0.5f, 0.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
-        {{ 0.5f,  0.5f,-0.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+        {{-0.5f,  0.5f,-0.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
+        {{ 0.5f,  0.5f, 0.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+        {{-0.5f,  0.5f, 0.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+        {{ 0.5f,  0.5f,-0.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
 
-        {{-0.5f, -0.5f,-0.5f}, { 0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
-        {{ 0.5f, -0.5f, 0.5f}, { 0.0f, -1.0f, 0.0f}, {1.0f, 1.0f}},
-        {{-0.5f, -0.5f, 0.5f}, { 0.0f, -1.0f, 0.0f}, {0.0f, 1.0f}},
-        {{ 0.5f, -0.5f,-0.5f}, { 0.0f, -1.0f, 0.0f}, {1.0f, 0.0f}},
+        {{-0.5f, -0.5f,-0.5f}, { 0.0f, -1.0f, 0.0f}, {0.0f, 1.0f}},
+        {{ 0.5f, -0.5f, 0.5f}, { 0.0f, -1.0f, 0.0f}, {1.0f, 0.0f}},
+        {{-0.5f, -0.5f, 0.5f}, { 0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
+        {{ 0.5f, -0.5f,-0.5f}, { 0.0f, -1.0f, 0.0f}, {1.0f, 1.0f}},
 
-        {{ 0.5f, -0.5f,-0.5f}, { 1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-        {{ 0.5f,  0.5f, 0.5f}, { 1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
-        {{ 0.5f, -0.5f, 0.5f}, { 1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
-        {{ 0.5f,  0.5f,-0.5f}, { 1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+        {{ 0.5f, -0.5f,-0.5f}, { 1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
+        {{ 0.5f,  0.5f, 0.5f}, { 1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+        {{ 0.5f, -0.5f, 0.5f}, { 1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+        {{ 0.5f,  0.5f,-0.5f}, { 1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
 
-        {{-0.5f, -0.5f,-0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-        {{-0.5f,  0.5f, 0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
-        {{-0.5f, -0.5f, 0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
-        {{-0.5f,  0.5f,-0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+        {{-0.5f, -0.5f,-0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
+        {{-0.5f,  0.5f, 0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+        {{-0.5f, -0.5f, 0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+        {{-0.5f,  0.5f,-0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
     };
     static const std::vector<uint32_t> kDefaultIndices = {
         0, 1, 2, 0, 3, 1,
@@ -89,8 +91,34 @@ bool Engine::init() {
     static const std::vector<uint32_t> planeIndices = {
         0, 1, 2, 0, 3, 1,
     };
+    // Add meshes to the world.
     world->addRenderMesh(*gpu, renderer->getCommandPool(), kDefaultVertices, kDefaultIndices);
     world->addRenderMesh(*gpu, renderer->getCommandPool(), planeVertices, planeIndices);
+
+    // Configure the cube mesh: textured (try to load test.png)
+    if (auto cubeMesh = world->getRenderMesh(0)) {
+        try {
+            cubeMesh->texture = assets->loadTexture(*gpu, "textures/test.png");
+            cubeMesh->color[0] = 1.0f;
+            cubeMesh->color[1] = 1.0f;
+            cubeMesh->color[2] = 1.0f;  // white tint for texture modulation
+            cubeMesh->state = 1;  // STATE_TEXTURED
+        } catch (const std::exception& e) {
+            // If texture load fails, fall back to solid color
+            cubeMesh->color[0] = 0.0f;
+            cubeMesh->color[1] = 1.0f;
+            cubeMesh->color[2] = 1.0f;
+            cubeMesh->state = 0;  // STATE_SOLID
+        }
+    }
+
+    // Configure the plane mesh: solid color
+    if (auto planeMesh = world->getRenderMesh(1)) {
+        planeMesh->color[0] = 0.3f;
+        planeMesh->color[1] = 0.3f;
+        planeMesh->color[2] = 0.3f;
+        planeMesh->state = 0;  // STATE_SOLID
+    }
 
     // Add test lights for milestone 4c lighting (variable-length SSBO)
 
@@ -107,7 +135,7 @@ bool Engine::init() {
     pointLight.constant = 1.0f;
     pointLight.linear = 0.09f;
     pointLight.quadratic = 0.032f;
-    world->addLight(pointLight);
+    world->addLight(pointLight);*/
 
     // Directional light (sun-like): cool white from above-right
     DirectionalLight dirLight{};
@@ -117,8 +145,8 @@ bool Engine::init() {
     dirLight.color[0] = 0.8f;
     dirLight.color[1] = 0.85f;
     dirLight.color[2] = 1.0f;
-    dirLight.intensity = 0.7f;
-    world->addLight(dirLight);*/
+    dirLight.intensity = 0.3f;
+    world->addLight(dirLight);
 
     // Spot light: red, positioned to the left
     SpotLight spotLight{};
@@ -141,9 +169,9 @@ bool Engine::init() {
 
     // Flash light (camera light): attached to camera for debugging
     FlashLight flashLight{};
-    flashLight.color[0] = 0.3f;
-    flashLight.color[1] = 0.6f;
-    flashLight.color[2] = 1.0f;  // blue tint
+    flashLight.color[0] = 1.0f;
+    flashLight.color[1] = 1.0f;
+    flashLight.color[2] = 1.0f;
     flashLight.intensity = 0.5f;
     flashLight.innerConeAngle = math::toRadians(20.0f);
     flashLight.outerConeAngle = math::toRadians(40.0f);
@@ -190,7 +218,7 @@ void Engine::update() {
 // ---------------------------------------------------------------------------
 
 void Engine::render() {
-    renderer->drawFrame(*gpu, *window, *camera, *world);
+    renderer->drawFrame(*gpu, *window, *camera, *world, *assets);
 }
 
 // ---------------------------------------------------------------------------
@@ -199,16 +227,21 @@ void Engine::render() {
 
 void Engine::cleanup() {
     // Milestone 8: script->cleanup()
-    // Milestone 7: audio.reset();
-    // Milestone 8: assets.reset();
     camera.reset();
-    // CRITICAL: Call waitIdle BEFORE destroying world buffers. The GPU may still be
-    // referencing RenderMesh/light buffers in flight, so we must flush all pending
+    // CRITICAL: Call waitIdle BEFORE destroying GPU resources. The GPU may still be
+    // referencing buffers and textures in flight, so we must flush all pending
     // work before cleanup() destroys them.
     renderer->waitIdle(*gpu);
+    // Assets must be cleaned up before the renderer is destroyed because textures
+    // reference Vulkan objects that are managed by the GPU.
+    if (assets) {
+        assets->cleanup(gpu->device());
+        assets.reset();
+    }
     world->cleanup(*gpu);
     world.reset();
     renderer.reset();
+    // Milestone 7: audio.reset();
     gpu.reset();
     window.reset();
     input.reset();
