@@ -1,8 +1,8 @@
 #include "Window.h"
 #include "Input.h"
+#include "../assets/ImageLoader.h"
 
 #include <filesystem>
-#include <stb_image.h>
 #include <iostream>
 
 #ifdef YOPE_EMBED_ASSETS
@@ -200,29 +200,27 @@ void Window::scrollCallback(GLFWwindow* w, double xOffset, double yOffset) {
 }
 
 void Window::setIcon(const std::string& assetPath) {
-    int w, h, channels;
-    stbi_uc* pixels = nullptr;
+    LoadedImage image;
 
+    try {
 #ifdef YOPE_EMBED_ASSETS
-    EmbeddedAsset asset = getEmbeddedAsset(assetPath.c_str());
-    if (asset.data) {
-        pixels = stbi_load_from_memory(
-            asset.data, static_cast<int>(asset.size),
-            &w, &h, &channels, 4);
-    }
+        EmbeddedAsset asset = getEmbeddedAsset(assetPath.c_str());
+        if (asset.data) {
+            image = ImageLoader::loadFromMemory(asset.data, static_cast<int>(asset.size));
+        } else {
+            return;  // Icon is cosmetic — missing file is not fatal.
+        }
 #else
-    // This handles "/" vs "\" automatically for Mac and Windows builds
-    std::string fullPath = (std::filesystem::path(YOPE_ASSETS_DIR) / assetPath).string();
-    pixels = stbi_load(fullPath.c_str(), &w, &h, &channels, 4);
+        // This handles "/" vs "\" automatically for Mac and Windows builds
+        std::string fullPath = (std::filesystem::path(YOPE_ASSETS_DIR) / assetPath).string();
+        image = ImageLoader::load(fullPath);
 #endif
-
-    if (!pixels) {
+    } catch (...) {
         // Icon is cosmetic — missing file is not fatal.
         return;
     }
 
-    GLFWimage icon{ w, h, pixels };
+    GLFWimage icon{ image.width, image.height, image.pixels.data() };
     glfwSetWindowIcon(window, 1, &icon);
-    stbi_image_free(pixels);
 }
 

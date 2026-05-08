@@ -3,7 +3,7 @@
 #include "../gpu/GpuDevice.h"
 #include "../world/RenderMesh.h"
 #include "ObjLoader.h"
-#include <stb_image.h>
+#include "ImageLoader.h"
 #include <filesystem>
 #include <stdexcept>
 
@@ -93,24 +93,20 @@ Texture* AssetManager::loadTexture(GpuDevice& gpu, const std::string& path)
     // Load image data (supports embedded + filesystem modes).
     // ---------------------------------------------------------------------------
 
-    int w, h, channels;
-    stbi_uc* pixels = nullptr;
+    LoadedImage image;
 
 #ifdef YOPE_EMBED_ASSETS
     EmbeddedAsset asset = getEmbeddedAsset(path.c_str());
     if (asset.data) {
-        pixels = stbi_load_from_memory(
-            asset.data, static_cast<int>(asset.size),
-            &w, &h, &channels, 4);  // Force RGBA
+        image = ImageLoader::loadFromMemory(asset.data, static_cast<int>(asset.size));
+    } else {
+        throw std::runtime_error("Failed to load embedded texture: " + path);
     }
 #else
     // Filesystem mode: handle "/" vs "\" automatically for cross-platform paths.
     std::string fullPath = (std::filesystem::path(YOPE_ASSETS_DIR) / path).string();
-    pixels = stbi_load(fullPath.c_str(), &w, &h, &channels, 4);  // Force RGBA
+    image = ImageLoader::load(fullPath);
 #endif
-
-    if (!pixels)
-        throw std::runtime_error("Failed to load texture: " + path);
 
     // ---------------------------------------------------------------------------
     // Create Vulkan texture from pixel data.
@@ -118,10 +114,8 @@ Texture* AssetManager::loadTexture(GpuDevice& gpu, const std::string& path)
 
     auto texture = std::make_unique<Texture>(
         Texture::load(gpu, commandPool, descriptorSetLayout, descriptorPool,
-                     pixels, w, h)
+                     image.pixels.data(), image.width, image.height)
     );
-
-    stbi_image_free(pixels);
 
     Texture* texturePtr = texture.get();
     textures[path] = std::move(texture);
