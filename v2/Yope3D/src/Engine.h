@@ -7,6 +7,7 @@
 #include "rendering/Renderer.h"
 #include "rendering/Camera.h"
 #include "world/World.h"
+#include "assets/AssetManager.h"
 
 // ---------------------------------------------------------------------------
 // Engine
@@ -24,20 +25,19 @@
 // ---------------------------------------------------------------------------
 
 struct Engine {
-    std::unique_ptr<Window>   window;
-    std::unique_ptr<Input>    input;
-    std::unique_ptr<GpuDevice> gpu;
-    std::unique_ptr<Renderer>  renderer;
-    std::unique_ptr<Camera>    camera;
-    std::unique_ptr<World>     world;
+    std::unique_ptr<Window>        window;
+    std::unique_ptr<Input>         input;
+    std::unique_ptr<GpuDevice>     gpu;
+    std::unique_ptr<Renderer>      renderer;
+    std::unique_ptr<Camera>        camera;
+    std::unique_ptr<World>         world;
+    std::unique_ptr<AssetManager>  assets;
 
     // lastTime tracks the previous frame's timestamp for dt calculation.
     double lastTime = 0.0;
 
     // Milestone 7+:
     // std::unique_ptr<AudioSystem>  audio;
-    // Milestone 8+:
-    // std::unique_ptr<AssetManager> assets;
 
     bool init();
     void update();

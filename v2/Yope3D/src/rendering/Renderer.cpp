@@ -6,8 +6,10 @@
 #include "gpu/ShaderModule.h"
 #include "gpu/DescriptorSetLayout.h"
 #include "gpu/DescriptorPool.h"
+#include "gpu/Texture.h"
 #include "math/Mat4.h"
 #include "platform/Window.h"
+#include "assets/AssetManager.h"
 #include <GLFW/glfw3.h>
 #include <stdexcept>
 #include <array>
@@ -82,6 +84,7 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
     depthBuffer = std::make_unique<DepthBuffer>(gpu, swapchain->extent().width, swapchain->extent().height);
     createRenderPass(gpu);
     createUBOLayout(gpu.device());
+    createTextureSetLayout(gpu.device());
     createUniformBuffers(gpu);
     createLightBuffers(gpu);
     createDescriptorPool(gpu.device());
@@ -95,6 +98,10 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
 
 Renderer::~Renderer() {
     // Caller must have called waitIdle() before destroying.
+}
+
+VkDescriptorSetLayout Renderer::getTextureSetLayout() const {
+    return textureSetLayout->get();
 }
 
 void Renderer::waitIdle(GpuDevice& gpu) {
@@ -151,6 +158,17 @@ void Renderer::createUBOLayout(VkDevice device) {
     ssboBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;  // Fragment stage only
 
     uboLayout = std::make_unique<DescriptorSetLayout>(device, std::vector{uboBinding, ssboBinding});
+}
+
+void Renderer::createTextureSetLayout(VkDevice device) {
+    // Set 1 layout: binding 0 = combined image sampler (per-texture descriptor set)
+    VkDescriptorSetLayoutBinding samplerBinding{};
+    samplerBinding.binding         = 0;
+    samplerBinding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    samplerBinding.descriptorCount = 1;
+    samplerBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    textureSetLayout = std::make_unique<DescriptorSetLayout>(device, std::vector{samplerBinding});
 }
 
 void Renderer::createUniformBuffers(GpuDevice& gpu) {
@@ -309,17 +327,19 @@ void Renderer::createPipeline(VkDevice device) {
     depthStencil.depthBoundsTestEnable = VK_FALSE;
     depthStencil.stencilTestEnable     = VK_FALSE;
 
-    // Per-object model matrix via push constants (64 bytes, vertex stage only).
+    // Per-object model matrix + color + state via push constants.
+    // Layout: mat4 model (64 bytes) + vec3 color (12 bytes) + int state (4 bytes) = 80 bytes.
+    // Accessible to both vertex and fragment stages.
     VkPushConstantRange pushRange{};
-    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pushRange.offset     = 0;
-    pushRange.size       = 64;  // sizeof(mat4)
+    pushRange.size       = 80;  // mat4 + vec3 + int
 
-    VkDescriptorSetLayout setLayout = uboLayout->get();
+    VkDescriptorSetLayout setLayouts[2] = {uboLayout->get(), textureSetLayout->get()};
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layoutInfo.setLayoutCount         = 1;
-    layoutInfo.pSetLayouts            = &setLayout;
+    layoutInfo.setLayoutCount         = 2;
+    layoutInfo.pSetLayouts            = setLayouts;
     layoutInfo.pushConstantRangeCount = 1;
     layoutInfo.pPushConstantRanges    = &pushRange;
     if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
@@ -451,7 +471,8 @@ void Renderer::recreateSwapchain(GpuDevice& gpu, Window& window) {
 // Command buffer recording
 // ---------------------------------------------------------------------------
 
-void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, const World& world) {
+void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, const World& world,
+                                  AssetManager& assets) {
     VkCommandBufferBeginInfo bi{};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
@@ -484,15 +505,35 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
     VkRect2D scissor{ {0, 0}, swapchain->extent() };
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    // Bind the per-frame global UBO (view + proj + cameraPos).
+    // Bind the per-frame global UBO + SSBO (set 0: view + proj + cameraPos + lights).
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
         0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-    // Iterate over all RenderMeshes in the world and draw each with identity model matrix.
+    // Iterate over all RenderMeshes in the world and draw each.
     for (const auto& mesh : world.getRenderMeshes()) {
-        math::Mat4 model;  // default-constructed = identity
-        vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,
-            0, 64, model.m);
+        // Bind the mesh's texture descriptor set (set 1).
+        // If the mesh has no texture, use the default white texture.
+        Texture* textureToUse = mesh->texture ? mesh->texture : assets.getDefaultTexture();
+        VkDescriptorSet textureSet = textureToUse->getDescriptorSet();
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+            1, 1, &textureSet, 0, nullptr);
+
+        // Prepare push constants: identity model matrix + per-mesh color + state.
+        struct PushConstants {
+            math::Mat4 model;
+            float      color[3];
+            int32_t    state;
+        } push{};
+        push.model = math::Mat4();  // identity
+        push.color[0] = mesh->color[0];
+        push.color[1] = mesh->color[1];
+        push.color[2] = mesh->color[2];
+        push.state = mesh->state;
+
+        vkCmdPushConstants(cmd, pipelineLayout,
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            0, 80, &push);
+
         mesh->draw(cmd);
     }
 
@@ -505,7 +546,8 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
 // drawFrame
 // ---------------------------------------------------------------------------
 
-void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, const World& world) {
+void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, const World& world,
+                        AssetManager& assets) {
     vkWaitForFences(gpu.device(), 1, &inFlightFence[currentFrame], VK_TRUE, UINT64_MAX);
 
     uint32_t imageIndex;
@@ -554,7 +596,7 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, c
     uniformBuffers[currentFrame].write(&uboData, sizeof(GlobalUBO));
 
     vkResetCommandBuffer(cmdBuffers[currentFrame], 0);
-    recordCommandBuffer(cmdBuffers[currentFrame], imageIndex, world);
+    recordCommandBuffer(cmdBuffers[currentFrame], imageIndex, world, assets);
 
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo si{};

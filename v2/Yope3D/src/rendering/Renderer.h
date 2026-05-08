@@ -39,10 +39,12 @@ public:
     Renderer(GpuDevice& gpu, Window& window);
     ~Renderer();
 
-    void drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, const World& world);
+    void drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, const World& world,
+                   class AssetManager& assets);
     void waitIdle(GpuDevice& gpu);
 
-    VkCommandPool getCommandPool() const { return commandPool; }
+    VkCommandPool         getCommandPool()      const { return commandPool; }
+    VkDescriptorSetLayout getTextureSetLayout() const;
 
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
@@ -54,6 +56,7 @@ private:
     std::unique_ptr<RenderPass>          renderPass;
     std::unique_ptr<DepthBuffer>         depthBuffer;
     std::unique_ptr<DescriptorSetLayout> uboLayout;
+    std::unique_ptr<DescriptorSetLayout> textureSetLayout;
     std::unique_ptr<DescriptorPool>      descriptorPool;
 
     std::array<UniformBuffer,    MAX_FRAMES> uniformBuffers;
@@ -75,6 +78,7 @@ private:
 
     void createRenderPass(GpuDevice& gpu);
     void createUBOLayout(VkDevice device);
+    void createTextureSetLayout(VkDevice device);
     void createUniformBuffers(GpuDevice& gpu);
     void createDescriptorPool(VkDevice device);
     void createDescriptorSets(VkDevice device);
@@ -88,5 +92,6 @@ private:
     void recreateSwapchain(GpuDevice& gpu, Window& window);
     void destroyFramebuffers(VkDevice device);
 
-    void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, const World& world);
+    void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, const World& world,
+                            class AssetManager& assets);
 };
