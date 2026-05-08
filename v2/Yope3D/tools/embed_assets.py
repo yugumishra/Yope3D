@@ -32,24 +32,25 @@ def chunks(lst: list, n: int):
 # ---------------------------------------------------------------------------
 
 def main():
-    if len(sys.argv) != 3:
-        print(f"Usage: {sys.argv[0]} <assets_dir> <output_dir>", file=sys.stderr)
+    if len(sys.argv) < 3:
+        print(f"Usage: {sys.argv[0]} <input_dir1> [input_dir2 ...] <output_dir>", file=sys.stderr)
         sys.exit(1)
 
-    assets_dir = sys.argv[1]
-    output_dir = sys.argv[2]
+    input_dirs = sys.argv[1:-1]
+    output_dir = sys.argv[-1]
     os.makedirs(output_dir, exist_ok=True)
 
-    # Collect all files, sorted for deterministic output.
+    # Collect all files from all input directories, sorted for deterministic output.
     entries = []  # list of (rel_path, symbol, bytes)
-    for root, _dirs, files in os.walk(assets_dir):
-        for filename in sorted(files):
-            full_path = os.path.join(root, filename)
-            rel_path  = os.path.relpath(full_path, assets_dir).replace(os.sep, "/")
-            symbol    = path_to_symbol(rel_path)
-            with open(full_path, "rb") as f:
-                data = f.read()
-            entries.append((rel_path, symbol, data))
+    for input_dir in input_dirs:
+        for root, _dirs, files in os.walk(input_dir):
+            for filename in sorted(files):
+                full_path = os.path.join(root, filename)
+                rel_path  = os.path.relpath(full_path, input_dir).replace(os.sep, "/")
+                symbol    = path_to_symbol(rel_path)
+                with open(full_path, "rb") as f:
+                    data = f.read()
+                entries.append((rel_path, symbol, data))
 
     # ---- Header -----------------------------------------------------------
     h_path = os.path.join(output_dir, "embedded_assets.h")
@@ -92,7 +93,8 @@ def main():
         cpp.write("}\n")
 
     total_bytes = sum(len(data) for _, _, data in entries)
-    print(f"[embed_assets] Embedded {len(entries)} file(s), "
+    dir_names = ", ".join([os.path.basename(d) for d in input_dirs])
+    print(f"[embed_assets] Embedded {len(entries)} file(s) from [{dir_names}], "
           f"{total_bytes:,} bytes total -> {output_dir}")
 
 

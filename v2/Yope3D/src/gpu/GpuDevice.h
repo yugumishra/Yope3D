@@ -43,6 +43,9 @@ public:
     const VkPhysicalDeviceProperties& deviceProps()   const { return vkPhysical->properties(); }
     const VkPhysicalDeviceFeatures&   deviceFeatures() const { return vkPhysical->features(); }
 
+    // Find a memory type index matching requirements and desired properties.
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
+
     GpuDevice(const GpuDevice&) = delete;
     GpuDevice& operator=(const GpuDevice&) = delete;
 

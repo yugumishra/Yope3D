@@ -71,14 +71,17 @@ if(YOPE_EMBED_ASSETS)
     # add_custom_command ties the generated files to a build rule.
     # CMake will run the Python script whenever DEPENDS is out of date,
     # and treat EMBED_CPP/EMBED_H as real outputs that can be compiled.
+    # Note: ${COMPILED_SHADERS} is the list of shader targets created earlier,
+    # so the embed script will run after shaders are compiled.
     add_custom_command(
         OUTPUT  "${EMBED_CPP}" "${EMBED_H}"
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_SOURCE_DIR}/tools/embed_assets.py"
                 "${CMAKE_SOURCE_DIR}/assets"
+                "${CMAKE_SOURCE_DIR}/compiled_shaders"
                 "${GENERATED_DIR}"
-        DEPENDS "${CMAKE_SOURCE_DIR}/tools/embed_assets.py" ${ASSET_FILES}
-        COMMENT "Embedding assets into binary"
+        DEPENDS "${CMAKE_SOURCE_DIR}/tools/embed_assets.py" ${ASSET_FILES} ${COMPILED_SHADERS}
+        COMMENT "Embedding assets and shaders into binary"
     )
 
     # A static library gives the generated .cpp its own compile step and
@@ -105,8 +108,15 @@ add_executable(yope3d
     src/gpu/GpuDevice.cpp
     src/gpu/Swapchain.cpp
     src/gpu/RenderPass.cpp
+    src/gpu/DepthBuffer.cpp
     src/gpu/ShaderModule.cpp
+    src/gpu/Buffer.cpp
+    src/gpu/DescriptorSetLayout.cpp
+    src/gpu/DescriptorPool.cpp
+    src/gpu/UniformBuffer.cpp
     src/rendering/Renderer.cpp
+    src/rendering/RenderMesh.cpp
+    src/rendering/Camera.cpp
 )
 
 add_dependencies(yope3d compile_shaders)
