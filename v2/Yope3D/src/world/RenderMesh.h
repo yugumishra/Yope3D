@@ -2,7 +2,7 @@
 #include <vulkan/vulkan.h>
 #include <vector>
 #include <cstdint>
-#include "gpu/Buffer.h"
+#include "../gpu/Buffer.h"
 
 class GpuDevice;
 

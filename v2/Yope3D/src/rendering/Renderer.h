@@ -3,13 +3,14 @@
 #include <vector>
 #include <memory>
 #include <array>
-#include "RenderMesh.h"
+#include "../world/RenderMesh.h"
 #include "gpu/UniformBuffer.h"
 #include "gpu/DepthBuffer.h"
 
 class GpuDevice;
 class Window;
 class Camera;
+class World;
 class Swapchain;
 class RenderPass;
 class DescriptorSetLayout;
@@ -27,7 +28,7 @@ class DescriptorPool;
 //   - Framebuffers (one per swapchain image, rebuilt on resize)
 //   - Command pool + per-frame command buffers
 //   - Synchronisation objects (2 frames in flight)
-//   - Active RenderMesh
+//   - Iterates over World's RenderMeshes for rendering
 // ---------------------------------------------------------------------------
 
 class Renderer {
@@ -35,13 +36,10 @@ public:
     Renderer(GpuDevice& gpu, Window& window);
     ~Renderer();
 
-    // Upload a new mesh. Replaces any existing mesh. Safe before the render loop.
-    void setMesh(GpuDevice& gpu,
-                 const std::vector<Vertex>&   vertices,
-                 const std::vector<uint32_t>& indices);
-
-    void drawFrame(GpuDevice& gpu, Window& window, const Camera& camera);
+    void drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, const World& world);
     void waitIdle(GpuDevice& gpu);
+
+    VkCommandPool getCommandPool() const { return commandPool; }
 
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
@@ -52,7 +50,6 @@ private:
     std::unique_ptr<Swapchain>           swapchain;
     std::unique_ptr<RenderPass>          renderPass;
     std::unique_ptr<DepthBuffer>         depthBuffer;
-    std::unique_ptr<RenderMesh>          mesh;
     std::unique_ptr<DescriptorSetLayout> uboLayout;
     std::unique_ptr<DescriptorPool>      descriptorPool;
 
@@ -82,10 +79,9 @@ private:
     void createCommandPool(GpuDevice& gpu);
     void allocateCommandBuffers(VkDevice device);
     void createSyncObjects(VkDevice device);
-    void setDefaultMesh(GpuDevice& gpu);
 
     void recreateSwapchain(GpuDevice& gpu, Window& window);
     void destroyFramebuffers(VkDevice device);
 
-    void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex);
+    void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, const World& world);
 };

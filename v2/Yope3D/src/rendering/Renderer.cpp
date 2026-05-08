@@ -89,7 +89,6 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
     createCommandPool(gpu);
     allocateCommandBuffers(gpu.device());
     createSyncObjects(gpu.device());
-    setDefaultMesh(gpu);
 }
 
 Renderer::~Renderer() {
@@ -98,8 +97,6 @@ Renderer::~Renderer() {
 
 void Renderer::waitIdle(GpuDevice& gpu) {
     vkDeviceWaitIdle(gpu.device());
-
-    if (mesh) { mesh->destroy(gpu.device()); mesh.reset(); }
 
     for (int i = 0; i < MAX_FRAMES; ++i) {
         vkDestroySemaphore(gpu.device(), imageAvailable[i], nullptr);
@@ -380,23 +377,6 @@ void Renderer::createSyncObjects(VkDevice device) {
 }
 
 // ---------------------------------------------------------------------------
-// Mesh upload
-// ---------------------------------------------------------------------------
-
-void Renderer::setDefaultMesh(GpuDevice& gpu) {
-    setMesh(gpu, kDefaultVertices, kDefaultIndices);
-}
-
-void Renderer::setMesh(GpuDevice& gpu,
-                       const std::vector<Vertex>&   vertices,
-                       const std::vector<uint32_t>& indices)
-{
-    vkDeviceWaitIdle(gpu.device());
-    if (mesh) { mesh->destroy(gpu.device()); mesh.reset(); }
-    mesh = std::make_unique<RenderMesh>(gpu, commandPool, vertices, indices);
-}
-
-// ---------------------------------------------------------------------------
 // Swapchain recreation
 // ---------------------------------------------------------------------------
 
@@ -429,7 +409,7 @@ void Renderer::recreateSwapchain(GpuDevice& gpu, Window& window) {
 // Command buffer recording
 // ---------------------------------------------------------------------------
 
-void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex) {
+void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, const World& world) {
     VkCommandBufferBeginInfo bi{};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
@@ -466,12 +446,13 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
         0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-    // Push identity model matrix — per-object matrix for the single default mesh.
-    math::Mat4 model;  // default-constructed = identity
-    vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,
-        0, 64, model.m);
-
-    if (mesh) mesh->draw(cmd);
+    // Iterate over all RenderMeshes in the world and draw each with identity model matrix.
+    for (const auto& mesh : world.getRenderMeshes()) {
+        math::Mat4 model;  // default-constructed = identity
+        vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,
+            0, 64, model.m);
+        mesh->draw(cmd);
+    }
 
     vkCmdEndRenderPass(cmd);
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
@@ -482,7 +463,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex) {
 // drawFrame
 // ---------------------------------------------------------------------------
 
-void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera) {
+void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, const World& world) {
     vkWaitForFences(gpu.device(), 1, &inFlightFence[currentFrame], VK_TRUE, UINT64_MAX);
 
     uint32_t imageIndex;
@@ -510,7 +491,7 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera) {
     uniformBuffers[currentFrame].write(&uboData, sizeof(GlobalUBO));
 
     vkResetCommandBuffer(cmdBuffers[currentFrame], 0);
-    recordCommandBuffer(cmdBuffers[currentFrame], imageIndex);
+    recordCommandBuffer(cmdBuffers[currentFrame], imageIndex, world);
 
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo si{};
