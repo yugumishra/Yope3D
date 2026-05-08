@@ -1,5 +1,5 @@
 #include "RenderMesh.h"
-#include "gpu/GpuDevice.h"
+#include "../gpu/GpuDevice.h"
 
 RenderMesh::RenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
                        const std::vector<Vertex>&   vertices,
