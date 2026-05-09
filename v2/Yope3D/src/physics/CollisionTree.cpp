@@ -69,6 +69,14 @@ void CollisionTree::collectNode(const Node* node, const Hull* h, std::vector<Hul
     }
 }
 
+void CollisionTree::clearNode(Node* node) {
+    node->objects.clear();
+    for (auto& child : node->children)
+        if (child) clearNode(child.get());
+}
+
+void CollisionTree::clear() { clearNode(root.get()); }
+
 void CollisionTree::addObject(Hull* h) {
     insertNode(root.get(), h, maxDepth_);
 }

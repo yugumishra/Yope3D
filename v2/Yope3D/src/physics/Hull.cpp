@@ -1,4 +1,5 @@
 #include "Hull.h"
+#include "PhysicsConstants.h"
 #include <cmath>
 
 namespace physics {
@@ -59,6 +60,11 @@ void Hull::advance(float dtPortion, float dt, const math::Vec3& gravity) {
         velocity += gravity * dt;
 
     float dtActual = dt * dtPortion;
+    float linDecay = 1.0f - LINEAR_DAMPING  * dtActual;
+    float angDecay = 1.0f - ANGULAR_DAMPING * dtActual;
+    if (linDecay > 0.0f) velocity = velocity * linDecay;
+    if (angDecay > 0.0f) omega    = omega    * angDecay;
+
     transform.position += velocity * dtActual;
 
     float omegaLen = omega.length();

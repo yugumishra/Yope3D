@@ -36,6 +36,9 @@ struct Engine {
     // lastTime tracks the previous frame's timestamp for dt calculation.
     double lastTime = 0.0;
 
+    // Player collider — follows camera, fixed so it pushes other hulls but isn't moved by physics.
+    physics::CSphere* playerSphere = nullptr;
+
     // Milestone 7+:
     // std::unique_ptr<AudioSystem>  audio;
 
