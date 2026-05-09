@@ -94,6 +94,19 @@ endif()
 # Main executable
 # ---------------------------------------------------------------------------
 
+set(PHYSICS_SOURCES
+    src/physics/Hull.cpp
+    src/physics/CSphere.cpp
+    src/physics/CAABB.cpp
+    src/physics/COBB.cpp
+    src/physics/BarrierHull.cpp
+    src/physics/CollisionTree.cpp
+    src/physics/ColliderCCD.cpp
+    src/physics/ColliderDiscrete.cpp
+    src/physics/Spring.cpp
+    src/physics/Raycast.cpp
+)
+
 add_executable(yope3d
     src/main.cpp
     src/platform/Window.cpp
@@ -126,6 +139,7 @@ add_executable(yope3d
     src/assets/ImageLoader.cpp
     src/assets/AudioLoader.cpp
     src/assets/Primitives.cpp
+    ${PHYSICS_SOURCES}
 )
 
 add_dependencies(yope3d compile_shaders)
@@ -168,6 +182,19 @@ add_executable(yope_tests
 
 target_include_directories(yope_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(yope_tests PRIVATE Catch2::Catch2WithMain)
+
+# ---------------------------------------------------------------------------
+# Physics test executable — no Vulkan/GLFW/OpenAL dependency
+# ---------------------------------------------------------------------------
+
+add_executable(yope_physics_tests
+    tests/physics_tests.cpp
+    src/math/MathImpl.cpp
+    ${PHYSICS_SOURCES}
+)
+
+target_include_directories(yope_physics_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(yope_physics_tests PRIVATE Catch2::Catch2WithMain)
 
 # ---------------------------------------------------------------------------
 # Package version test — verifies external dependencies are linked correctly

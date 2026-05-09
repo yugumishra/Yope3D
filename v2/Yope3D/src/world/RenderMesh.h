@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstdint>
 #include "../gpu/Buffer.h"
+#include "../math/Mat4.h"
 
 class GpuDevice;
 
@@ -46,6 +47,7 @@ public:
     Texture*    texture = nullptr;  // Non-owning pointer; nullptr = use default white texture
     float       color[3] = {1.0f, 1.0f, 1.0f};  // Solid color or texture modulation
     int         state = 0;  // Render state: STATE_SOLID (0) or STATE_TEXTURED (1)
+    math::Mat4  modelMatrix;  // Updated each frame by physics hull sync
 
     RenderMesh(const RenderMesh&) = delete;
     RenderMesh& operator=(const RenderMesh&) = delete;

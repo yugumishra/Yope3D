@@ -1,15 +1,13 @@
 #include "World.h"
 #include "../gpu/GpuDevice.h"
-#include "../assets/ObjLoader.h"
+#include "../physics/PhysicsConstants.h"
+#include "../physics/ColliderCCD.h"
+#include "../physics/ColliderDiscrete.h"
+#include <variant>
 
-World::~World() {
-}
+World::~World() {}
 
-void World::init(GpuDevice& gpu) {
-    // Milestone 4: initialize with default mesh for now.
-    
-    // Later milestones will load from assets/scripts.
-}
+void World::init(GpuDevice& /*gpu*/) {}
 
 void World::cleanup(GpuDevice& gpu) {
     for (auto& mesh : renderMeshes) {
@@ -17,7 +15,13 @@ void World::cleanup(GpuDevice& gpu) {
     }
     renderMeshes.clear();
     lights.clear();
+    hulls.clear();
+    springs.clear();
+    barriers.clear();
+    collisionTree.reset();
 }
+
+// ---- Renderables ----
 
 RenderMesh* World::addRenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
                                   const std::vector<Vertex>&   vertices,
@@ -40,15 +44,13 @@ const std::vector<std::unique_ptr<RenderMesh>>& World::getRenderMeshes() const {
 }
 
 RenderMesh* World::getRenderMesh(size_t index) {
-    if (index < renderMeshes.size())
-        return renderMeshes[index].get();
+    if (index < renderMeshes.size()) return renderMeshes[index].get();
     return nullptr;
 }
 
-void World::addLight(const Light& light) {
-    lights.push_back(light);
-    lightsDirty = true;
-}
+// ---- Lights ----
+
+void World::addLight(const Light& light) { lights.push_back(light); lightsDirty = true; }
 
 void World::removeLight(int index) {
     if (index >= 0 && index < static_cast<int>(lights.size())) {
@@ -57,10 +59,94 @@ void World::removeLight(int index) {
     }
 }
 
-void World::lightChanged() {
-    lightsDirty = true;
+void World::lightChanged() { lightsDirty = true; }
+
+const std::vector<Light>& World::getLights() const { return lights; }
+
+// ---- Physics factories ----
+
+physics::CSphere* World::addSphere(float mass, float radius, math::Vec3 pos) {
+    hulls.push_back(std::make_unique<physics::CSphere>(mass, radius, pos));
+    return static_cast<physics::CSphere*>(hulls.back().get());
 }
 
-const std::vector<Light>& World::getLights() const {
-    return lights;
+physics::COBB* World::addOBB(math::Vec3 extent, float mass, math::Vec3 pos) {
+    hulls.push_back(std::make_unique<physics::COBB>(extent, mass, pos));
+    return static_cast<physics::COBB*>(hulls.back().get());
+}
+
+physics::CAABB* World::addAABB(math::Vec3 extent, float mass, math::Vec3 pos) {
+    hulls.push_back(std::make_unique<physics::CAABB>(extent, mass, pos));
+    return static_cast<physics::CAABB*>(hulls.back().get());
+}
+
+physics::CAABB* World::addStaticAABB(math::Vec3 pos, math::Vec3 extent) {
+    hulls.push_back(std::make_unique<physics::CAABB>(pos, extent));
+    return static_cast<physics::CAABB*>(hulls.back().get());
+}
+
+void World::addBarrier(physics::Barrier b) {
+    barriers.emplace_back(std::move(b));
+}
+
+void World::addBarrier(physics::BoundedBarrier b) {
+    barriers.emplace_back(std::move(b));
+}
+
+physics::BarrierHull* World::addBarrierHull(math::Vec3 extent, math::Vec3 pos) {
+    hulls.push_back(std::make_unique<physics::BarrierHull>(
+        physics::BarrierHull::genRectangularBarriers(extent, pos)
+    ));
+    return static_cast<physics::BarrierHull*>(hulls.back().get());
+}
+
+physics::Spring* World::addSpring(physics::Hull* a, physics::Hull* b, float k, float rest) {
+    springs.push_back(std::make_unique<physics::Spring>(a, b, k, rest));
+    return springs.back().get();
+}
+
+void World::initCollisionTree(math::Vec3 mn, math::Vec3 mx, int depth) {
+    collisionTree = std::make_unique<physics::CollisionTree>(mn, mx, depth);
+}
+
+const std::vector<std::unique_ptr<physics::Hull>>& World::getHulls() const {
+    return hulls;
+}
+
+// ---- Simulation step ----
+
+void World::advance(float dt) {
+    // 1. CCD barrier collision (TODO: enable once ColliderCCD is implemented)
+    // for (auto& h : hulls) {
+    //     if (h->isFixed() || !h->isTangible()) continue;
+    //     for (auto& bv : barriers) {
+    //         std::visit([&](auto& b){ physics::ColliderCCD::collideBarrier(*h, b, dt); }, bv);
+    //     }
+    //     if (auto* bh = dynamic_cast<physics::BarrierHull*>(h.get())) {
+    //         for (auto& bv : bh->getBarriers())
+    //             std::visit([&](auto& b){ physics::ColliderCCD::collideBarrier(*h, b, dt); }, bv);
+    //     }
+    // }
+
+    // 2. Hull-hull discrete collision (TODO: enable once ColliderDiscrete is implemented)
+    // if (collisionTree) {
+    //     for (auto& h : hulls) collisionTree->addObject(h.get());
+    //     for (auto& h : hulls) {
+    //         if (h->isFixed() || !h->isTangible()) continue;
+    //         for (auto* other : collisionTree->getObjects(h.get())) {
+    //             if (other->isTangible())
+    //                 physics::ColliderDiscrete::collide(*h, *other, dt);
+    //         }
+    //     }
+    // }
+
+    // 3. Integration
+    for (auto& h : hulls) {
+        if (h->isTangible())
+            h->advance(dt, gravity);
+    }
+
+    // 4. Springs
+    for (auto& s : springs)
+        s->update(dt);
 }
