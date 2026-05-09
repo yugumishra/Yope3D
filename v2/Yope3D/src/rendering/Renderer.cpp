@@ -524,7 +524,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
             float      color[3];
             int32_t    state;
         } push{};
-        push.model = math::Mat4();  // identity
+        push.model = mesh->modelMatrix;
         push.color[0] = mesh->color[0];
         push.color[1] = mesh->color[1];
         push.color[2] = mesh->color[2];
