@@ -4,7 +4,6 @@
     {
       "name": "base",
       "hidden": true,
-      "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
@@ -13,6 +12,7 @@
     },
     {
     "name": "mac-release",
+    "generator": "Ninja",
     "inherits": "base",
     "cacheVariables": { 
         "CMAKE_BUILD_TYPE": "Release", 
@@ -22,6 +22,7 @@
     },
     {
       "name": "mac-debug",
+      "generator": "Ninja",
       "inherits": "base",
       "cacheVariables": { 
         "CMAKE_BUILD_TYPE": "Debug", 
@@ -31,6 +32,7 @@
     },
     {
     "name": "win-release",
+    "generator": "Visual Studio 17 2022",
     "inherits": "base",
     "cacheVariables": { 
         "CMAKE_BUILD_TYPE": "Release", 
@@ -40,6 +42,7 @@
     },
     {
       "name": "win-debug",
+      "generator": "Visual Studio 17 2022",
       "inherits": "base",
       "cacheVariables": { 
         "CMAKE_BUILD_TYPE": "Debug", 

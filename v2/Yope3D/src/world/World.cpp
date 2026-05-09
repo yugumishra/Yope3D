@@ -1,10 +1,9 @@
 #include "World.h"
 #include "../gpu/GpuDevice.h"
-#include "../physics/PhysicsConstants.h"
 #include "../physics/ColliderCCD.h"
 #include "../physics/ColliderDiscrete.h"
 #include <variant>
-
+#include "../physics/PhysicsConstants.h"
 World::~World() {}
 
 void World::init(GpuDevice& /*gpu*/) {}
@@ -116,34 +115,44 @@ const std::vector<std::unique_ptr<physics::Hull>>& World::getHulls() const {
 // ---- Simulation step ----
 
 void World::advance(float dt) {
-    // 1. CCD barrier collision (TODO: enable once ColliderCCD is implemented)
-    // for (auto& h : hulls) {
-    //     if (h->isFixed() || !h->isTangible()) continue;
-    //     for (auto& bv : barriers) {
-    //         std::visit([&](auto& b){ physics::ColliderCCD::collideBarrier(*h, b, dt); }, bv);
-    //     }
-    //     if (auto* bh = dynamic_cast<physics::BarrierHull*>(h.get())) {
-    //         for (auto& bv : bh->getBarriers())
-    //             std::visit([&](auto& b){ physics::ColliderCCD::collideBarrier(*h, b, dt); }, bv);
-    //     }
-    // }
+    // 0. Gravity — applied before CCD so the barrier response reacts to it in the same frame.
+    //    Hull::advance is then called with zero gravity to avoid double-application.
+    for (auto& h : hulls)
+        if (!h->isFixed() && h->isTangible() && h->gravityEnabled())
+            h->addVelocity(gravity * dt);
 
-    // 2. Hull-hull discrete collision (TODO: enable once ColliderDiscrete is implemented)
-    // if (collisionTree) {
-    //     for (auto& h : hulls) collisionTree->addObject(h.get());
-    //     for (auto& h : hulls) {
-    //         if (h->isFixed() || !h->isTangible()) continue;
-    //         for (auto* other : collisionTree->getObjects(h.get())) {
-    //             if (other->isTangible())
-    //                 physics::ColliderDiscrete::collide(*h, *other, dt);
-    //         }
-    //     }
-    // }
+    // 1. CCD barrier collision
+    for (auto& h : hulls) {
+        if (h->isFixed() || !h->isTangible()) continue;
+        // Standalone infinite-plane barriers
+        for (auto& bv : barriers) {
+            std::visit([&](auto& b){ physics::ColliderCCD::collideBarrier(*h, b, dt); }, bv);
+        }
+        // BarrierHull internal barriers (box rooms, etc.)
+        for (auto& other : hulls) {
+            if (auto* bh = dynamic_cast<physics::BarrierHull*>(other.get())) {
+                for (auto& bv : bh->getBarriers()) {
+                    std::visit([&](auto& b){ physics::ColliderCCD::collideBarrier(*h, b, dt); }, bv);
+                }
+            }
+        }
+    }
 
-    // 3. Integration
+    // 2. Hull-hull discrete collision — brute-force O(n²) for diagnostics
+    for (size_t i = 0; i < hulls.size(); i++) {
+        if (!hulls[i]->isTangible()) continue;
+        for (size_t j = i + 1; j < hulls.size(); j++) {
+            if (!hulls[j]->isTangible()) continue;
+            if (hulls[i]->isFixed() && hulls[j]->isFixed()) continue;
+            physics::ColliderDiscrete::collide(*hulls[i], *hulls[j], dt);
+        }
+    }
+
+    // 3. Integration — gravity already applied in step 0, pass zero to avoid double-application
+    const math::Vec3 zeroGravity = {};
     for (auto& h : hulls) {
         if (h->isTangible())
-            h->advance(dt, gravity);
+            h->advance(dt, zeroGravity);
     }
 
     // 4. Springs

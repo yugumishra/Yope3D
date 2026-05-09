@@ -9,7 +9,7 @@ Camera::Camera(int width, int height, float fov)
     : fov(fov),
       windowWidth(width), windowHeight(height),
       aspectRatio(static_cast<float>(width) / static_cast<float>(height)),
-      position{0.0f, 0.0f, 2.0f}  // start 2 units back so the default quad is visible
+      position{0.0f, 5.0f, 8.0f}  // start 2 units back so the default quad is visible
 {}
 
 void Camera::WindowChanged(int width, int height) {

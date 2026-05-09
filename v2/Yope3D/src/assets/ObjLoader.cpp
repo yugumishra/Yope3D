@@ -3,6 +3,7 @@
 #include <sstream>
 #include <unordered_map>
 #include <stdexcept>
+#include "algorithm"
 
 namespace {
     // Split a string by whitespace.

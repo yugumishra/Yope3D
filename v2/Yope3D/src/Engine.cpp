@@ -34,26 +34,32 @@ bool Engine::init() {
 
     // ---- Physics validation scene (Milestone 6) ----
 
-    // Floor barrier (infinite plane, normal pointing up)
-    world->addBarrier(physics::Barrier{{0, 1, 0}, {0, -1, 0}});
+    // No floor barrier — floor collision handled by the static CAABB below via sphere-AABB discrete
 
     // Box room (10×10×10, centred at y=5)
-    world->addBarrierHull({10, 10, 10}, {0, 5, 0});
+    //world->addBarrierHull({50, 50, 50}, {0, 5, 0});
 
     // Broad-phase octree
-    world->initCollisionTree({-15, -5, -15}, {15, 25, 15}, 3);
+    //world->initCollisionTree({-15, -5, -15}, {15, 25, 15}, 3);
 
-    // Static CAABB floor block for visual reference
-    auto* floorBlock = world->addStaticAABB({0, -1.5f, 0}, {5, 0.5f, 5});
-    (void)floorBlock;
+    // Static CAABB floor block
+    auto* floorBlock = world->addStaticAABB({0, -1.5f, 0}, {50, 0.5f, 50});
+    {
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                       Primitives::rect({50.0f, 0.5f, 50.0f}));
+        m->color[0] = 0.35f; m->color[1] = 0.30f; m->color[2] = 0.25f;
+        m->state = 0;
+        floorBlock->linkedMesh = m;
+        // tangible=true (default): discrete sphere-AABB handles floor contact
+    }
 
     // Three spheres at different heights, each linked to an icosphere mesh
-    auto* sphere0 = world->addSphere(1.0f, 0.5f, {0, 8, 0});
-    auto* sphere1 = world->addSphere(1.0f, 0.5f, {1, 5, 0});
-    auto* sphere2 = world->addSphere(1.0f, 0.5f, {-1, 3, 0});
+    auto* sphere0 = world->addSphere(1.0f, 0.5f, {-10, 8, 0});
+    //auto* sphere1 = world->addSphere(1.0f, 0.5f, {1, 5, 0});
+    //auto* sphere2 = world->addSphere(1.0f, 0.5f, {-1, 3, 0});
 
     auto addIco = [&]() -> RenderMesh* {
-        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(), Primitives::icosphere());
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(), Primitives::icosphere(0.5f));
         if (m) {
             try {
                 m->texture = assets->loadTexture(*gpu, "textures/test.png");
@@ -68,11 +74,26 @@ bool Engine::init() {
     };
 
     sphere0->linkedMesh = addIco();
-    sphere1->linkedMesh = addIco();
-    sphere2->linkedMesh = addIco();
+    //sphere1->linkedMesh = addIco();
+    //sphere2->linkedMesh = addIco();
 
     // Spring connecting first two spheres
-    world->addSpring(sphere0, sphere1, 8.0f, 2.0f);
+    //world->addSpring(sphere0, sphere1, 8.0f, 1.2f);
+
+    // Player collider — fixed, no gravity, follows camera each frame
+    playerSphere = world->addSphere(1.0f, 0.5f, camera->getPosition());
+    //playerSphere->fix();
+    //playerSphere->disableGravity();
+
+    // Sphere-AABB test: dynamic box falling in the path of sphere1/sphere2
+    /*auto* testBox = world->addAABB({0.7f, 0.7f, 0.7f}, 2.0f, {0, 4, 0});
+    {
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                       Primitives::rect({1.4f, 1.4f, 1.4f}));
+        m->color[0] = 1.0f; m->color[1] = 0.5f; m->color[2] = 0.1f;
+        m->state = 0;
+        testBox->linkedMesh = m;
+    }*/
 
     // Lights (kept from previous milestone)
     DirectionalLight dirLight{};
@@ -113,6 +134,8 @@ void Engine::update() {
     if (window->wasResized())
         camera->WindowChanged(window->getWidth(), window->getHeight());
 
+    playerSphere->fixPosition(camera->getPosition());
+    //playerSphere->setVelocity({});  // kinematic: position-driven, don't carry solver velocity
     world->advance(dt);
 
     // Sync physics hulls → render mesh model matrices
