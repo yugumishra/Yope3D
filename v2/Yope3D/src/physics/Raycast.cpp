@@ -1,4 +1,5 @@
 #include "Raycast.h"
+#include "initializer_list"
 #include <cmath>
 
 namespace physics::Raycast {

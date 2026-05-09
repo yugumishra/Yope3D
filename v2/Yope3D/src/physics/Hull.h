@@ -47,6 +47,7 @@ public:
     void unfix() { fixed = false; }
     void enableGravity()         { gravity_ = true; }
     void disableGravity()        { gravity_ = false; }
+    bool gravityEnabled()  const { return gravity_; }
     void setTangible(bool t)     { tangible = t; }
 
     // ---- Impulse accumulation ----

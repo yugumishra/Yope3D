@@ -15,6 +15,7 @@
 #include "../physics/BarrierHull.h"
 #include "../physics/Spring.h"
 #include "../physics/CollisionTree.h"
+#include "../physics/PhysicsConstants.h"
 
 class GpuDevice;
 
