@@ -240,7 +240,7 @@ Physics is the project's emphasis. Phase 1 reproduces current behavior cleanly; 
 **Hull Hierarchy:**
 - [ ] `physics/Hull.h/cpp`: abstract base. Stores `Transform*` reference (shared with rendering). Fields: `Vec3 velocity`, `Vec3 omega`, `float mass`, `bool fixed`. Methods: `advance(float dt)` — gravity is now `World::gravity` (Vec3, default `{0, -9.80665f, 0}`). `addImpulse(Vec3)`, `addAngularImpulse(Vec3)`. Pure virtual `genInertiaTensor() → Mat3`.
 - [ ] `physics/CSphere.h/cpp`: `float radius`. Port `genInertiaTensor`. Port `getModelMatrix`.
-- [ ] `physics/COBB.h/cpp`: `Vec3 extent`. Port `genInertiaTensor`. Note OBB-OBB collision stub remains — implementation deferred to Phase 2.
+- [ ] `physics/COBB.h/cpp`: `Vec3 extent`. Port `genInertiaTensor`. Implement the OBB-OBB collision stub before Phase 2.
 - [ ] `physics/Barrier.h/cpp`: `Vec3 normal`, `Vec3 position`.
 - [ ] `physics/BoundedBarrier.h/cpp`: adds `float xScale`, `float yScale`, `Vec3 orientation`. Port `genRectangularBarriers` static factory.
 - [ ] `physics/BarrierHull.h/cpp`: group of barriers with extent. Port `genInertiaTensor` (returns identity/null — note that barrier hulls are always fixed).

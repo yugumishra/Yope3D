@@ -160,6 +160,12 @@ void Engine::loadScene(int index) {
         "AABB-AABB 3/3 — Stacking",
         // Comparison
         "CCD/Sphere-Barrier (diagonal) — compare vs scene 27",
+        // OBB
+        "OBB 1/5 — Drop onto barrier floor",
+        "OBB 2/5 — Sphere vs OBB",
+        "OBB 3/5 — OBB onto static AABB floor",
+        "OBB 4/5 — OBB vs OBB head-on",
+        "OBB 5/5 — Resting stability",
     };
 
     window->setTitle(std::string("[") + std::to_string(index + 1) + "/" +
@@ -535,6 +541,76 @@ void Engine::loadScene(int index) {
         }
         auto* s = world->addSphere(1.0f, 0.5f, {-4, 8, 0});
         s->linkedMesh = addBall(0.2f, 0.6f, 1.0f);
+        break;
+    }
+
+    // ---- OBB scenes --------------------------------------------------------
+
+    case 34: {  // OBB drops onto barrier floor — CCD bounce + spin
+        addBarrierFloor();
+        auto* o = world->addOBB({0.5f, 0.5f, 0.5f}, 1.0f, {0, 8, 0});
+        // Slight initial rotation so it doesn't land perfectly flat
+        o->setRotation(math::Quat::fromAxisAngle({0,0,1}, math::toRadians(20.0f)));
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                       Primitives::rect({0.5f, 0.5f, 0.5f}));
+        if (m) { m->color[0] = 0.8f; m->color[1] = 0.4f; m->color[2] = 0.1f; m->state = 0; }
+        if (o && m) o->linkedMesh = m;
+        break;
+    }
+    case 35: {  // Sphere fires at stationary OBB — deflects with spin
+        addBarrierFloor();
+        auto* o = world->addOBB({0.6f, 0.6f, 0.6f}, 2.0f, {0, 3, 0});
+        o->setRotation(math::Quat::fromAxisAngle({0,1,0}, math::toRadians(30.0f)));
+        {
+            auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                           Primitives::rect({0.6f, 0.6f, 0.6f}));
+            if (m) { m->color[0] = 0.8f; m->color[1] = 0.4f; m->color[2] = 0.1f; m->state = 0; }
+            if (o && m) o->linkedMesh = m;
+        }
+        auto* s = world->addSphere(1.0f, 0.5f, {-6, 3, 0});
+        s->setVelocity({6.0f, 0, 0});
+        s->linkedMesh = addBall(0.2f, 0.6f, 1.0f);
+        break;
+    }
+    case 36: {  // OBB drops onto static AABB floor — discrete response
+        addAABBFloor();
+        auto* o = world->addOBB({0.5f, 0.5f, 0.5f}, 1.0f, {0, 8, 0});
+        o->setRotation(math::Quat::fromAxisAngle({0,0,1}, math::toRadians(15.0f)));
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                       Primitives::rect({0.5f, 0.5f, 0.5f}));
+        if (m) { m->color[0] = 0.8f; m->color[1] = 0.4f; m->color[2] = 0.1f; m->state = 0; }
+        if (o && m) o->linkedMesh = m;
+        break;
+    }
+    case 37: {  // Two OBBs approaching head-on
+        addBarrierFloor();
+        auto* oa = world->addOBB({0.5f, 0.5f, 0.5f}, 1.0f, {-5, 3, 0});
+        oa->setVelocity({4.0f, 0, 0});
+        oa->setRotation(math::Quat::fromAxisAngle({0,1,0}, math::toRadians(20.0f)));
+        {
+            auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                           Primitives::rect({0.5f, 0.5f, 0.5f}));
+            if (m) { m->color[0] = 0.8f; m->color[1] = 0.4f; m->color[2] = 0.1f; m->state = 0; }
+            if (oa && m) oa->linkedMesh = m;
+        }
+        auto* ob = world->addOBB({0.5f, 0.5f, 0.5f}, 1.0f, {5, 3, 0});
+        ob->setVelocity({-4.0f, 0, 0});
+        ob->setRotation(math::Quat::fromAxisAngle({0,1,0}, math::toRadians(-20.0f)));
+        {
+            auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                           Primitives::rect({0.5f, 0.5f, 0.5f}));
+            if (m) { m->color[0] = 0.2f; m->color[1] = 0.5f; m->color[2] = 0.9f; m->state = 0; }
+            if (ob && m) ob->linkedMesh = m;
+        }
+        break;
+    }
+    case 38: {  // OBB resting stability — placed at rest height on barrier floor
+        addBarrierFloor();
+        auto* o = world->addOBB({0.5f, 0.5f, 0.5f}, 1.0f, {0, 0.5f, 0});
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                       Primitives::rect({0.5f, 0.5f, 0.5f}));
+        if (m) { m->color[0] = 0.8f; m->color[1] = 0.4f; m->color[2] = 0.1f; m->state = 0; }
+        if (o && m) o->linkedMesh = m;
         break;
     }
 

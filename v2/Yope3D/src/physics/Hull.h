@@ -42,6 +42,7 @@ public:
     // ---- Mutators ----
     void setPosition(const math::Vec3& p)  { transform.position = p; }
     void setVelocity(const math::Vec3& v)  { velocity = v; }
+    void setRotation(const math::Quat& q)  { transform.rotation = q; initiateState(); }
     void fixPosition(const math::Vec3& p)  { transform.position = p; } // bypasses fix check
     void fix()   { fixed = true; }
     void unfix() { fixed = false; }

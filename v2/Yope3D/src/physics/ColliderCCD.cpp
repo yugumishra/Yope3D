@@ -1,6 +1,7 @@
 #include "ColliderCCD.h"
 #include "CSphere.h"
 #include "CAABB.h"
+#include "COBB.h"
 #include "Barrier.h"
 #include "BoundedBarrier.h"
 #include "PhysicsConstants.h"
@@ -225,6 +226,140 @@ static void aabbBBarrier(CAABB& one, const BoundedBarrier& two, float dt, const 
         one.setPosition(one.getPosition() + n * (POSITION_CORRECTION * (pen - 0)));
 }
 
+// CCD OBB vs infinite barrier.
+// Uses projectOnto(normal) as the effective radius — same structure as aabbBarrier.
+// Conservative (treats OBB as its AABB envelope along the barrier normal) but prevents tunneling.
+static void obbBarrier(COBB& one, const Barrier& two, float dt, const math::Vec3& gravity) {
+    math::Vec3 diff = one.getPosition() - two.position;
+    math::Vec3 n    = two.normal.normalize();
+
+    float rEff    = one.projectOnto(n);
+    float dist    = rEff - n.dot(diff);
+    float divider = n.dot(one.getVelocity() * dt);
+    if (std::abs(divider) < EPSILON)
+        divider = (divider >= 0.0f) ? 1.0f : -1.0f;
+    float t = dist / divider;
+
+    bool willCollide = (t >= 0.0f && t <= 1.0f);
+    bool penetrating = (dist > 0.0001f);
+    if (!willCollide && !penetrating) return;
+
+    if (t > 1e-5f && t <= 1.0f)
+        one.advance(t, dt, gravity);
+
+    if (dist > -0.1f) {
+        float vn  = n.dot(one.getVelocity());
+        float spd = one.getVelocity().length();
+        if (vn < 0.0f && spd > 1e-4f && (-vn / spd) < CCD_RESTING_TANGENCY_THRESHOLD)
+            one.setVelocity(one.getVelocity() - n * vn);
+    }
+
+    // Find the most-penetrating corner — use as the contact point for torque.
+    auto corners = one.worldSpaceCorners();
+    math::Vec3 contactPt = corners[0];
+    float minProj = n.dot(corners[0]);
+    for (int i = 1; i < 8; ++i) {
+        float p = n.dot(corners[i]);
+        if (p < minProj) { minProj = p; contactPt = corners[i]; }
+    }
+    math::Vec3 r = contactPt - one.getPosition();
+
+    // Contact point velocity (center-of-mass + rotational contribution).
+    math::Vec3 contactVel = one.getVelocity() + one.getOmega().cross(r);
+    float vn = n.dot(contactVel);
+    if (vn < 0.0f) {
+        // Proper rigid-body effective mass: 1/m + (I⁻¹(r×n)) × r · n
+        math::Vec3 rCrossN  = r.cross(n);
+        math::Mat3 Iinv     = one.getInverseInertiaTensorWorld();
+        float      angTerm  = (Iinv * rCrossN).cross(r).dot(n);
+        float      effMass  = one.getInverseMass() + angTerm;
+        if (effMass < 1e-6f) effMass = 1e-6f;
+
+        float      e        = (-vn > CCD_MIN_BOUNCE_VELOCITY) ? (CCD_IMPULSE_FACTOR - 1.0f) : 0.0f;
+        float      j        = -(1.0f + e) * vn / effMass;
+        math::Vec3 impulse  = n * j;
+
+        one.addImpulse(impulse);
+        one.addAngularImpulse(r.cross(impulse));
+        one.applyImpulses();
+    }
+
+    float pen = one.projectOnto(n) - n.dot(one.getPosition() - two.position);
+    if (pen > 0)
+        one.setPosition(one.getPosition() + n * (POSITION_CORRECTION * pen));
+}
+
+// CCD OBB vs bounded barrier — uses OBB's projected extent on each panel axis.
+static void obbBBarrier(COBB& one, const BoundedBarrier& two, float dt, const math::Vec3& gravity) {
+    math::Vec3 n    = two.normal;
+    math::Vec3 dir1 = two.orientation;
+    math::Vec3 dir2 = two.getSecondOrientation();
+    math::Vec3 diff = one.getPosition() - two.position;
+    math::Vec3 vel  = one.getVelocity();
+
+    float rNorm = one.projectOnto(n);
+    float rDir1 = one.projectOnto(dir1);
+    float rDir2 = one.projectOnto(dir2);
+
+    float dist    = rNorm - n.dot(diff);
+    float divider = n.dot(vel * dt);
+    if (std::abs(divider) < EPSILON)
+        divider = (divider >= 0.0f) ? 1.0f : -1.0f;
+    float t = dist / divider;
+
+    float dir1Bounds = two.xScale + rDir1 + CCD_BOUNDED_BARRIER_PADDING;
+    float dir2Bounds = two.yScale + rDir2 + CCD_BOUNDED_BARRIER_PADDING;
+
+    bool evenPossible = evalDir(dir1, dir1Bounds, diff, vel, dt)
+                     && evalDir(dir2, dir2Bounds, diff, vel, dt);
+    if (!evenPossible) return;
+
+    bool willCollide = (t >= 0.01f && t <= 1.0f);
+    bool penetrating = (dist > 0.0f && dist < CCD_PENETRATION_THRESHOLD);
+    if (!willCollide && !penetrating) return;
+
+    if (t > 1e-5f && t <= 1.0f)
+        one.advance(t, dt, gravity);
+
+    if (dist > -0.1f) {
+        float vn  = n.dot(one.getVelocity());
+        float spd = one.getVelocity().length();
+        if (vn < 0.0f && spd > 1e-4f && (-vn / spd) < CCD_RESTING_TANGENCY_THRESHOLD)
+            one.setVelocity(one.getVelocity() - n * vn);
+    }
+
+    auto corners2 = one.worldSpaceCorners();
+    math::Vec3 contactPt2 = corners2[0];
+    float minProj2 = n.dot(corners2[0]);
+    for (int i = 1; i < 8; ++i) {
+        float p = n.dot(corners2[i]);
+        if (p < minProj2) { minProj2 = p; contactPt2 = corners2[i]; }
+    }
+    math::Vec3 r2 = contactPt2 - one.getPosition();
+
+    math::Vec3 contactVel2 = one.getVelocity() + one.getOmega().cross(r2);
+    float vn2 = n.dot(contactVel2);
+    if (vn2 < 0.0f) {
+        math::Vec3 rCrossN2  = r2.cross(n);
+        math::Mat3 Iinv2     = one.getInverseInertiaTensorWorld();
+        float      angTerm2  = (Iinv2 * rCrossN2).cross(r2).dot(n);
+        float      effMass2  = one.getInverseMass() + angTerm2;
+        if (effMass2 < 1e-6f) effMass2 = 1e-6f;
+
+        float      e2       = (-vn2 > CCD_MIN_BOUNCE_VELOCITY) ? (CCD_IMPULSE_FACTOR - 1.0f) : 0.0f;
+        float      j2       = -(1.0f + e2) * vn2 / effMass2;
+        math::Vec3 impulse2 = n * j2;
+
+        one.addImpulse(impulse2);
+        one.addAngularImpulse(r2.cross(impulse2));
+        one.applyImpulses();
+    }
+
+    float pen = one.projectOnto(n) - n.dot(one.getPosition() - two.position);
+    if (pen > 0)
+        one.setPosition(one.getPosition() + n * (POSITION_CORRECTION * pen));
+}
+
 } // anonymous namespace
 
 void collideBarrier(Hull& one, const Barrier& b, float dt, const math::Vec3& gravity) {
@@ -232,6 +367,8 @@ void collideBarrier(Hull& one, const Barrier& b, float dt, const math::Vec3& gra
         sphereBarrier(*s, b, dt, gravity);
     else if (auto* a = dynamic_cast<CAABB*>(&one))
         aabbBarrier(*a, b, dt, gravity);
+    else if (auto* o = dynamic_cast<COBB*>(&one))
+        obbBarrier(*o, b, dt, gravity);
 }
 
 void collideBarrier(Hull& one, const BoundedBarrier& b, float dt, const math::Vec3& gravity) {
@@ -239,6 +376,8 @@ void collideBarrier(Hull& one, const BoundedBarrier& b, float dt, const math::Ve
         sphereBBarrier(*s, b, dt, gravity);
     else if (auto* a = dynamic_cast<CAABB*>(&one))
         aabbBBarrier(*a, b, dt, gravity);
+    else if (auto* o = dynamic_cast<COBB*>(&one))
+        obbBBarrier(*o, b, dt, gravity);
 }
 
 } // namespace physics::ColliderCCD
