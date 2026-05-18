@@ -38,7 +38,7 @@ struct Engine {
     physics::CSphere* playerSphere = nullptr;
 
     int sceneIndex = 0;
-    static constexpr int SCENE_COUNT = 23;
+    static constexpr int SCENE_COUNT = 34;
     void loadScene(int index);
 
     bool rightWasDown = false;

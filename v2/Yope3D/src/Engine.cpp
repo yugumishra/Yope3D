@@ -145,6 +145,21 @@ void Engine::loadScene(int index) {
         "Spring 2/4 — One fixed anchor",
         "Spring 3/4 — Compressed",
         "Spring 4/4 — Stretched",
+        // CCD / AABB vs Barrier
+        "CCD/AABB-Barrier 1/4 — Drop onto floor",
+        "CCD/AABB-Barrier 2/4 — High-speed drop",
+        "CCD/AABB-Barrier 3/4 — Resting stability",
+        "CCD/AABB-Barrier 4/4 — Non-axis-aligned barrier",
+        // CCD / AABB vs BoundedBarrier
+        "CCD/AABB-BoundedBarrier 1/3 — Center hit",
+        "CCD/AABB-BoundedBarrier 2/3 — Edge miss",
+        "CCD/AABB-BoundedBarrier 3/3 — Resting stability",
+        // Discrete / AABB vs AABB
+        "AABB-AABB 1/3 — Drop onto static AABB",
+        "AABB-AABB 2/3 — Two dynamic collide",
+        "AABB-AABB 3/3 — Stacking",
+        // Comparison
+        "CCD/Sphere-Barrier (diagonal) — compare vs scene 27",
     };
 
     window->setTitle(std::string("[") + std::to_string(index + 1) + "/" +
@@ -372,6 +387,154 @@ void Engine::loadScene(int index) {
         auto* b = world->addSphere(1.0f, 0.5f, {4, 5, 0});
         b->linkedMesh = addBall(1.0f, 0.4f, 0.2f);
         world->addSpring(a, b, 5.0f, 3.0f);
+        break;
+    }
+
+    // ---- CCD: AABB vs Barrier ---------------------------------------------
+
+    case 23: {  // Drop onto floor — AABB falls, bounces, settles stably
+        addBarrierFloor();
+        auto* box = world->addAABB({0.5f, 0.5f, 0.5f}, 1.0f, {0, 8, 0});
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                       Primitives::rect({0.5f, 0.5f, 0.5f}));
+        if (m) { m->color[0] = 0.3f; m->color[1] = 0.7f; m->color[2] = 0.4f; m->state = 0; }
+        if (box && m) box->linkedMesh = m;
+        break;
+    }
+    case 24: {  // High-speed drop — large height, no tunneling
+        addBarrierFloor();
+        auto* box = world->addAABB({0.5f, 0.5f, 0.5f}, 1.0f, {0, 50, 0});
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                       Primitives::rect({0.5f, 0.5f, 0.5f}));
+        if (m) { m->color[0] = 1.0f; m->color[1] = 0.3f; m->color[2] = 0.2f; m->state = 0; }
+        if (box && m) box->linkedMesh = m;
+        break;
+    }
+    case 25: {  // Resting stability — AABB placed at rest height, must not jitter/drift
+        addBarrierFloor();
+        auto* box = world->addAABB({0.5f, 0.5f, 0.5f}, 1.0f, {0, 0.5f, 0});
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                       Primitives::rect({0.5f, 0.5f, 0.5f}));
+        if (m) { m->color[0] = 0.3f; m->color[1] = 0.7f; m->color[2] = 0.4f; m->state = 0; }
+        if (box && m) box->linkedMesh = m;
+        break;
+    }
+    case 26: {  // Non-axis-aligned barrier — 45-degree ramp, AABB slides/deflects
+        world->addBarrier(physics::Barrier(math::Vec3{1,1,0}.normalize(), {0,0,0}));
+        {
+            auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                           Primitives::rect({30.0f, 0.5f, 30.0f}));
+            if (m) {
+                m->color[0] = 0.35f; m->color[1] = 0.30f; m->color[2] = 0.25f; m->state = 0;
+                m->modelMatrix = math::Mat4::translate({-0.354f, -0.354f, 0.0f});
+                m->modelMatrix.setRotationScale(math::Mat3::rotation({0,0,1}, math::toRadians(-45.0f)));
+            }
+        }
+        auto* box = world->addAABB({0.5f, 0.5f, 0.5f}, 1.0f, {-4, 8, 0});
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                       Primitives::rect({0.5f, 0.5f, 0.5f}));
+        if (m) { m->color[0] = 0.3f; m->color[1] = 0.7f; m->color[2] = 0.4f; m->state = 0; }
+        if (box && m) box->linkedMesh = m;
+        break;
+    }
+
+    // ---- CCD: AABB vs BoundedBarrier --------------------------------------
+    // Panel: y=4, half-extent=3. AABB half-height=0.5 → rests with center at y=4.5.
+
+    case 27: {  // Center hit — AABB drops onto middle of panel
+        addBarrierFloor();
+        addPanel(4.0f, 3.0f);
+        auto* box = world->addAABB({0.5f, 0.5f, 0.5f}, 1.0f, {0, 10, 0});
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                       Primitives::rect({0.5f, 0.5f, 0.5f}));
+        if (m) { m->color[0] = 0.3f; m->color[1] = 0.7f; m->color[2] = 0.4f; m->state = 0; }
+        if (box && m) box->linkedMesh = m;
+        break;
+    }
+    case 28: {  // Edge miss — AABB drops outside panel boundary, must fall through
+        addBarrierFloor();
+        addPanel(4.0f, 3.0f);
+        auto* box = world->addAABB({0.5f, 0.5f, 0.5f}, 1.0f, {4.0f, 10, 0});
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                       Primitives::rect({0.5f, 0.5f, 0.5f}));
+        if (m) { m->color[0] = 1.0f; m->color[1] = 0.3f; m->color[2] = 0.3f; m->state = 0; }
+        if (box && m) box->linkedMesh = m;
+        break;
+    }
+    case 29: {  // Resting stability — AABB placed at rest height on panel
+        addBarrierFloor();
+        addPanel(4.0f, 3.0f);
+        auto* box = world->addAABB({0.5f, 0.5f, 0.5f}, 1.0f, {0, 4.5f, 0});
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                       Primitives::rect({0.5f, 0.5f, 0.5f}));
+        if (m) { m->color[0] = 0.3f; m->color[1] = 0.7f; m->color[2] = 0.4f; m->state = 0; }
+        if (box && m) box->linkedMesh = m;
+        break;
+    }
+
+    // ---- Discrete: AABB vs AABB -------------------------------------------
+
+    case 30: {  // Drop onto static AABB — dynamic AABB falls onto fixed floor AABB
+        addAABBFloor();
+        auto* box = world->addAABB({0.5f, 0.5f, 0.5f}, 1.0f, {0, 8, 0});
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                       Primitives::rect({0.5f, 0.5f, 0.5f}));
+        if (m) { m->color[0] = 0.3f; m->color[1] = 0.7f; m->color[2] = 0.4f; m->state = 0; }
+        if (box && m) box->linkedMesh = m;
+        break;
+    }
+    case 31: {  // Two dynamic AABBs collide — pushed toward each other, separate correctly
+        addBarrierFloor();
+        auto* a = world->addAABB({0.5f, 0.5f, 0.5f}, 1.0f, {-5, 3, 0});
+        a->setVelocity({4.0f, 0, 0});
+        {
+            auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                           Primitives::rect({0.5f, 0.5f, 0.5f}));
+            if (m) { m->color[0] = 0.3f; m->color[1] = 0.7f; m->color[2] = 0.4f; m->state = 0; }
+            if (a && m) a->linkedMesh = m;
+        }
+        auto* b = world->addAABB({0.5f, 0.5f, 0.5f}, 1.0f, {5, 3, 0});
+        b->setVelocity({-4.0f, 0, 0});
+        {
+            auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                           Primitives::rect({0.5f, 0.5f, 0.5f}));
+            if (m) { m->color[0] = 1.0f; m->color[1] = 0.4f; m->color[2] = 0.2f; m->state = 0; }
+            if (b && m) b->linkedMesh = m;
+        }
+        break;
+    }
+    case 32: {  // Stacking — one dynamic AABB resting on another dynamic AABB on floor
+        addBarrierFloor();
+        auto* bottom = world->addAABB({1.0f, 0.5f, 1.0f}, 2.0f, {0, 0.5f, 0});
+        {
+            auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                           Primitives::rect({1.0f, 0.5f, 1.0f}));
+            if (m) { m->color[0] = 0.8f; m->color[1] = 0.8f; m->color[2] = 0.2f; m->state = 0; }
+            if (bottom && m) bottom->linkedMesh = m;
+        }
+        auto* top = world->addAABB({0.5f, 0.5f, 0.5f}, 1.0f, {0, 8, 0});
+        {
+            auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                           Primitives::rect({0.5f, 0.5f, 0.5f}));
+            if (m) { m->color[0] = 0.3f; m->color[1] = 0.7f; m->color[2] = 0.4f; m->state = 0; }
+            if (top && m) top->linkedMesh = m;
+        }
+        break;
+    }
+
+    case 33: {  // Sphere on same 45-degree barrier as scene 26 — visual comparison
+        world->addBarrier(physics::Barrier(math::Vec3{1,1,0}.normalize(), {0,0,0}));
+        {
+            auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                           Primitives::rect({30.0f, 0.5f, 30.0f}));
+            if (m) {
+                m->color[0] = 0.35f; m->color[1] = 0.30f; m->color[2] = 0.25f; m->state = 0;
+                m->modelMatrix = math::Mat4::translate({-0.354f, -0.354f, 0.0f});
+                m->modelMatrix.setRotationScale(math::Mat3::rotation({0,0,1}, math::toRadians(-45.0f)));
+            }
+        }
+        auto* s = world->addSphere(1.0f, 0.5f, {-4, 8, 0});
+        s->linkedMesh = addBall(0.2f, 0.6f, 1.0f);
         break;
     }
 
