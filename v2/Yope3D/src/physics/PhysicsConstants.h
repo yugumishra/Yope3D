@@ -42,6 +42,6 @@ namespace physics {
     inline constexpr float CCD_RESTING_TANGENCY_THRESHOLD = 0.087f;
 
     // Per-hull linear/angular velocity decay applied each integration step
-    inline constexpr float LINEAR_DAMPING                = 0.4f;   // ~70% retained/sec
-    inline constexpr float ANGULAR_DAMPING               = 1.0f;   // ~45% retained/sec
+    inline constexpr float LINEAR_DAMPING                = 0.4f;   // ~67% retained/sec
+    inline constexpr float ANGULAR_DAMPING               = 0.7f;   // match linear
 }
