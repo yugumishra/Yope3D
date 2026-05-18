@@ -9,51 +9,82 @@
 namespace physics::ColliderDiscrete {
 
 // ============================================================================
-// One-shot analytical impulse solver — replaces PGS for all pairs.
+// PGS (Projected Gauss-Seidel) constraint solver.
 // Normal convention: from a toward b.
-// Angular terms are automatically zero for CAABB (omega=0, applyAngularImpulse no-op).
+// Angular terms are automatically zero for CAABB (getOmega()=0, applyAngularImpulse no-op).
+// Baumgarte stabilization handles penetration correction — no separate position nudge needed.
 // ============================================================================
 
-static void directCollisionResponse(Hull& a, Hull& b, const ContactManifold& m) {
+static void pgsCollisionResponse(Hull& a, Hull& b, const ContactManifold& m, float dt) {
     if (m.numContacts == 0) return;
 
     math::Mat3 IinvA = a.getInverseInertiaTensorWorld();
     math::Mat3 IinvB = b.getInverseInertiaTensorWorld();
     math::Vec3 n     = m.normal;
+    int numIter = (m.numContacts == 1) ? PGS_ITERATIONS_SINGLE : PGS_ITERATIONS_MULTI;
+
+    // Per-contact: precompute effective mass W[i] and Baumgarte+restitution bias neta[i].
+    float W[4]      = {};
+    float neta[4]   = {};
+    float lambda[4] = {}; // accumulated impulse magnitude per contact (clamped >= 0)
 
     for (int i = 0; i < m.numContacts; i++) {
         math::Vec3 rA = m.contactPoints[i] - a.getPosition();
         math::Vec3 rB = m.contactPoints[i] - b.getPosition();
 
-        math::Vec3 relVel = b.getVelocity() + b.getOmega().cross(rB)
-                          - a.getVelocity() - a.getOmega().cross(rA);
-        float vn = relVel.dot(n);
-        if (vn >= 0.0f) continue; // already separating at this contact
-
-        math::Vec3 angA   = (IinvA * rA.cross(n)).cross(rA);
-        math::Vec3 angB   = (IinvB * rB.cross(n)).cross(rB);
+        math::Vec3 angA    = (IinvA * rA.cross(n)).cross(rA);
+        math::Vec3 angB    = (IinvB * rB.cross(n)).cross(rB);
         float      effMass = a.getInverseMass() + b.getInverseMass()
                            + angA.dot(n) + angB.dot(n);
         if (effMass < 1e-6f) continue;
+        W[i] = 1.0f / effMass;
 
-        float      e       = (-vn > BOUNCE_VELOCITY_THRESHOLD) ? COLLISION_RESTITUTION : 0.0f;
-        float      j       = -(1.0f + e) * vn / effMass;
-        math::Vec3 impulse = n * j;
+        // Baumgarte bias: pushes penetrating bodies apart over several frames.
+        float bias = (PGS_BAUMGARTE_FACTOR / dt)
+                   * std::max(0.0f, m.penetration - PGS_PENETRATION_SLOP);
 
-        if (!a.isFixed()) { a.addImpulse(-impulse); a.addAngularImpulse(rA.cross(-impulse)); }
-        if (!b.isFixed()) { b.addImpulse( impulse); b.addAngularImpulse(rB.cross( impulse)); }
-        a.applyImpulses();
-        b.applyImpulses();
+        // Restitution: adds outward velocity for bouncy contacts.
+        math::Vec3 relVel0 = b.getVelocity() + b.getOmega().cross(rB)
+                           - a.getVelocity() - a.getOmega().cross(rA);
+        float vn0 = relVel0.dot(n);
+        float restitution = (vn0 < -PGS_RESTITUTION_THRESHOLD)
+                          ? -PGS_RESTITUTION * vn0   // positive, adds to bias
+                          : 0.0f;
+
+        neta[i] = bias + restitution;
     }
 
-    // Position correction — push apart by fraction of penetration, weighted by mass
-    float pen = std::max(0.0f, m.penetration - POSITION_SLOP);
-    if (pen > 0.0f) {
-        float totalInv = a.getInverseMass() + b.getInverseMass();
-        if (totalInv > 1e-6f) {
-            float corr = pen * POSITION_CORRECTION / totalInv;
-            if (!a.isFixed()) a.setPosition(a.getPosition() - n * (corr * a.getInverseMass()));
-            if (!b.isFixed()) b.setPosition(b.getPosition() + n * (corr * b.getInverseMass()));
+    // Gauss-Seidel iteration: apply each contact impulse immediately so later
+    // contacts in the same sweep see the updated velocities.
+    for (int iter = 0; iter < numIter; iter++) {
+        for (int i = 0; i < m.numContacts; i++) {
+            if (W[i] == 0.0f) continue;
+
+            math::Vec3 rA = m.contactPoints[i] - a.getPosition();
+            math::Vec3 rB = m.contactPoints[i] - b.getPosition();
+
+            // Correct relative velocity at contact point (fixed vs Java: proper sign on angular terms).
+            math::Vec3 relVel = b.getVelocity() + b.getOmega().cross(rB)
+                              - a.getVelocity() - a.getOmega().cross(rA);
+            float vn = relVel.dot(n);
+
+            // Impulse magnitude delta (no 0.5f factor — Java bug removed).
+            float deltaLambda = -W[i] * (vn - neta[i]);
+
+            // Project: non-penetration constraint — impulse can only push apart, never pull.
+            float oldLambda = lambda[i];
+            lambda[i]       = std::max(0.0f, lambda[i] + deltaLambda);
+            float dL        = lambda[i] - oldLambda;
+            if (std::abs(dL) < 1e-10f) continue;
+
+            math::Vec3 impulse = n * dL;
+
+            // Fixed Java angular sign bug: a gets -impulse, so angular = rA × (-impulse).
+            //                              b gets +impulse, so angular = rB × (+impulse).
+            if (!a.isFixed()) { a.addImpulse(-impulse); a.addAngularImpulse(rA.cross(-impulse)); }
+            if (!b.isFixed()) { b.addImpulse( impulse); b.addAngularImpulse(rB.cross( impulse)); }
+            a.applyImpulses();
+            b.applyImpulses();
         }
     }
 }
@@ -476,11 +507,11 @@ bool detectOBBOBB(const COBB& a, const COBB& b, ContactManifold& m) {
 
 // ============================================================================
 // Top-level dispatch
-// Normal must be from a toward b before calling directCollisionResponse.
+// Normal must be from a toward b before calling pgsCollisionResponse.
 // detectSphereAABB gives AABB→sphere, so flip when sphere is 'a'.
 // ============================================================================
 
-void collide(Hull& a, Hull& b, float /*dt*/) {
+void collide(Hull& a, Hull& b, float dt) {
     if (a.isFixed() && b.isFixed()) return;
 
     auto* sa = dynamic_cast<CSphere*>(&a);
@@ -495,28 +526,28 @@ void collide(Hull& a, Hull& b, float /*dt*/) {
     // ---- Sphere pairs ----
     if (sa && sb) {
         if (detectSphereSphere(*sa, *sb, m))
-            directCollisionResponse(a, b, m);
+            pgsCollisionResponse(a, b, m, dt);
         return;
     }
     if (sa && ab) {
         // detect gives AABB(b)→sphere(a); flip to a→b
         if (detectSphereAABB(*sa, *ab, m)) {
             m.normal = -m.normal;
-            directCollisionResponse(a, b, m);
+            pgsCollisionResponse(a, b, m, dt);
         }
         return;
     }
     if (aa && sb) {
         // detect gives AABB(a)→sphere(b); already a→b
         if (detectSphereAABB(*sb, *aa, m))
-            directCollisionResponse(a, b, m);
+            pgsCollisionResponse(a, b, m, dt);
         return;
     }
 
     // ---- AABB pairs ----
     if (aa && ab) {
         if (detectAABBAABB(*aa, *ab, m))
-            directCollisionResponse(a, b, m);
+            pgsCollisionResponse(a, b, m, dt);
         return;
     }
 
@@ -525,33 +556,33 @@ void collide(Hull& a, Hull& b, float /*dt*/) {
     if (sa && cb) {
         if (detectSphereOBB(*sa, *cb, m)) {
             m.normal = -m.normal;
-            directCollisionResponse(a, b, m);
+            pgsCollisionResponse(a, b, m, dt);
         }
         return;
     }
     if (ca && sb) {
         // OBB is a, sphere is b: detectSphereOBB(sphere_b, obb_a) → OBB(a)→sphere(b) = a→b
         if (detectSphereOBB(*sb, *ca, m))
-            directCollisionResponse(a, b, m);
+            pgsCollisionResponse(a, b, m, dt);
         return;
     }
     // detectAABBOBB outputs a→b already
     if (aa && cb) {
         if (detectAABBOBB(*aa, *cb, m))
-            directCollisionResponse(a, b, m);
+            pgsCollisionResponse(a, b, m, dt);
         return;
     }
     if (ca && ab) {
         // OBB is a, AABB is b: call with AABB as first arg → flip
         if (detectAABBOBB(*ab, *ca, m)) {
             m.normal = -m.normal;
-            directCollisionResponse(a, b, m);
+            pgsCollisionResponse(a, b, m, dt);
         }
         return;
     }
     if (ca && cb) {
         if (detectOBBOBB(*ca, *cb, m))
-            directCollisionResponse(a, b, m);
+            pgsCollisionResponse(a, b, m, dt);
         return;
     }
 }

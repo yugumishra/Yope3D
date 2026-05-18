@@ -37,12 +37,15 @@ struct Engine {
 
     physics::CSphere* playerSphere = nullptr;
 
-    int sceneIndex = 0;
-    static constexpr int SCENE_COUNT = 39;
+    int sceneIndex = 0;              // spawn type: 0=sphere 1=AABB 2=OBB
+    static constexpr int SCENE_COUNT = 3;
     void loadScene(int index);
 
-    bool rightWasDown = false;
-    bool leftWasDown  = false;
+    bool  rightWasDown  = false;
+    bool  leftWasDown   = false;
+    float spawnCooldown = 0.0f;
+
+    void spawnObject();
 
     // Milestone 7+:
     // std::unique_ptr<AudioSystem>  audio;
