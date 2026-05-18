@@ -34,6 +34,13 @@ namespace physics {
     // CCD: below this closing speed use restitution=0 (cancel vel) to prevent micro-bouncing
     inline constexpr float CCD_MIN_BOUNCE_VELOCITY       = 0.5f;
 
+    // CCD: if |v_n| / |v| is below this ratio the velocity is considered nearly tangential to
+    // the barrier and the inward normal component is zeroed.  Prevents gravity-induced drift
+    // accumulation on diagonal barriers where v_n stays near zero each frame.
+    // sin(5°) ≈ 0.087 — catches g*dt drift at typical sliding speeds without firing during
+    // legitimate slow approach (where v_n/|v| >> this threshold).
+    inline constexpr float CCD_RESTING_TANGENCY_THRESHOLD = 0.087f;
+
     // Per-hull linear/angular velocity decay applied each integration step
     inline constexpr float LINEAR_DAMPING                = 0.4f;   // ~70% retained/sec
     inline constexpr float ANGULAR_DAMPING               = 1.0f;   // ~45% retained/sec

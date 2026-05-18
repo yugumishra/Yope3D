@@ -48,6 +48,15 @@ static void sphereBarrier(CSphere& one, const Barrier& two, float dt, const math
     if (t > 1e-5f && t <= 1.0f)
         one.advance(t, dt, gravity);
 
+    // Tangency clamp: when at/near the surface and velocity is nearly tangential,
+    // zero the inward normal component directly instead of relying on impulse.
+    if (dist > -0.1f) {
+        float vn  = planeNormal.dot(one.getVelocity());
+        float spd = one.getVelocity().length();
+        if (vn < 0.0f && spd > 1e-4f && (-vn / spd) < CCD_RESTING_TANGENCY_THRESHOLD)
+            one.setVelocity(one.getVelocity() - planeNormal * vn);
+    }
+
     float sign = (dist > 0.0f) ? 1.0f : (dist < 0.0f ? -1.0f : 0.0f);
     math::Vec3 radiusVec          = planeNormal * (-sign * one.getRadius());
     math::Vec3 tangentialVelocity = radiusVec.cross(one.getOmega());
@@ -61,11 +70,9 @@ static void sphereBarrier(CSphere& one, const Barrier& two, float dt, const math
         one.applyImpulses();
     }
 
-    // Position correction: clawback any remaining penetration so gravity can't
-    // accumulate a slow sink each frame.
     float pen = one.getRadius() - planeNormal.dot(one.getPosition() - two.position);
-    if (pen > POSITION_SLOP)
-        one.setPosition(one.getPosition() + planeNormal * (POSITION_CORRECTION * (pen - POSITION_SLOP)));
+    if (pen > 0)
+        one.setPosition(one.getPosition() + planeNormal * (POSITION_CORRECTION * (pen - 0)));
 }
 
 // CCD sphere vs bounded barrier (finite wall panel).
@@ -98,6 +105,13 @@ static void sphereBBarrier(CSphere& one, const BoundedBarrier& two, float dt, co
     if (t > 1e-5f && t <= 1.0f)
         one.advance(t, dt, gravity);
 
+    if (dist > -0.1f) {
+        float vn  = principalNormal.dot(one.getVelocity());
+        float spd = one.getVelocity().length();
+        if (vn < 0.0f && spd > 1e-4f && (-vn / spd) < CCD_RESTING_TANGENCY_THRESHOLD)
+            one.setVelocity(one.getVelocity() - principalNormal * vn);
+    }
+
     float sign = (dist > 0.0f) ? 1.0f : (dist < 0.0f ? -1.0f : 0.0f);
     math::Vec3 radiusVec          = principalNormal * (-sign * one.getRadius());
     math::Vec3 tangentialVelocity = radiusVec.cross(one.getOmega());
@@ -112,8 +126,8 @@ static void sphereBBarrier(CSphere& one, const BoundedBarrier& two, float dt, co
     }
 
     float pen = one.getRadius() - principalNormal.dot(one.getPosition() - two.position);
-    if (pen > POSITION_SLOP)
-        one.setPosition(one.getPosition() + principalNormal * (POSITION_CORRECTION * (pen - POSITION_SLOP)));
+    if (pen > 0)
+        one.setPosition(one.getPosition() + principalNormal * (POSITION_CORRECTION * (pen - 0)));
 }
 
 // CCD AABB vs infinite barrier plane.
@@ -138,6 +152,13 @@ static void aabbBarrier(CAABB& one, const Barrier& two, float dt, const math::Ve
     if (t > 1e-5f && t <= 1.0f)
         one.advance(t, dt, gravity);
 
+    if (dist > -0.1f) {
+        float vn  = n.dot(one.getVelocity());
+        float spd = one.getVelocity().length();
+        if (vn < 0.0f && spd > 1e-4f && (-vn / spd) < CCD_RESTING_TANGENCY_THRESHOLD)
+            one.setVelocity(one.getVelocity() - n * vn);
+    }
+
     float dot = n.dot(one.getVelocity());
     if (dot < 0.0f) {
         float factor = (-dot > CCD_MIN_BOUNCE_VELOCITY) ? CCD_IMPULSE_FACTOR : 1.0f;
@@ -147,8 +168,8 @@ static void aabbBarrier(CAABB& one, const Barrier& two, float dt, const math::Ve
     }
 
     float pen = rEff - n.dot(one.getPosition() - two.position);
-    if (pen > POSITION_SLOP)
-        one.setPosition(one.getPosition() + n * (POSITION_CORRECTION * (pen - POSITION_SLOP)));
+    if (pen > 0)
+        one.setPosition(one.getPosition() + n * (POSITION_CORRECTION * (pen - 0)));
 }
 
 // CCD AABB vs bounded barrier panel.
@@ -184,6 +205,13 @@ static void aabbBBarrier(CAABB& one, const BoundedBarrier& two, float dt, const 
     if (t > 1e-5f && t <= 1.0f)
         one.advance(t, dt, gravity);
 
+    if (dist > -0.1f) {
+        float vn  = n.dot(one.getVelocity());
+        float spd = one.getVelocity().length();
+        if (vn < 0.0f && spd > 1e-4f && (-vn / spd) < CCD_RESTING_TANGENCY_THRESHOLD)
+            one.setVelocity(one.getVelocity() - n * vn);
+    }
+
     float dot = n.dot(one.getVelocity());
     if (dot < 0.0f) {
         float factor = (-dot > CCD_MIN_BOUNCE_VELOCITY) ? CCD_IMPULSE_FACTOR_BOUNDED : 1.0f;
@@ -193,8 +221,8 @@ static void aabbBBarrier(CAABB& one, const BoundedBarrier& two, float dt, const 
     }
 
     float pen = rNorm - n.dot(one.getPosition() - two.position);
-    if (pen > POSITION_SLOP)
-        one.setPosition(one.getPosition() + n * (POSITION_CORRECTION * (pen - POSITION_SLOP)));
+    if (pen > 0)
+        one.setPosition(one.getPosition() + n * (POSITION_CORRECTION * (pen - 0)));
 }
 
 } // anonymous namespace

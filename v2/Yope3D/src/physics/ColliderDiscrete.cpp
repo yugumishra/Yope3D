@@ -159,13 +159,13 @@ bool detectAABBAABB(const CAABB& a, const CAABB& b, ContactManifold& m) {
     if (ovX <= 0.0f || ovY <= 0.0f || ovZ <= 0.0f) return false;
 
     if (ovX <= ovY && ovX <= ovZ) {
-        m.normal      = {posA.x < posB.x ? -1.0f : 1.0f, 0.0f, 0.0f};
+        m.normal      = {posA.x < posB.x ? 1.0f : -1.0f, 0.0f, 0.0f};
         m.penetration = ovX;
     } else if (ovY <= ovX && ovY <= ovZ) {
-        m.normal      = {0.0f, posA.y < posB.y ? -1.0f : 1.0f, 0.0f}; // Java had a.y < a.y here
+        m.normal      = {0.0f, posA.y < posB.y ? 1.0f : -1.0f, 0.0f};
         m.penetration = ovY;
     } else {
-        m.normal      = {0.0f, 0.0f, posA.z < posB.z ? -1.0f : 1.0f};
+        m.normal      = {0.0f, 0.0f, posA.z < posB.z ? 1.0f : -1.0f};
         m.penetration = ovZ;
     }
     m.numContacts      = 1;
