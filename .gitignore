@@ -10,3 +10,7 @@ claude.md
 
 #ignore old source directory (already tracked)
 old_src_java/
+
+# milestone-report script output
+major_updates/
+releases/

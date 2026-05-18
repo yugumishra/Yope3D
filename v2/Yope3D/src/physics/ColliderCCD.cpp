@@ -10,8 +10,7 @@ namespace physics::ColliderCCD {
 
 namespace {
 
-// Checks whether the position along `dir` stays within [-scale, scale] during this timestep.
-// Returns false only when the point is entirely outside the range throughout [0,1].
+// Returns false only when the swept point is entirely outside [-scale, scale] for the whole step.
 static bool evalDir(math::Vec3 dir, float scale, math::Vec3 diff, math::Vec3 v, float dt) {
     float current = diff.dot(dir);
     float step    = (v * dt).dot(dir);
@@ -27,172 +26,191 @@ static bool evalDir(math::Vec3 dir, float scale, math::Vec3 diff, math::Vec3 v, 
     return true;
 }
 
-// CCD sphere vs infinite barrier plane. Ported from ColliderCCD.java::sphere_barrier.
-static void sphereBarrier(CSphere& one, const Barrier& two, float dt) {
-    math::Vec3 diff         = one.getPosition() - two.position;
-    math::Vec3 planeNormal  = two.normal.normalize();
-    math::Vec3 velocityStep = one.getVelocity() * dt;
+// CCD sphere vs infinite barrier plane.
+static void sphereBarrier(CSphere& one, const Barrier& two, float dt, const math::Vec3& gravity) {
+    math::Vec3 diff        = one.getPosition() - two.position;
+    math::Vec3 planeNormal = two.normal.normalize();
 
-    // dist > 0  → sphere already penetrating the barrier
-    float t    = one.getRadius() - planeNormal.dot(diff);
-    float dist = t;
-
-    float divider = planeNormal.dot(velocityStep);
+    // dist > 0 → sphere is already penetrating the barrier surface
+    float dist    = one.getRadius() - planeNormal.dot(diff);
+    float divider = planeNormal.dot(one.getVelocity() * dt);
     if (std::abs(divider) < EPSILON)
         divider = (divider >= 0.0f) ? 1.0f : -1.0f;
-    t /= divider;
+    float t = dist / divider; // fraction of this frame at which surface is reached
 
-    if (dist > 0.0001f || (t >= 0.0f && t <= 1.0f)) {
-        one.setPosition(one.getPosition() + velocityStep * t);
+    bool willCollide = (t >= 0.0f && t <= 1.0f);
+    bool penetrating = (dist > 0.0001f);
+    if (!willCollide && !penetrating) return;
 
-        float sign = (dist > 0.0f) ? 1.0f : (dist < 0.0f ? -1.0f : 0.0f);
-        math::Vec3 radiusVec          = planeNormal * (-sign * one.getRadius());
-        math::Vec3 tangentialVelocity = radiusVec.cross(one.getOmega());
-        math::Vec3 relativeVelocity   = one.getVelocity() + tangentialVelocity;
+    // Partially advance to the contact point when the sphere is moving toward the surface
+    // this frame. Skipped when already penetrating (t ≤ 0) to avoid consuming the
+    // first-sub-step gravity flag with a zero-distance advance; step 3 integrates the rest.
+    if (t > 1e-5f && t <= 1.0f)
+        one.advance(t, dt, gravity);
 
-        float dot = planeNormal.dot(relativeVelocity);
-        if (dot < 0.0f) {
-            float factor = (-dot > CCD_MIN_BOUNCE_VELOCITY) ? CCD_IMPULSE_FACTOR : 1.0f;
-            math::Vec3 impulse = planeNormal * (dot * -factor * one.getMass());
-            one.addImpulse(impulse);
-            one.applyImpulses();
-        }
+    float sign = (dist > 0.0f) ? 1.0f : (dist < 0.0f ? -1.0f : 0.0f);
+    math::Vec3 radiusVec          = planeNormal * (-sign * one.getRadius());
+    math::Vec3 tangentialVelocity = radiusVec.cross(one.getOmega());
+    math::Vec3 relativeVelocity   = one.getVelocity() + tangentialVelocity;
+
+    float dot = planeNormal.dot(relativeVelocity);
+    if (dot < 0.0f) {
+        float factor = (-dot > CCD_MIN_BOUNCE_VELOCITY) ? CCD_IMPULSE_FACTOR : 1.0f;
+        math::Vec3 impulse = planeNormal * (dot * -factor * one.getMass());
+        one.addImpulse(impulse);
+        one.applyImpulses();
     }
+
+    // Position correction: clawback any remaining penetration so gravity can't
+    // accumulate a slow sink each frame.
+    float pen = one.getRadius() - planeNormal.dot(one.getPosition() - two.position);
+    if (pen > POSITION_SLOP)
+        one.setPosition(one.getPosition() + planeNormal * (POSITION_CORRECTION * (pen - POSITION_SLOP)));
 }
 
-// CCD sphere vs bounded barrier (finite wall panel). Ported from ColliderCCD.java::sphere_bbarrier.
-static void sphereBBarrier(CSphere& one, const BoundedBarrier& two, float dt) {
+// CCD sphere vs bounded barrier (finite wall panel).
+//note objects can rest weirdly on bounded barriers since we extend the extent by the relevant radius here
+//not going to fix since its really a backport and not necessary
+static void sphereBBarrier(CSphere& one, const BoundedBarrier& two, float dt, const math::Vec3& gravity) {
     math::Vec3 principalNormal = two.normal;
     math::Vec3 dir1            = two.orientation;
     math::Vec3 dir2            = two.getSecondOrientation();
 
-    math::Vec3 diff         = one.getPosition() - two.position;
-    math::Vec3 velocityStep = one.getVelocity() * dt;
+    math::Vec3 diff = one.getPosition() - two.position;
 
-    float t    = one.getRadius() - principalNormal.dot(diff);
-    float dist = t;
-
-    float divider = principalNormal.dot(velocityStep);
+    float dist    = one.getRadius() - principalNormal.dot(diff);
+    float divider = principalNormal.dot(one.getVelocity() * dt);
     if (std::abs(divider) < EPSILON)
         divider = (divider >= 0.0f) ? 1.0f : -1.0f;
-    t /= divider;
+    float t = dist / divider;
 
     float dir1Bounds = two.xScale + one.getRadius() + CCD_BOUNDED_BARRIER_PADDING;
     float dir2Bounds = two.yScale + one.getRadius() + CCD_BOUNDED_BARRIER_PADDING;
 
     bool evenPossible = evalDir(dir1, dir1Bounds, diff, one.getVelocity(), dt)
                      && evalDir(dir2, dir2Bounds, diff, one.getVelocity(), dt);
+    if (!evenPossible) return;
 
-    if (evenPossible && ((dist > 0.0f && dist < CCD_PENETRATION_THRESHOLD)
-                      || (t >= 0.01f && t <= 1.0f)))
-    {
-        one.setPosition(one.getPosition() + velocityStep * t);
+    bool willCollide = (t >= 0.01f && t <= 1.0f);
+    bool penetrating = (dist > 0.0f && dist < CCD_PENETRATION_THRESHOLD);
+    if (!willCollide && !penetrating) return;
 
-        float sign = (dist > 0.0f) ? 1.0f : (dist < 0.0f ? -1.0f : 0.0f);
-        math::Vec3 radiusVec          = principalNormal * (-sign * one.getRadius());
-        math::Vec3 tangentialVelocity = radiusVec.cross(one.getOmega());
-        math::Vec3 relativeVelocity   = one.getVelocity() + tangentialVelocity;
+    if (t > 1e-5f && t <= 1.0f)
+        one.advance(t, dt, gravity);
 
-        float dot = principalNormal.dot(relativeVelocity);
-        if (dot < 0.0f) {
-            float factor = (-dot > CCD_MIN_BOUNCE_VELOCITY) ? CCD_IMPULSE_FACTOR_BOUNDED : 1.0f;
-            math::Vec3 impulse = principalNormal * (dot * -factor * one.getMass());
-            one.addImpulse(impulse);
-            one.applyImpulses();
-        }
+    float sign = (dist > 0.0f) ? 1.0f : (dist < 0.0f ? -1.0f : 0.0f);
+    math::Vec3 radiusVec          = principalNormal * (-sign * one.getRadius());
+    math::Vec3 tangentialVelocity = radiusVec.cross(one.getOmega());
+    math::Vec3 relativeVelocity   = one.getVelocity() + tangentialVelocity;
+
+    float dot = principalNormal.dot(relativeVelocity);
+    if (dot < 0.0f) {
+        float factor = (-dot > CCD_MIN_BOUNCE_VELOCITY) ? CCD_IMPULSE_FACTOR_BOUNDED : 1.0f;
+        math::Vec3 impulse = principalNormal * (dot * -factor * one.getMass());
+        one.addImpulse(impulse);
+        one.applyImpulses();
     }
+
+    float pen = one.getRadius() - principalNormal.dot(one.getPosition() - two.position);
+    if (pen > POSITION_SLOP)
+        one.setPosition(one.getPosition() + principalNormal * (POSITION_CORRECTION * (pen - POSITION_SLOP)));
 }
 
 // CCD AABB vs infinite barrier plane.
 // The AABB's effective "radius" along the barrier normal is its support:
-// rEff = |n.x|*ex + |n.y|*ey + |n.z|*ez.  Structurally identical to sphereBarrier.
-static void aabbBarrier(CAABB& one, const Barrier& two, float dt) {
-    math::Vec3 diff    = one.getPosition() - two.position;
-    math::Vec3 n       = two.normal.normalize();
-    math::Vec3 velStep = one.getVelocity() * dt;
-    math::Vec3 ae      = one.getScales();
+// rEff = |n.x|*ex + |n.y|*ey + |n.z|*ez.  Same structure as sphereBarrier.
+static void aabbBarrier(CAABB& one, const Barrier& two, float dt, const math::Vec3& gravity) {
+    math::Vec3 diff = one.getPosition() - two.position;
+    math::Vec3 n    = two.normal.normalize();
+    math::Vec3 ae   = one.getScales();
 
-    float rEff = std::abs(n.x) * ae.x + std::abs(n.y) * ae.y + std::abs(n.z) * ae.z;
-
-    float dist = rEff - n.dot(diff);
-    float t    = dist;
-
-    float divider = n.dot(velStep);
+    float rEff    = std::abs(n.x) * ae.x + std::abs(n.y) * ae.y + std::abs(n.z) * ae.z;
+    float dist    = rEff - n.dot(diff);
+    float divider = n.dot(one.getVelocity() * dt);
     if (std::abs(divider) < EPSILON)
         divider = (divider >= 0.0f) ? 1.0f : -1.0f;
-    t /= divider;
+    float t = dist / divider;
 
-    if (dist > 0.0001f || (t >= 0.0f && t <= 1.0f)) {
-        one.setPosition(one.getPosition() + velStep * t);
+    bool willCollide = (t >= 0.0f && t <= 1.0f);
+    bool penetrating = (dist > 0.0001f);
+    if (!willCollide && !penetrating) return;
 
-        float dot = n.dot(one.getVelocity());
-        if (dot < 0.0f) {
-            float factor = (-dot > CCD_MIN_BOUNCE_VELOCITY) ? CCD_IMPULSE_FACTOR : 1.0f;
-            math::Vec3 impulse = n * (dot * -factor * one.getMass());
-            one.addImpulse(impulse);
-            one.applyImpulses();
-        }
+    if (t > 1e-5f && t <= 1.0f)
+        one.advance(t, dt, gravity);
+
+    float dot = n.dot(one.getVelocity());
+    if (dot < 0.0f) {
+        float factor = (-dot > CCD_MIN_BOUNCE_VELOCITY) ? CCD_IMPULSE_FACTOR : 1.0f;
+        math::Vec3 impulse = n * (dot * -factor * one.getMass());
+        one.addImpulse(impulse);
+        one.applyImpulses();
     }
+
+    float pen = rEff - n.dot(one.getPosition() - two.position);
+    if (pen > POSITION_SLOP)
+        one.setPosition(one.getPosition() + n * (POSITION_CORRECTION * (pen - POSITION_SLOP)));
 }
 
-// CCD AABB vs bounded barrier panel. Tangent-direction bounds are expanded by the
-// AABB's support in each tangent direction so evalDir sees the correct swept region.
-static void aabbBBarrier(CAABB& one, const BoundedBarrier& two, float dt) {
+// CCD AABB vs bounded barrier panel.
+static void aabbBBarrier(CAABB& one, const BoundedBarrier& two, float dt, const math::Vec3& gravity) {
     math::Vec3 n    = two.normal;
     math::Vec3 dir1 = two.orientation;
     math::Vec3 dir2 = two.getSecondOrientation();
     math::Vec3 diff = one.getPosition() - two.position;
     math::Vec3 ae   = one.getScales();
     math::Vec3 vel  = one.getVelocity();
-    math::Vec3 velStep = vel * dt;
 
     float rNorm = std::abs(n.x)*ae.x + std::abs(n.y)*ae.y + std::abs(n.z)*ae.z;
     float rDir1 = std::abs(dir1.x)*ae.x + std::abs(dir1.y)*ae.y + std::abs(dir1.z)*ae.z;
     float rDir2 = std::abs(dir2.x)*ae.x + std::abs(dir2.y)*ae.y + std::abs(dir2.z)*ae.z;
 
-    float dist = rNorm - n.dot(diff);
-    float t    = dist;
-
-    float divider = n.dot(velStep);
+    float dist    = rNorm - n.dot(diff);
+    float divider = n.dot(vel * dt);
     if (std::abs(divider) < EPSILON)
         divider = (divider >= 0.0f) ? 1.0f : -1.0f;
-    t /= divider;
+    float t = dist / divider;
 
     float dir1Bounds = two.xScale + rDir1 + CCD_BOUNDED_BARRIER_PADDING;
     float dir2Bounds = two.yScale + rDir2 + CCD_BOUNDED_BARRIER_PADDING;
 
     bool evenPossible = evalDir(dir1, dir1Bounds, diff, vel, dt)
                      && evalDir(dir2, dir2Bounds, diff, vel, dt);
+    if (!evenPossible) return;
 
-    if (evenPossible && ((dist > 0.0f && dist < CCD_PENETRATION_THRESHOLD)
-                      || (t >= 0.01f && t <= 1.0f)))
-    {
-        one.setPosition(one.getPosition() + velStep * t);
+    bool willCollide = (t >= 0.01f && t <= 1.0f);
+    bool penetrating = (dist > 0.0f && dist < CCD_PENETRATION_THRESHOLD);
+    if (!willCollide && !penetrating) return;
 
-        float dot = n.dot(one.getVelocity());
-        if (dot < 0.0f) {
-            float factor = (-dot > CCD_MIN_BOUNCE_VELOCITY) ? CCD_IMPULSE_FACTOR_BOUNDED : 1.0f;
-            math::Vec3 impulse = n * (dot * -factor * one.getMass());
-            one.addImpulse(impulse);
-            one.applyImpulses();
-        }
+    if (t > 1e-5f && t <= 1.0f)
+        one.advance(t, dt, gravity);
+
+    float dot = n.dot(one.getVelocity());
+    if (dot < 0.0f) {
+        float factor = (-dot > CCD_MIN_BOUNCE_VELOCITY) ? CCD_IMPULSE_FACTOR_BOUNDED : 1.0f;
+        math::Vec3 impulse = n * (dot * -factor * one.getMass());
+        one.addImpulse(impulse);
+        one.applyImpulses();
     }
+
+    float pen = rNorm - n.dot(one.getPosition() - two.position);
+    if (pen > POSITION_SLOP)
+        one.setPosition(one.getPosition() + n * (POSITION_CORRECTION * (pen - POSITION_SLOP)));
 }
 
 } // anonymous namespace
 
-void collideBarrier(Hull& one, const Barrier& b, float dt) {
+void collideBarrier(Hull& one, const Barrier& b, float dt, const math::Vec3& gravity) {
     if (auto* s = dynamic_cast<CSphere*>(&one))
-        sphereBarrier(*s, b, dt);
+        sphereBarrier(*s, b, dt, gravity);
     else if (auto* a = dynamic_cast<CAABB*>(&one))
-        aabbBarrier(*a, b, dt);
+        aabbBarrier(*a, b, dt, gravity);
 }
 
-void collideBarrier(Hull& one, const BoundedBarrier& b, float dt) {
+void collideBarrier(Hull& one, const BoundedBarrier& b, float dt, const math::Vec3& gravity) {
     if (auto* s = dynamic_cast<CSphere*>(&one))
-        sphereBBarrier(*s, b, dt);
+        sphereBBarrier(*s, b, dt, gravity);
     else if (auto* a = dynamic_cast<CAABB*>(&one))
-        aabbBBarrier(*a, b, dt);
+        aabbBBarrier(*a, b, dt, gravity);
 }
 
 } // namespace physics::ColliderCCD

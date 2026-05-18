@@ -9,7 +9,7 @@
 // ---------------------------------------------------------------------------
 
 namespace Primitives {
-    // Unit cube (±0.5) with per-face normals and UV seams.
+    // Unit cube (±1) with per-face normals and UV seams.
     // Matches the original hardcoded kDefaultVertices/kDefaultIndices layout.
     LoadedMesh cube();
 

@@ -46,6 +46,11 @@ public:
     // Find a memory type index matching requirements and desired properties.
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
 
+    // Block the CPU until all GPU work is finished. Safe to call at any time.
+    // Use this for mid-frame resource swaps (e.g. scene reloads).
+    // Do NOT use Renderer::waitIdle() for this — that is a full teardown.
+    void syncDevice() const { vkDeviceWaitIdle(vkLogical->get()); }
+
     GpuDevice(const GpuDevice&) = delete;
     GpuDevice& operator=(const GpuDevice&) = delete;
 

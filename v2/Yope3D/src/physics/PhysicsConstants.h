@@ -23,6 +23,8 @@ namespace physics {
     inline constexpr float COLLISION_RESTITUTION         = 0.5f;
     inline constexpr float POSITION_CORRECTION           = 0.4f;  // fraction of penetration corrected per frame
     inline constexpr float POSITION_SLOP                 = 0.01f;
+    // Below this closing speed restitution is treated as 0 — required for resting contacts.
+    inline constexpr float BOUNCE_VELOCITY_THRESHOLD     = 1.0f;
 
     // Legacy names kept for any remaining references
     inline constexpr float SPHERE_RESTITUTION            = COLLISION_RESTITUTION;

@@ -148,7 +148,8 @@ void Engine::loadScene(int index) {
     };
 
     window->setTitle(std::string("[") + std::to_string(index + 1) + "/" +
-                     std::to_string(SCENE_COUNT) + "] " + kNames[index]);
+                     std::to_string(SCENE_COUNT) + "] " + kNames[index] +
+                     "  |  LEFT/RIGHT to cycle");
 
     switch (index) {
 
