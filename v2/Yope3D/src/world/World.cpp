@@ -8,6 +8,15 @@ World::~World() {}
 
 void World::init(GpuDevice& /*gpu*/) {}
 
+void World::resetPhysics(GpuDevice& gpu) {
+    for (auto& mesh : renderMeshes)
+        if (mesh) mesh->destroy(gpu.device());
+    renderMeshes.clear();
+    hulls.clear();
+    springs.clear();
+    barriers.clear();
+}
+
 void World::cleanup(GpuDevice& gpu) {
     for (auto& mesh : renderMeshes) {
         if (mesh) mesh->destroy(gpu.device());
@@ -115,24 +124,18 @@ const std::vector<std::unique_ptr<physics::Hull>>& World::getHulls() const {
 // ---- Simulation step ----
 
 void World::advance(float dt) {
-    // 0. Gravity — applied before CCD so the barrier response reacts to it in the same frame.
-    //    Hull::advance is then called with zero gravity to avoid double-application.
-    for (auto& h : hulls)
-        if (!h->isFixed() && h->isTangible() && h->gravityEnabled())
-            h->addVelocity(gravity * dt);
-
-    // 1. CCD barrier collision
+    // 1. CCD barrier collision (uses end-of-previous-frame velocity; matches Java order)
     for (auto& h : hulls) {
         if (h->isFixed() || !h->isTangible()) continue;
         // Standalone infinite-plane barriers
         for (auto& bv : barriers) {
-            std::visit([&](auto& b){ physics::ColliderCCD::collideBarrier(*h, b, dt); }, bv);
+            std::visit([&](auto& b){ physics::ColliderCCD::collideBarrier(*h, b, dt, gravity); }, bv);
         }
         // BarrierHull internal barriers (box rooms, etc.)
         for (auto& other : hulls) {
             if (auto* bh = dynamic_cast<physics::BarrierHull*>(other.get())) {
                 for (auto& bv : bh->getBarriers()) {
-                    std::visit([&](auto& b){ physics::ColliderCCD::collideBarrier(*h, b, dt); }, bv);
+                    std::visit([&](auto& b){ physics::ColliderCCD::collideBarrier(*h, b, dt, gravity); }, bv);
                 }
             }
         }
@@ -148,11 +151,10 @@ void World::advance(float dt) {
         }
     }
 
-    // 3. Integration — gravity already applied in step 0, pass zero to avoid double-application
-    const math::Vec3 zeroGravity = {};
+    // 3. Integration — gravity is added inside Hull::advance on the first sub-step of the frame.
     for (auto& h : hulls) {
         if (h->isTangible())
-            h->advance(dt, zeroGravity);
+            h->advance(dt, gravity);
     }
 
     // 4. Springs

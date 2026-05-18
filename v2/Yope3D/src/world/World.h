@@ -56,6 +56,7 @@ public:
     physics::Spring*      addSpring(physics::Hull* a, physics::Hull* b, float k, float rest);
     void                  initCollisionTree(math::Vec3 min, math::Vec3 max, int depth);
     void                  advance(float dt);
+    void                  resetPhysics(GpuDevice& gpu);
 
     const std::vector<std::unique_ptr<physics::Hull>>& getHulls() const;
 

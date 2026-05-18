@@ -36,7 +36,8 @@ static void directCollisionResponse(Hull& a, Hull& b, const ContactManifold& m) 
                            + angA.dot(n) + angB.dot(n);
         if (effMass < 1e-6f) continue;
 
-        float      j       = -(1.0f + COLLISION_RESTITUTION) * vn / effMass;
+        float      e       = (-vn > BOUNCE_VELOCITY_THRESHOLD) ? COLLISION_RESTITUTION : 0.0f;
+        float      j       = -(1.0f + e) * vn / effMass;
         math::Vec3 impulse = n * j;
 
         if (!a.isFixed()) { a.addImpulse(-impulse); a.addAngularImpulse(rA.cross(-impulse)); }

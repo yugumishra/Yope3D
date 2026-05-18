@@ -10,41 +10,41 @@ LoadedMesh Primitives::cube() {
     // 24 vertices (6 faces × 4 corners, with per-face normals and UV seams).
     // This matches the original hardcoded kDefaultVertices from Engine.cpp.
     const Vertex vertices[] = {
-        // Front face (z = 0.5, normal = +Z)
-        {{-0.5f, -0.5f,  0.5f}, { 0.0f,  0.0f,  1.0f}, {0.0f, 1.0f}},
-        {{ 0.5f,  0.5f,  0.5f}, { 0.0f,  0.0f,  1.0f}, {1.0f, 0.0f}},
-        {{-0.5f,  0.5f,  0.5f}, { 0.0f,  0.0f,  1.0f}, {0.0f, 0.0f}},
-        {{ 0.5f, -0.5f,  0.5f}, { 0.0f,  0.0f,  1.0f}, {1.0f, 1.0f}},
+        // Front face (z = 1, normal = +Z)
+        {{-1.0f, -1.0f,  1.0f}, { 0.0f,  0.0f,  1.0f}, {0.0f, 1.0f}},
+        {{ 1.0f,  1.0f,  1.0f}, { 0.0f,  0.0f,  1.0f}, {1.0f, 0.0f}},
+        {{-1.0f,  1.0f,  1.0f}, { 0.0f,  0.0f,  1.0f}, {0.0f, 0.0f}},
+        {{ 1.0f, -1.0f,  1.0f}, { 0.0f,  0.0f,  1.0f}, {1.0f, 1.0f}},
 
-        // Back face (z = -0.5, normal = -Z)
-        {{-0.5f, -0.5f, -0.5f}, { 0.0f,  0.0f, -1.0f}, {0.0f, 1.0f}},
-        {{ 0.5f,  0.5f, -0.5f}, { 0.0f,  0.0f, -1.0f}, {1.0f, 0.0f}},
-        {{-0.5f,  0.5f, -0.5f}, { 0.0f,  0.0f, -1.0f}, {0.0f, 0.0f}},
-        {{ 0.5f, -0.5f, -0.5f}, { 0.0f,  0.0f, -1.0f}, {1.0f, 1.0f}},
+        // Back face (z = -1, normal = -Z)
+        {{-1.0f, -1.0f, -1.0f}, { 0.0f,  0.0f, -1.0f}, {0.0f, 1.0f}},
+        {{ 1.0f,  1.0f, -1.0f}, { 0.0f,  0.0f, -1.0f}, {1.0f, 0.0f}},
+        {{-1.0f,  1.0f, -1.0f}, { 0.0f,  0.0f, -1.0f}, {0.0f, 0.0f}},
+        {{ 1.0f, -1.0f, -1.0f}, { 0.0f,  0.0f, -1.0f}, {1.0f, 1.0f}},
 
-        // Top face (y = 0.5, normal = +Y)
-        {{-0.5f,  0.5f, -0.5f}, { 0.0f,  1.0f,  0.0f}, {0.0f, 1.0f}},
-        {{ 0.5f,  0.5f,  0.5f}, { 0.0f,  1.0f,  0.0f}, {1.0f, 0.0f}},
-        {{-0.5f,  0.5f,  0.5f}, { 0.0f,  1.0f,  0.0f}, {0.0f, 0.0f}},
-        {{ 0.5f,  0.5f, -0.5f}, { 0.0f,  1.0f,  0.0f}, {1.0f, 1.0f}},
+        // Top face (y = 1, normal = +Y)
+        {{-1.0f,  1.0f, -1.0f}, { 0.0f,  1.0f,  0.0f}, {0.0f, 1.0f}},
+        {{ 1.0f,  1.0f,  1.0f}, { 0.0f,  1.0f,  0.0f}, {1.0f, 0.0f}},
+        {{-1.0f,  1.0f,  1.0f}, { 0.0f,  1.0f,  0.0f}, {0.0f, 0.0f}},
+        {{ 1.0f,  1.0f, -1.0f}, { 0.0f,  1.0f,  0.0f}, {1.0f, 1.0f}},
 
-        // Bottom face (y = -0.5, normal = -Y)
-        {{-0.5f, -0.5f, -0.5f}, { 0.0f, -1.0f,  0.0f}, {0.0f, 1.0f}},
-        {{ 0.5f, -0.5f,  0.5f}, { 0.0f, -1.0f,  0.0f}, {1.0f, 0.0f}},
-        {{-0.5f, -0.5f,  0.5f}, { 0.0f, -1.0f,  0.0f}, {0.0f, 0.0f}},
-        {{ 0.5f, -0.5f, -0.5f}, { 0.0f, -1.0f,  0.0f}, {1.0f, 1.0f}},
+        // Bottom face (y = -1, normal = -Y)
+        {{-1.0f, -1.0f, -1.0f}, { 0.0f, -1.0f,  0.0f}, {0.0f, 1.0f}},
+        {{ 1.0f, -1.0f,  1.0f}, { 0.0f, -1.0f,  0.0f}, {1.0f, 0.0f}},
+        {{-1.0f, -1.0f,  1.0f}, { 0.0f, -1.0f,  0.0f}, {0.0f, 0.0f}},
+        {{ 1.0f, -1.0f, -1.0f}, { 0.0f, -1.0f,  0.0f}, {1.0f, 1.0f}},
 
-        // Right face (x = 0.5, normal = +X)
-        {{ 0.5f, -0.5f, -0.5f}, { 1.0f,  0.0f,  0.0f}, {0.0f, 1.0f}},
-        {{ 0.5f,  0.5f,  0.5f}, { 1.0f,  0.0f,  0.0f}, {1.0f, 0.0f}},
-        {{ 0.5f, -0.5f,  0.5f}, { 1.0f,  0.0f,  0.0f}, {0.0f, 0.0f}},
-        {{ 0.5f,  0.5f, -0.5f}, { 1.0f,  0.0f,  0.0f}, {1.0f, 1.0f}},
+        // Right face (x = 1, normal = +X)
+        {{ 1.0f, -1.0f, -1.0f}, { 1.0f,  0.0f,  0.0f}, {0.0f, 1.0f}},
+        {{ 1.0f,  1.0f,  1.0f}, { 1.0f,  0.0f,  0.0f}, {1.0f, 0.0f}},
+        {{ 1.0f, -1.0f,  1.0f}, { 1.0f,  0.0f,  0.0f}, {0.0f, 0.0f}},
+        {{ 1.0f,  1.0f, -1.0f}, { 1.0f,  0.0f,  0.0f}, {1.0f, 1.0f}},
 
-        // Left face (x = -0.5, normal = -X)
-        {{-0.5f, -0.5f, -0.5f}, {-1.0f,  0.0f,  0.0f}, {0.0f, 1.0f}},
-        {{-0.5f,  0.5f,  0.5f}, {-1.0f,  0.0f,  0.0f}, {1.0f, 0.0f}},
-        {{-0.5f, -0.5f,  0.5f}, {-1.0f,  0.0f,  0.0f}, {0.0f, 0.0f}},
-        {{-0.5f,  0.5f, -0.5f}, {-1.0f,  0.0f,  0.0f}, {1.0f, 1.0f}},
+        // Left face (x = -1, normal = -X)
+        {{-1.0f, -1.0f, -1.0f}, {-1.0f,  0.0f,  0.0f}, {0.0f, 1.0f}},
+        {{-1.0f,  1.0f,  1.0f}, {-1.0f,  0.0f,  0.0f}, {1.0f, 0.0f}},
+        {{-1.0f, -1.0f,  1.0f}, {-1.0f,  0.0f,  0.0f}, {0.0f, 0.0f}},
+        {{-1.0f,  1.0f, -1.0f}, {-1.0f,  0.0f,  0.0f}, {1.0f, 1.0f}},
     };
 
     // 36 indices (6 faces × 2 triangles per face × 3 vertices per triangle).
@@ -87,8 +87,8 @@ LoadedMesh Primitives::icosphere(float radius, int subdivisions) {
     // Avoids harsh seam artifacts by using proper spherical coordinates
     auto getTexCoord = [](float nx, float ny, float nz) {
         const float PI = 3.14159265359f;
-        float theta = (std::atan2(nx, nz) / PI) / 2.0f + 0.5f;
-        float phi = (std::asin(-ny) / (PI / 2.0f)) / 2.0f + 0.5f;
+        float theta = (std::atan2(nx, nz) / PI) / 2.0f + 1.0f;
+        float phi = (std::asin(-ny) / (PI / 2.0f)) / 2.0f + 1.0f;
         return std::make_pair(theta, phi);
     };
 
@@ -147,9 +147,9 @@ LoadedMesh Primitives::icosphere(float radius, int subdivisions) {
                 const Vertex& vb = mesh.vertices[b];
 
                 Vertex midpoint;
-                midpoint.position[0] = (va.position[0] + vb.position[0]) * 0.5f;
-                midpoint.position[1] = (va.position[1] + vb.position[1]) * 0.5f;
-                midpoint.position[2] = (va.position[2] + vb.position[2]) * 0.5f;
+                midpoint.position[0] = (va.position[0] + vb.position[0]) * 1.0f;
+                midpoint.position[1] = (va.position[1] + vb.position[1]) * 1.0f;
+                midpoint.position[2] = (va.position[2] + vb.position[2]) * 1.0f;
 
                 // Normalize to project onto unit sphere.
                 float len = std::sqrt(midpoint.position[0] * midpoint.position[0] +
@@ -230,7 +230,7 @@ LoadedMesh Primitives::icosphere(float radius, int subdivisions) {
       float u_max = std::max({mesh.vertices[i0].uv[0], mesh.vertices[i1].uv[0], mesh.vertices[i2].uv[0]});
       float u_min = std::min({mesh.vertices[i0].uv[0], mesh.vertices[i1].uv[0], mesh.vertices[i2].uv[0]});
 
-      bool straddles = (u_max - u_min > 0.5f);
+      bool straddles = (u_max - u_min > 1.0f);
       isSeamTriangle.push_back(straddles);
 
       if (straddles) {
@@ -250,7 +250,7 @@ LoadedMesh Primitives::icosphere(float radius, int subdivisions) {
           uint32_t vertIdx = mesh.indices[i + j];
           float u = mesh.vertices[vertIdx].uv[0];
 
-          if (u < 0.5f) {
+          if (u < 1.0f) {
               // Check if this vertex is also used by non-seam triangles
               bool usedByNonSeam = false;
               for (size_t k = 0; k < mesh.indices.size(); k += 3) {

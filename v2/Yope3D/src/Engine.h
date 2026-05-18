@@ -33,11 +33,16 @@ struct Engine {
     std::unique_ptr<World>         world;
     std::unique_ptr<AssetManager>  assets;
 
-    // lastTime tracks the previous frame's timestamp for dt calculation.
     double lastTime = 0.0;
 
-    // Player collider — follows camera, fixed so it pushes other hulls but isn't moved by physics.
     physics::CSphere* playerSphere = nullptr;
+
+    int sceneIndex = 0;
+    static constexpr int SCENE_COUNT = 23;
+    void loadScene(int index);
+
+    bool rightWasDown = false;
+    bool leftWasDown  = false;
 
     // Milestone 7+:
     // std::unique_ptr<AudioSystem>  audio;
