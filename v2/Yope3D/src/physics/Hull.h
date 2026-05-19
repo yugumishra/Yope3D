@@ -5,6 +5,7 @@
 #include "../math/Mat3.h"
 #include "../math/Mat4.h"
 #include "../math/Quat.h"
+#include "PhysicsConstants.h"
 
 class RenderMesh; // global namespace bridge (Milestone 6)
 
@@ -31,6 +32,7 @@ public:
     float getInverseMass() const { return inverseMass; }
     bool  isFixed()        const { return fixed; }
     bool  isTangible()     const { return tangible; }
+    bool  isSleeping()     const { return sleeping; }
 
     math::Mat4 getModelMatrix()              const { return transform.getModelMatrix(); }
     math::Mat3 getRotTransform()             const { return cachedRotTransform; }
@@ -51,10 +53,20 @@ public:
     bool gravityEnabled()  const { return gravity_; }
     void setTangible(bool t)     { tangible = t; }
 
+    // ---- Sleep ----
+    void wakeUp()    { sleeping = false; sleepFrames = 0; }
+    void tickSleep(float linSpeedSq, float angSpeedSq);
+
     // ---- Impulse accumulation ----
     void addImpulse(const math::Vec3& imp)        { linearImpulse  += imp; }
     void addAngularImpulse(const math::Vec3& imp) { angularImpulse += imp; }
     void addVelocity(const math::Vec3& dv)        { velocity += dv; }
+
+    // ---- Pseudo-velocity (split impulse — position correction only, not real velocity) ----
+    math::Vec3 getPseudoVel()   const { return pseudoVel; }
+    math::Vec3 getPseudoOmega() const { return pseudoOmega; }
+    void addPseudoLinear (const math::Vec3& dv) { pseudoVel   += dv; }
+    virtual void addPseudoAngular(const math::Vec3& dw) { pseudoOmega += dw; }
 
     void applyLinearImpulse();
     virtual void applyAngularImpulse();
@@ -83,6 +95,12 @@ public:
     // Milestone 6 render bridge — non-owning
     RenderMesh* linkedMesh = nullptr;
 
+    // ---- Per-hull material (combine with geometric mean at contact) ----
+    float friction       = PGS_DEFAULT_FRICTION;
+    float restitution    = PGS_RESTITUTION;
+    float linearDamping  = LINEAR_DAMPING;
+    float angularDamping = ANGULAR_DAMPING;
+
 protected:
     Transform  transform;
     math::Vec3 velocity {0.0f, 0.0f, 0.0f};
@@ -91,6 +109,12 @@ protected:
     bool       fixed    = false;
     bool       gravity_ = true;
     bool       tangible = true;
+
+    int        sleepFrames = 0;
+    bool       sleeping    = false;
+
+    math::Vec3 pseudoVel   {};
+    math::Vec3 pseudoOmega {};
 
     float      inverseMass       = 0.0f;
     math::Mat3 cachedInertiaTensor;  // pre-inverted, local space

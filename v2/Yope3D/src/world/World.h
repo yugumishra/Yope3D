@@ -16,6 +16,7 @@
 #include "../physics/Spring.h"
 #include "../physics/CollisionTree.h"
 #include "../physics/PhysicsConstants.h"
+#include "../physics/ContactCache.h"
 
 class GpuDevice;
 
@@ -74,4 +75,5 @@ private:
     std::vector<std::variant<physics::Barrier, physics::BoundedBarrier>> barriers;
     std::vector<std::unique_ptr<physics::Spring>>                   springs;
     std::unique_ptr<physics::CollisionTree>                         collisionTree;
+    physics::ContactCache                                           contactCache;
 };

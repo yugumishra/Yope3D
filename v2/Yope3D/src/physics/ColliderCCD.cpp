@@ -64,11 +64,32 @@ static void sphereBarrier(CSphere& one, const Barrier& two, float dt, const math
     math::Vec3 relativeVelocity   = one.getVelocity() + tangentialVelocity;
 
     float dot = planeNormal.dot(relativeVelocity);
+    float jn  = 0.0f;
     if (dot < 0.0f) {
         float factor = (-dot > CCD_MIN_BOUNCE_VELOCITY) ? CCD_IMPULSE_FACTOR : 1.0f;
-        math::Vec3 impulse = planeNormal * (dot * -factor * one.getMass());
-        one.addImpulse(impulse);
+        jn = (-dot) * factor * one.getMass();
+        one.addImpulse(planeNormal * jn);
         one.applyImpulses();
+    }
+
+    // Coulomb friction (linear only — sphere CCD normal response is also linear-only)
+    if (jn > 0.0f && one.friction > 0.0f) {
+        math::Vec3 velPost = one.getVelocity();
+        // contact arm: bottom of sphere against plane
+        math::Vec3 r = planeNormal * (-sign * one.getRadius());
+        math::Vec3 cvPost  = velPost + one.getOmega().cross(r);
+        math::Vec3 tangVel = cvPost - planeNormal * planeNormal.dot(cvPost);
+        float tangSpd = std::sqrt(tangVel.dot(tangVel));
+        if (tangSpd > 1e-6f) {
+            math::Vec3 tDir = tangVel * (1.0f / tangSpd);
+            float vt  = cvPost.dot(tDir);
+            float muJ = one.friction * jn;
+            float jt  = std::max(-muJ, std::min(muJ, -vt * one.getMass()));
+            if (std::abs(jt) > 1e-10f) {
+                one.addImpulse(tDir * jt);
+                one.applyImpulses();
+            }
+        }
     }
 
     float pen = one.getRadius() - planeNormal.dot(one.getPosition() - two.position);
@@ -119,11 +140,31 @@ static void sphereBBarrier(CSphere& one, const BoundedBarrier& two, float dt, co
     math::Vec3 relativeVelocity   = one.getVelocity() + tangentialVelocity;
 
     float dot = principalNormal.dot(relativeVelocity);
+    float jn  = 0.0f;
     if (dot < 0.0f) {
         float factor = (-dot > CCD_MIN_BOUNCE_VELOCITY) ? CCD_IMPULSE_FACTOR_BOUNDED : 1.0f;
-        math::Vec3 impulse = principalNormal * (dot * -factor * one.getMass());
-        one.addImpulse(impulse);
+        jn = (-dot) * factor * one.getMass();
+        one.addImpulse(principalNormal * jn);
         one.applyImpulses();
+    }
+
+    // Coulomb friction (linear only)
+    if (jn > 0.0f && one.friction > 0.0f) {
+        math::Vec3 velPost = one.getVelocity();
+        math::Vec3 r = principalNormal * (-sign * one.getRadius());
+        math::Vec3 cvPost  = velPost + one.getOmega().cross(r);
+        math::Vec3 tangVel = cvPost - principalNormal * principalNormal.dot(cvPost);
+        float tangSpd = std::sqrt(tangVel.dot(tangVel));
+        if (tangSpd > 1e-6f) {
+            math::Vec3 tDir = tangVel * (1.0f / tangSpd);
+            float vt  = cvPost.dot(tDir);
+            float muJ = one.friction * jn;
+            float jt  = std::max(-muJ, std::min(muJ, -vt * one.getMass()));
+            if (std::abs(jt) > 1e-10f) {
+                one.addImpulse(tDir * jt);
+                one.applyImpulses();
+            }
+        }
     }
 
     float pen = one.getRadius() - principalNormal.dot(one.getPosition() - two.position);
@@ -161,11 +202,29 @@ static void aabbBarrier(CAABB& one, const Barrier& two, float dt, const math::Ve
     }
 
     float dot = n.dot(one.getVelocity());
+    float jn  = 0.0f;
     if (dot < 0.0f) {
         float factor = (-dot > CCD_MIN_BOUNCE_VELOCITY) ? CCD_IMPULSE_FACTOR : 1.0f;
-        math::Vec3 impulse = n * (dot * -factor * one.getMass());
-        one.addImpulse(impulse);
+        jn = (-dot) * factor * one.getMass();
+        one.addImpulse(n * jn);
         one.applyImpulses();
+    }
+
+    // Coulomb friction (AABB has no rotation — linear only)
+    if (jn > 0.0f && one.friction > 0.0f) {
+        math::Vec3 velPost = one.getVelocity();
+        math::Vec3 tangVel = velPost - n * n.dot(velPost);
+        float tangSpd = std::sqrt(tangVel.dot(tangVel));
+        if (tangSpd > 1e-6f) {
+            math::Vec3 tDir = tangVel * (1.0f / tangSpd);
+            float vt  = velPost.dot(tDir);
+            float muJ = one.friction * jn;
+            float jt  = std::max(-muJ, std::min(muJ, -vt * one.getMass()));
+            if (std::abs(jt) > 1e-10f) {
+                one.addImpulse(tDir * jt);
+                one.applyImpulses();
+            }
+        }
     }
 
     float pen = rEff - n.dot(one.getPosition() - two.position);
@@ -214,11 +273,29 @@ static void aabbBBarrier(CAABB& one, const BoundedBarrier& two, float dt, const 
     }
 
     float dot = n.dot(one.getVelocity());
+    float jn  = 0.0f;
     if (dot < 0.0f) {
         float factor = (-dot > CCD_MIN_BOUNCE_VELOCITY) ? CCD_IMPULSE_FACTOR_BOUNDED : 1.0f;
-        math::Vec3 impulse = n * (dot * -factor * one.getMass());
-        one.addImpulse(impulse);
+        jn = (-dot) * factor * one.getMass();
+        one.addImpulse(n * jn);
         one.applyImpulses();
+    }
+
+    // Coulomb friction (AABB has no rotation — linear only)
+    if (jn > 0.0f && one.friction > 0.0f) {
+        math::Vec3 velPost = one.getVelocity();
+        math::Vec3 tangVel = velPost - n * n.dot(velPost);
+        float tangSpd = std::sqrt(tangVel.dot(tangVel));
+        if (tangSpd > 1e-6f) {
+            math::Vec3 tDir = tangVel * (1.0f / tangSpd);
+            float vt  = velPost.dot(tDir);
+            float muJ = one.friction * jn;
+            float jt  = std::max(-muJ, std::min(muJ, -vt * one.getMass()));
+            if (std::abs(jt) > 1e-10f) {
+                one.addImpulse(tDir * jt);
+                one.applyImpulses();
+            }
+        }
     }
 
     float pen = rNorm - n.dot(one.getPosition() - two.position);
@@ -254,34 +331,68 @@ static void obbBarrier(COBB& one, const Barrier& two, float dt, const math::Vec3
             one.setVelocity(one.getVelocity() - n * vn);
     }
 
-    // Find the most-penetrating corner — use as the contact point for torque.
+    // Build contact manifold: centroid of all corners penetrating the barrier plane.
+    // For a flat face resting on the floor all 4 bottom corners contribute, giving a
+    // centroid at the face center and zero net torque — correct for symmetric contact.
+    // Degrades to edge (2 corners) or vertex (1 corner) contact automatically.
     auto corners = one.worldSpaceCorners();
-    math::Vec3 contactPt = corners[0];
-    float minProj = n.dot(corners[0]);
-    for (int i = 1; i < 8; ++i) {
-        float p = n.dot(corners[i]);
-        if (p < minProj) { minProj = p; contactPt = corners[i]; }
+    float      planeD = n.dot(two.position);
+    math::Vec3 contactPt = {};
+    int        numPts = 0;
+    for (int i = 0; i < 8; ++i) {
+        if (planeD - n.dot(corners[i]) > 0.0f) { contactPt += corners[i]; ++numPts; }
     }
-    math::Vec3 r = contactPt - one.getPosition();
+    if (numPts > 0) {
+        contactPt = contactPt * (1.0f / numPts);
+    } else {
+        float minProj = n.dot(corners[0]); contactPt = corners[0];
+        for (int i = 1; i < 8; ++i) {
+            float p = n.dot(corners[i]);
+            if (p < minProj) { minProj = p; contactPt = corners[i]; }
+        }
+    }
+    math::Vec3 r    = contactPt - one.getPosition();
+    math::Mat3 Iinv = one.getInverseInertiaTensorWorld();
 
-    // Contact point velocity (center-of-mass + rotational contribution).
     math::Vec3 contactVel = one.getVelocity() + one.getOmega().cross(r);
     float vn = n.dot(contactVel);
+    float j  = 0.0f;
     if (vn < 0.0f) {
-        // Proper rigid-body effective mass: 1/m + (I⁻¹(r×n)) × r · n
-        math::Vec3 rCrossN  = r.cross(n);
-        math::Mat3 Iinv     = one.getInverseInertiaTensorWorld();
-        float      angTerm  = (Iinv * rCrossN).cross(r).dot(n);
-        float      effMass  = one.getInverseMass() + angTerm;
+        math::Vec3 rCrossN = r.cross(n);
+        float angTerm      = (Iinv * rCrossN).cross(r).dot(n);
+        float effMass      = one.getInverseMass() + angTerm;
         if (effMass < 1e-6f) effMass = 1e-6f;
 
-        float      e        = (-vn > CCD_MIN_BOUNCE_VELOCITY) ? (CCD_IMPULSE_FACTOR - 1.0f) : 0.0f;
-        float      j        = -(1.0f + e) * vn / effMass;
-        math::Vec3 impulse  = n * j;
-
+        float e   = (-vn > CCD_MIN_BOUNCE_VELOCITY) ? (CCD_IMPULSE_FACTOR - 1.0f) : 0.0f;
+        j         = -(1.0f + e) * vn / effMass;
+        math::Vec3 impulse = n * j;
         one.addImpulse(impulse);
         one.addAngularImpulse(r.cross(impulse));
         one.applyImpulses();
+    }
+
+    // Coulomb friction along barrier surface
+    if (j > 0.0f && one.friction > 0.0f) {
+        math::Vec3 cvPost  = one.getVelocity() + one.getOmega().cross(r);
+        math::Vec3 tangVel = cvPost - n * n.dot(cvPost);
+        float tangSpd = std::sqrt(tangVel.dot(tangVel));
+        if (tangSpd > 1e-6f) {
+            math::Vec3 tDir    = tangVel * (1.0f / tangSpd);
+            math::Vec3 rCrossT = r.cross(tDir);
+            float angTermT     = (Iinv * rCrossT).cross(r).dot(tDir);
+            float effMassT     = one.getInverseMass() + angTermT;
+            if (effMassT > 1e-6f) {
+                float vt  = cvPost.dot(tDir);
+                float muJ = one.friction * j;
+                float jt  = std::max(-muJ, std::min(muJ, -vt / effMassT));
+                if (std::abs(jt) > 1e-10f) {
+                    math::Vec3 fImp = tDir * jt;
+                    one.addImpulse(fImp);
+                    one.addAngularImpulse(r.cross(fImp));
+                    one.applyImpulses();
+                }
+            }
+        }
     }
 
     float pen = one.projectOnto(n) - n.dot(one.getPosition() - two.position);
@@ -329,30 +440,63 @@ static void obbBBarrier(COBB& one, const BoundedBarrier& two, float dt, const ma
     }
 
     auto corners2 = one.worldSpaceCorners();
-    math::Vec3 contactPt2 = corners2[0];
-    float minProj2 = n.dot(corners2[0]);
-    for (int i = 1; i < 8; ++i) {
-        float p = n.dot(corners2[i]);
-        if (p < minProj2) { minProj2 = p; contactPt2 = corners2[i]; }
+    float      planeD2 = n.dot(two.position);
+    math::Vec3 contactPt2 = {};
+    int        numPts2 = 0;
+    for (int i = 0; i < 8; ++i) {
+        if (planeD2 - n.dot(corners2[i]) > 0.0f) { contactPt2 += corners2[i]; ++numPts2; }
     }
-    math::Vec3 r2 = contactPt2 - one.getPosition();
+    if (numPts2 > 0) {
+        contactPt2 = contactPt2 * (1.0f / numPts2);
+    } else {
+        float minProj2 = n.dot(corners2[0]); contactPt2 = corners2[0];
+        for (int i = 1; i < 8; ++i) {
+            float p = n.dot(corners2[i]);
+            if (p < minProj2) { minProj2 = p; contactPt2 = corners2[i]; }
+        }
+    }
+    math::Vec3 r2    = contactPt2 - one.getPosition();
+    math::Mat3 Iinv2 = one.getInverseInertiaTensorWorld();
 
     math::Vec3 contactVel2 = one.getVelocity() + one.getOmega().cross(r2);
     float vn2 = n.dot(contactVel2);
+    float j2  = 0.0f;
     if (vn2 < 0.0f) {
-        math::Vec3 rCrossN2  = r2.cross(n);
-        math::Mat3 Iinv2     = one.getInverseInertiaTensorWorld();
-        float      angTerm2  = (Iinv2 * rCrossN2).cross(r2).dot(n);
-        float      effMass2  = one.getInverseMass() + angTerm2;
+        math::Vec3 rCrossN2 = r2.cross(n);
+        float angTerm2      = (Iinv2 * rCrossN2).cross(r2).dot(n);
+        float effMass2      = one.getInverseMass() + angTerm2;
         if (effMass2 < 1e-6f) effMass2 = 1e-6f;
 
-        float      e2       = (-vn2 > CCD_MIN_BOUNCE_VELOCITY) ? (CCD_IMPULSE_FACTOR - 1.0f) : 0.0f;
-        float      j2       = -(1.0f + e2) * vn2 / effMass2;
+        float e2 = (-vn2 > CCD_MIN_BOUNCE_VELOCITY) ? (CCD_IMPULSE_FACTOR - 1.0f) : 0.0f;
+        j2       = -(1.0f + e2) * vn2 / effMass2;
         math::Vec3 impulse2 = n * j2;
-
         one.addImpulse(impulse2);
         one.addAngularImpulse(r2.cross(impulse2));
         one.applyImpulses();
+    }
+
+    // Coulomb friction
+    if (j2 > 0.0f && one.friction > 0.0f) {
+        math::Vec3 cvPost2  = one.getVelocity() + one.getOmega().cross(r2);
+        math::Vec3 tangVel2 = cvPost2 - n * n.dot(cvPost2);
+        float tangSpd2 = std::sqrt(tangVel2.dot(tangVel2));
+        if (tangSpd2 > 1e-6f) {
+            math::Vec3 tDir2    = tangVel2 * (1.0f / tangSpd2);
+            math::Vec3 rCrossT2 = r2.cross(tDir2);
+            float angTermT2     = (Iinv2 * rCrossT2).cross(r2).dot(tDir2);
+            float effMassT2     = one.getInverseMass() + angTermT2;
+            if (effMassT2 > 1e-6f) {
+                float vt2  = cvPost2.dot(tDir2);
+                float muJ2 = one.friction * j2;
+                float jt2  = std::max(-muJ2, std::min(muJ2, -vt2 / effMassT2));
+                if (std::abs(jt2) > 1e-10f) {
+                    math::Vec3 fImp2 = tDir2 * jt2;
+                    one.addImpulse(fImp2);
+                    one.addAngularImpulse(r2.cross(fImp2));
+                    one.applyImpulses();
+                }
+            }
+        }
     }
 
     float pen = one.projectOnto(n) - n.dot(one.getPosition() - two.position);

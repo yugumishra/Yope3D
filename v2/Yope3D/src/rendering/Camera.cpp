@@ -66,6 +66,6 @@ Vec3 Camera::getForward() const {
     float sp = std::sin(rotation.x);
     float cp = std::cos(rotation.x);
 
-    // Forward = (-sin(yaw)*cos(pitch), -sin(pitch), -cos(yaw)*cos(pitch))
-    return Vec3{-sy * cp, -sp, -cy * cp};
+    // Forward = (-sin(yaw)*cos(pitch), sin(pitch), -cos(yaw)*cos(pitch))
+    return Vec3{-sy * cp, sp, -cy * cp};
 }

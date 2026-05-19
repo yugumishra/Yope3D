@@ -29,6 +29,8 @@ void Hull::initiateState() {
     cachedRotTransform  = math::Mat3::rotation(transform.rotation);
     linearImpulse       = {};
     angularImpulse      = {};
+    pseudoVel           = {};
+    pseudoOmega         = {};
     dtLeft              = 1.0f;
 }
 
@@ -60,8 +62,8 @@ void Hull::advance(float dtPortion, float dt, const math::Vec3& gravity) {
         velocity += gravity * dt;
 
     float dtActual = dt * dtPortion;
-    float linDecay = 1.0f - LINEAR_DAMPING  * dtActual;
-    float angDecay = 1.0f - ANGULAR_DAMPING * dtActual;
+    float linDecay = 1.0f - linearDamping  * dtActual;
+    float angDecay = 1.0f - angularDamping * dtActual;
     if (linDecay > 0.0f) velocity = velocity * linDecay;
     if (angDecay > 0.0f) omega    = omega    * angDecay;
 
@@ -79,9 +81,40 @@ void Hull::advance(float dtPortion, float dt, const math::Vec3& gravity) {
 }
 
 void Hull::advance(float dt, const math::Vec3& gravity) {
+    if (sleeping) { initiateState(); return; }
     if (tangible && !fixed && dtLeft > 1e-6f)
         advance(dtLeft, dt, gravity);
-    initiateState();
+    // Apply pseudo-velocity position correction (split impulse).
+    // Pseudo-velocities are integrated with full dt and then discarded.
+    if (!fixed && tangible) {
+        transform.position += pseudoVel * dt;
+        constexpr float MAX_PSEUDO_OMEGA = 2.0f;
+        float pOmLen = std::sqrt(pseudoOmega.dot(pseudoOmega));
+        if (pOmLen > MAX_PSEUDO_OMEGA) pseudoOmega = pseudoOmega * (MAX_PSEUDO_OMEGA / pOmLen);
+        if (pOmLen > 1e-7f) {
+            float angle = pOmLen * dt;
+            math::Quat dq = math::Quat::fromAxisAngle(pseudoOmega * (1.0f / pOmLen), angle);
+            transform.rotation = dq * transform.rotation;
+            normalizeQuat(transform.rotation);
+        }
+    }
+    initiateState(); // zeros pseudoVel/pseudoOmega
+}
+
+void Hull::tickSleep(float linSpeedSq, float angSpeedSq) {
+    if (fixed) return;
+    constexpr float linT = SLEEP_LINEAR_THRESHOLD  * SLEEP_LINEAR_THRESHOLD;
+    constexpr float angT = SLEEP_ANGULAR_THRESHOLD * SLEEP_ANGULAR_THRESHOLD;
+    if (linSpeedSq < linT && angSpeedSq < angT) {
+        if (++sleepFrames >= SLEEP_FRAMES_REQUIRED) {
+            sleeping  = true;
+            velocity  = {};
+            omega     = {};
+        }
+    } else {
+        sleepFrames = 0;
+        sleeping    = false;
+    }
 }
 
 } // namespace physics

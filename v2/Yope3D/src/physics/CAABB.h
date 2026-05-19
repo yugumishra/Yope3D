@@ -31,7 +31,8 @@ public:
     void handleCollision(COBB&    o) override;
 
 protected:
-    void applyAngularImpulse() override { angularImpulse = {}; }
+    void applyAngularImpulse()               override { angularImpulse = {}; }
+    void addPseudoAngular(const math::Vec3&) override {}
 
 private:
     math::Vec3 extent;

@@ -10,18 +10,25 @@
 #include "assets/AssetManager.h"
 
 // ---------------------------------------------------------------------------
-// Engine
+// Engine — top-level context.
 //
-// Top-level context struct.  Replaces the Java 'Launch' static grab-bag with
-// an explicitly owned, construction-ordered set of subsystems.
+// Scenes (LEFT / RIGHT arrow to cycle):
+//   0  — Pyramid small    (base 4)
+//   1  — Pyramid medium   (base 7)
+//   2  — Pyramid large    (base 10)
+//   3  — Spring [Sphere]  — Top Row Fixed
+//   4  — Spring [AABB]    — Top Row Fixed
+//   5  — Spring [OBB]     — Top Row Fixed
+//   6  — Spring [Sphere]  — 4 Corners (Catenary)
+//   7  — Spring [AABB]    — 4 Corners (Catenary)
+//   8  — Spring [OBB]     — 4 Corners (Catenary)
+//   9  — Spring [Sphere]  — 2 Top Corners
+//   10 — Spring [AABB]    — 2 Top Corners
+//   11 — Spring [OBB]     — 2 Top Corners
+//   12 — Stress test (wide arena)
 //
-// Milestone 2:  Window + Input.
-// Milestone 3:  GpuDevice (VkInstance, surface, physical/logical device).
-// Milestone 4a: Renderer (pipelines, swapchain, render pass, RenderMesh).
-// Milestone 4b: Camera (view/proj matrices, WASD + mouse-look).
-// Milestone 6:  World (physics).
-// Milestone 7:  AudioSystem.
-// Milestone 8:  AssetManager, ScriptContext, Script.
+// Spawn type (UP / DOWN arrow): Sphere → AABB → OBB
+// Spawn object: hold LMB
 // ---------------------------------------------------------------------------
 
 struct Engine {
@@ -37,21 +44,27 @@ struct Engine {
 
     physics::CSphere* playerSphere = nullptr;
 
-    int sceneIndex = 0;              // spawn type: 0=sphere 1=AABB 2=OBB
-    static constexpr int SCENE_COUNT = 3;
-    void loadScene(int index);
+    int  sceneIndex  = 12;  // which scene is loaded (default: stress test)
+    int  spawnType   = 0;   // 0=Sphere 1=AABB 2=OBB
+    static constexpr int SCENE_COUNT = 13;
 
-    bool  rightWasDown  = false;
-    bool  leftWasDown   = false;
+    bool hasRendered   = false;  // guards waitIdle on first loadScene call
+    bool rightWasDown  = false;
+    bool leftWasDown   = false;
+    bool upWasDown     = false;
+    bool downWasDown   = false;
     float spawnCooldown = 0.0f;
-
-    void spawnObject();
-
-    // Milestone 7+:
-    // std::unique_ptr<AudioSystem>  audio;
 
     bool init();
     void update();
     void render();
     void cleanup();
+
+private:
+    void loadScene(int index);
+    void loadPyramid(int baseN);
+    void loadSpringCloth(int variant, int shapeType);  // variant: 0=top-row 1=4-corners 2=2-top-corners  shapeType: 0=Sphere 1=AABB 2=OBB
+    void loadStressTest();
+    void spawnObject();
+    void addFloorMesh(float halfW, float halfD);
 };

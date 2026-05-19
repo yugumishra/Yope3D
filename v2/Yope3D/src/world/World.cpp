@@ -15,6 +15,7 @@ void World::resetPhysics(GpuDevice& gpu) {
     hulls.clear();
     springs.clear();
     barriers.clear();
+    contactCache.clear();
 }
 
 void World::cleanup(GpuDevice& gpu) {
@@ -26,6 +27,7 @@ void World::cleanup(GpuDevice& gpu) {
     hulls.clear();
     springs.clear();
     barriers.clear();
+    contactCache.clear();
     collisionTree.reset();
 }
 
@@ -124,14 +126,12 @@ const std::vector<std::unique_ptr<physics::Hull>>& World::getHulls() const {
 // ---- Simulation step ----
 
 void World::advance(float dt) {
-    // 1. CCD barrier collision (uses end-of-previous-frame velocity; matches Java order)
+    // 1. CCD barrier collision — skip sleeping hulls
     for (auto& h : hulls) {
-        if (h->isFixed() || !h->isTangible()) continue;
-        // Standalone infinite-plane barriers
+        if (h->isFixed() || !h->isTangible() || h->isSleeping()) continue;
         for (auto& bv : barriers) {
             std::visit([&](auto& b){ physics::ColliderCCD::collideBarrier(*h, b, dt, gravity); }, bv);
         }
-        // BarrierHull internal barriers (box rooms, etc.)
         for (auto& other : hulls) {
             if (auto* bh = dynamic_cast<physics::BarrierHull*>(other.get())) {
                 for (auto& bv : bh->getBarriers()) {
@@ -141,23 +141,76 @@ void World::advance(float dt) {
         }
     }
 
-    // 2. Hull-hull discrete collision — brute-force O(n²) for diagnostics
+    // 2. Hull-hull discrete collision — global PGS.
+    // Phase 1: detect all contacts into a flat list.
+    // Phase 2: solve all contacts globally (each pass propagates support one layer up the stack).
+    std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
     for (size_t i = 0; i < hulls.size(); i++) {
         if (!hulls[i]->isTangible()) continue;
         for (size_t j = i + 1; j < hulls.size(); j++) {
             if (!hulls[j]->isTangible()) continue;
             if (hulls[i]->isFixed() && hulls[j]->isFixed()) continue;
-            physics::ColliderDiscrete::collide(*hulls[i], *hulls[j], dt);
+            if (hulls[i]->isSleeping() && hulls[j]->isSleeping()) continue;
+            // A sleeping body resting on a fixed hull is stable — skip to avoid wakeup churn.
+            if (hulls[i]->isSleeping() && hulls[j]->isFixed()) continue;
+            if (hulls[i]->isFixed() && hulls[j]->isSleeping()) continue;
+            physics::ColliderDiscrete::detect(*hulls[i], *hulls[j], contacts);
         }
     }
+    physics::ColliderDiscrete::solveAll(contacts, dt, contactCache);
 
-    // 3. Integration — gravity is added inside Hull::advance on the first sub-step of the frame.
+    // 2b. Barrier pseudo-position clamp.
+    // The split-impulse position pass gives the lower body a downward pseudo-velocity to
+    // separate it from the upper body.  That pseudo-velocity is integrated into position
+    // in step 3, sinking floor-resting bodies through the barrier — CCD (velocity-only)
+    // cannot compensate.  Project out any pseudo-velocity component pointing into a barrier
+    // when the hull surface is at or near the barrier plane.
+    for (auto& h : hulls) {
+        if (!h->isTangible() || h->isFixed()) continue;
+        auto clampAgainstBarriers = [&](const auto& bv) {
+            std::visit([&](const auto& b) {
+                using T = std::decay_t<decltype(b)>;
+                if constexpr (std::is_same_v<T, physics::Barrier>) {
+                    math::Vec3 n   = b.normal;
+                    math::Vec3 ext = h->getBroadExtent();
+                    float r   = std::abs(n.x)*ext.x + std::abs(n.y)*ext.y + std::abs(n.z)*ext.z;
+                    float dist = (h->getPosition() - b.position).dot(n) - r;
+                    if (dist < physics::SPLIT_SLOP) {
+                        math::Vec3 pv  = h->getPseudoVel();
+                        float      pvn = pv.dot(n);
+                        if (pvn < 0.0f)
+                            h->addPseudoLinear(n * (-pvn));
+                        // Zero angular pseudo-velocity: off-center contact torques rotate
+                        // floor-resting boxes, shifting contact geometry and causing horizontal drift.
+                        math::Vec3 pOmega = h->getPseudoOmega();
+                        if (pOmega.dot(pOmega) > 1e-10f)
+                            h->addPseudoAngular(-pOmega);
+                    }
+                }
+            }, bv);
+        };
+        for (auto& bv : barriers) clampAgainstBarriers(bv);
+        for (auto& other : hulls)
+            if (auto* bh = dynamic_cast<physics::BarrierHull*>(other.get()))
+                for (auto& bv : bh->getBarriers()) clampAgainstBarriers(bv);
+    }
+
+    // 3. Integration
     for (auto& h : hulls) {
         if (h->isTangible())
             h->advance(dt, gravity);
     }
 
-    // 4. Springs
+    // 4. Sleeping check — skip bodies already asleep (they stay asleep until woken by PGS contact)
+    for (auto& h : hulls) {
+        if (!h->isFixed() && h->isTangible() && !h->isSleeping()) {
+            math::Vec3 v = h->getVelocity();
+            math::Vec3 w = h->getOmega();
+            h->tickSleep(v.dot(v), w.dot(w));
+        }
+    }
+
+    // 5. Springs
     for (auto& s : springs)
         s->update(dt);
 }
