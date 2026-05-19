@@ -34,6 +34,9 @@ public:
     math::Vec3 getPosition() const { return position; }
     math::Vec3 getForward()  const;  // Returns the camera's forward direction in world space
 
+    void setPosition(const math::Vec3& p) { position = p; }
+    void setRotation(const math::Vec3& r) { rotation = r; }
+
 private:
     static constexpr float SENSITIVITY = 0.002f;   // radians per pixel
     static constexpr float SPEED       = 5.0f;     // world units per second

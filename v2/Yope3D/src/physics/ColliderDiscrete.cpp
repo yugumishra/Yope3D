@@ -5,86 +5,192 @@
 #include "PhysicsConstants.h"
 #include <cmath>
 #include <algorithm>
+#include <vector>
 
 namespace physics::ColliderDiscrete {
 
 // ============================================================================
-// PGS (Projected Gauss-Seidel) constraint solver.
-// Normal convention: from a toward b.
-// Angular terms are automatically zero for CAABB (getOmega()=0, applyAngularImpulse no-op).
-// Baumgarte stabilization handles penetration correction — no separate position nudge needed.
+// Global PGS (Projected Gauss-Seidel) solver — two-phase detect / solve.
+// Phase 1: detect() appends an ActiveContact for each colliding pair.
+// Phase 2: solveAll() precomputes, warm-starts, iterates velocity constraints
+//          globally (all contacts per pass), writes the cache, then runs the
+//          split-impulse position pass.
+// Normal convention: from a toward b throughout.
 // ============================================================================
 
-static void pgsCollisionResponse(Hull& a, Hull& b, const ContactManifold& m, float dt) {
-    if (m.numContacts == 0) return;
+void solveAll(std::vector<ActiveContact>& contacts, float dt, ContactCache& cache) {
+    // ---- Precompute ----
+    for (auto& c : contacts) {
+        Hull& a = *c.a;
+        Hull& b = *c.b;
+        if (a.isSleeping()) a.wakeUp();
+        if (b.isSleeping()) b.wakeUp();
 
-    math::Mat3 IinvA = a.getInverseInertiaTensorWorld();
-    math::Mat3 IinvB = b.getInverseInertiaTensorWorld();
-    math::Vec3 n     = m.normal;
-    int numIter = (m.numContacts == 1) ? PGS_ITERATIONS_SINGLE : PGS_ITERATIONS_MULTI;
+        math::Vec3 n = c.manifold.normal;
+        c.T1 = (std::abs(n.x) < 0.9f)
+             ? n.cross({1.0f, 0.0f, 0.0f})
+             : n.cross({0.0f, 1.0f, 0.0f});
+        float t1len = std::sqrt(c.T1.dot(c.T1));
+        if (t1len > 1e-7f) c.T1 = c.T1 * (1.0f / t1len);
+        c.T2  = n.cross(c.T1);
+        c.mu  = std::sqrt(a.friction * b.friction);
+        c.e   = std::sqrt(a.restitution * b.restitution);
+        c.IinvA = a.getInverseInertiaTensorWorld();
+        c.IinvB = b.getInverseInertiaTensorWorld();
 
-    // Per-contact: precompute effective mass W[i] and Baumgarte+restitution bias neta[i].
-    float W[4]      = {};
-    float neta[4]   = {};
-    float lambda[4] = {}; // accumulated impulse magnitude per contact (clamped >= 0)
+        for (int i = 0; i < c.manifold.numContacts; i++) {
+            c.rA[i] = c.manifold.contactPoints[i] - a.getPosition();
+            c.rB[i] = c.manifold.contactPoints[i] - b.getPosition();
 
-    for (int i = 0; i < m.numContacts; i++) {
-        math::Vec3 rA = m.contactPoints[i] - a.getPosition();
-        math::Vec3 rB = m.contactPoints[i] - b.getPosition();
+            math::Vec3 angA = (c.IinvA * c.rA[i].cross(n)).cross(c.rA[i]);
+            math::Vec3 angB = (c.IinvB * c.rB[i].cross(n)).cross(c.rB[i]);
+            float effN = a.getInverseMass() + b.getInverseMass() + angA.dot(n) + angB.dot(n);
+            c.W[i] = (effN > 1e-6f) ? 1.0f / effN : 0.0f;
 
-        math::Vec3 angA    = (IinvA * rA.cross(n)).cross(rA);
-        math::Vec3 angB    = (IinvB * rB.cross(n)).cross(rB);
-        float      effMass = a.getInverseMass() + b.getInverseMass()
-                           + angA.dot(n) + angB.dot(n);
-        if (effMass < 1e-6f) continue;
-        W[i] = 1.0f / effMass;
+            math::Vec3 angT1A = (c.IinvA * c.rA[i].cross(c.T1)).cross(c.rA[i]);
+            math::Vec3 angT1B = (c.IinvB * c.rB[i].cross(c.T1)).cross(c.rB[i]);
+            float effT1 = a.getInverseMass() + b.getInverseMass() + angT1A.dot(c.T1) + angT1B.dot(c.T1);
+            c.Wt1[i] = (effT1 > 1e-6f) ? 1.0f / effT1 : 0.0f;
 
-        // Baumgarte bias: pushes penetrating bodies apart over several frames.
-        float bias = (PGS_BAUMGARTE_FACTOR / dt)
-                   * std::max(0.0f, m.penetration - PGS_PENETRATION_SLOP);
+            math::Vec3 angT2A = (c.IinvA * c.rA[i].cross(c.T2)).cross(c.rA[i]);
+            math::Vec3 angT2B = (c.IinvB * c.rB[i].cross(c.T2)).cross(c.rB[i]);
+            float effT2 = a.getInverseMass() + b.getInverseMass() + angT2A.dot(c.T2) + angT2B.dot(c.T2);
+            c.Wt2[i] = (effT2 > 1e-6f) ? 1.0f / effT2 : 0.0f;
 
-        // Restitution: adds outward velocity for bouncy contacts.
-        math::Vec3 relVel0 = b.getVelocity() + b.getOmega().cross(rB)
-                           - a.getVelocity() - a.getOmega().cross(rA);
-        float vn0 = relVel0.dot(n);
-        float restitution = (vn0 < -PGS_RESTITUTION_THRESHOLD)
-                          ? -PGS_RESTITUTION * vn0   // positive, adds to bias
-                          : 0.0f;
-
-        neta[i] = bias + restitution;
+            math::Vec3 relVel0 = b.getVelocity() + b.getOmega().cross(c.rB[i])
+                               - a.getVelocity() - a.getOmega().cross(c.rA[i]);
+            float vn0 = relVel0.dot(n);
+            c.neta[i] = (vn0 < -PGS_RESTITUTION_THRESHOLD) ? -c.e * vn0 : 0.0f;
+        }
     }
 
-    // Gauss-Seidel iteration: apply each contact impulse immediately so later
-    // contacts in the same sweep see the updated velocities.
-    for (int iter = 0; iter < numIter; iter++) {
-        for (int i = 0; i < m.numContacts; i++) {
-            if (W[i] == 0.0f) continue;
+    // ---- Warm start ----
+    for (auto& c : contacts) {
+        Hull& a = *c.a;
+        Hull& b = *c.b;
+        math::Vec3 n = c.manifold.normal;
+        for (int i = 0; i < c.manifold.numContacts; i++) {
+            if (c.W[i] == 0.0f) continue;
+            auto it = cache.find({c.a, c.b, i});
+            if (it == cache.end()) continue;
 
-            math::Vec3 rA = m.contactPoints[i] - a.getPosition();
-            math::Vec3 rB = m.contactPoints[i] - b.getPosition();
+            c.lambda[i]   = it->second.normal * 0.9f;
+            c.lambdaT1[i] = it->second.t1     * 0.5f;
+            c.lambdaT2[i] = it->second.t2     * 0.5f;
+            float cone = c.mu * c.lambda[i];
+            c.lambdaT1[i] = std::max(-cone, std::min(cone, c.lambdaT1[i]));
+            c.lambdaT2[i] = std::max(-cone, std::min(cone, c.lambdaT2[i]));
 
-            // Correct relative velocity at contact point (fixed vs Java: proper sign on angular terms).
-            math::Vec3 relVel = b.getVelocity() + b.getOmega().cross(rB)
-                              - a.getVelocity() - a.getOmega().cross(rA);
-            float vn = relVel.dot(n);
-
-            // Impulse magnitude delta (no 0.5f factor — Java bug removed).
-            float deltaLambda = -W[i] * (vn - neta[i]);
-
-            // Project: non-penetration constraint — impulse can only push apart, never pull.
-            float oldLambda = lambda[i];
-            lambda[i]       = std::max(0.0f, lambda[i] + deltaLambda);
-            float dL        = lambda[i] - oldLambda;
-            if (std::abs(dL) < 1e-10f) continue;
-
-            math::Vec3 impulse = n * dL;
-
-            // Fixed Java angular sign bug: a gets -impulse, so angular = rA × (-impulse).
-            //                              b gets +impulse, so angular = rB × (+impulse).
-            if (!a.isFixed()) { a.addImpulse(-impulse); a.addAngularImpulse(rA.cross(-impulse)); }
-            if (!b.isFixed()) { b.addImpulse( impulse); b.addAngularImpulse(rB.cross( impulse)); }
+            math::Vec3 imp = n * c.lambda[i] + c.T1 * c.lambdaT1[i] + c.T2 * c.lambdaT2[i];
+            if (!a.isFixed()) { a.addImpulse(-imp); a.addAngularImpulse(c.rA[i].cross(-imp)); }
+            if (!b.isFixed()) { b.addImpulse( imp); b.addAngularImpulse(c.rB[i].cross( imp)); }
             a.applyImpulses();
             b.applyImpulses();
+        }
+    }
+
+    // ---- Velocity iterations (global) ----
+    for (int iter = 0; iter < PGS_VELOCITY_ITERATIONS; iter++) {
+        for (auto& c : contacts) {
+            Hull& a = *c.a;
+            Hull& b = *c.b;
+            math::Vec3 n = c.manifold.normal;
+
+            for (int i = 0; i < c.manifold.numContacts; i++) {
+                if (c.W[i] == 0.0f) continue;
+
+                math::Vec3 relVel = b.getVelocity() + b.getOmega().cross(c.rB[i])
+                                  - a.getVelocity() - a.getOmega().cross(c.rA[i]);
+
+                // Normal
+                float vn   = relVel.dot(n);
+                float dL   = c.W[i] * -(vn - c.neta[i]);
+                float oldL = c.lambda[i];
+                c.lambda[i] = std::max(0.0f, c.lambda[i] + dL);
+                float dl    = c.lambda[i] - oldL;
+                if (std::abs(dl) > 1e-10f) {
+                    math::Vec3 imp = n * dl;
+                    if (!a.isFixed()) { a.addImpulse(-imp); a.addAngularImpulse(c.rA[i].cross(-imp)); }
+                    if (!b.isFixed()) { b.addImpulse( imp); b.addAngularImpulse(c.rB[i].cross( imp)); }
+                    a.applyImpulses();
+                    b.applyImpulses();
+                    relVel = b.getVelocity() + b.getOmega().cross(c.rB[i])
+                           - a.getVelocity() - a.getOmega().cross(c.rA[i]);
+                }
+
+                // T1 friction
+                if (c.mu > 0.0f && c.Wt1[i] > 0.0f) {
+                    float dLt1  = -c.Wt1[i] * relVel.dot(c.T1);
+                    float oldT1 = c.lambdaT1[i];
+                    float cone  = c.mu * c.lambda[i];
+                    c.lambdaT1[i] = std::max(-cone, std::min(cone, c.lambdaT1[i] + dLt1));
+                    float dT1 = c.lambdaT1[i] - oldT1;
+                    if (std::abs(dT1) > 1e-10f) {
+                        math::Vec3 fImp = c.T1 * dT1;
+                        if (!a.isFixed()) { a.addImpulse(-fImp); a.addAngularImpulse(c.rA[i].cross(-fImp)); }
+                        if (!b.isFixed()) { b.addImpulse( fImp); b.addAngularImpulse(c.rB[i].cross( fImp)); }
+                        a.applyImpulses();
+                        b.applyImpulses();
+                        relVel = b.getVelocity() + b.getOmega().cross(c.rB[i])
+                               - a.getVelocity() - a.getOmega().cross(c.rA[i]);
+                    }
+                }
+
+                // T2 friction
+                if (c.mu > 0.0f && c.Wt2[i] > 0.0f) {
+                    float dLt2  = -c.Wt2[i] * relVel.dot(c.T2);
+                    float oldT2 = c.lambdaT2[i];
+                    float cone  = c.mu * c.lambda[i];
+                    c.lambdaT2[i] = std::max(-cone, std::min(cone, c.lambdaT2[i] + dLt2));
+                    float dT2 = c.lambdaT2[i] - oldT2;
+                    if (std::abs(dT2) > 1e-10f) {
+                        math::Vec3 fImp = c.T2 * dT2;
+                        if (!a.isFixed()) { a.addImpulse(-fImp); a.addAngularImpulse(c.rA[i].cross(-fImp)); }
+                        if (!b.isFixed()) { b.addImpulse( fImp); b.addAngularImpulse(c.rB[i].cross( fImp)); }
+                        a.applyImpulses();
+                        b.applyImpulses();
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- Cache write-back ----
+    for (auto& c : contacts) {
+        for (int i = 0; i < c.manifold.numContacts; i++) {
+            if (c.W[i] == 0.0f) continue;
+            cache[{c.a, c.b, i}] = {c.lambda[i], c.lambdaT1[i], c.lambdaT2[i]};
+        }
+    }
+
+    // ---- Position iterations (split impulse) ----
+    for (int iter = 0; iter < PGS_POSITION_ITERATIONS; iter++) {
+        for (auto& c : contacts) {
+            Hull& a = *c.a;
+            Hull& b = *c.b;
+            math::Vec3 n = c.manifold.normal;
+            for (int i = 0; i < c.manifold.numContacts; i++) {
+                if (c.W[i] == 0.0f) continue;
+
+                float cStarN = (b.getPseudoVel() + b.getPseudoOmega().cross(c.rB[i])
+                              - a.getPseudoVel() - a.getPseudoOmega().cross(c.rA[i])).dot(n);
+                float pseudoBias = (SPLIT_BETA / dt) * std::max(0.0f, c.manifold.depths[i] - SPLIT_SLOP);
+                float dLp  = -c.W[i] * (cStarN - pseudoBias);
+                float oldLp = c.lambdaP[i];
+                c.lambdaP[i] = std::max(0.0f, c.lambdaP[i] + dLp);
+                float dL = c.lambdaP[i] - oldLp;
+                if (std::abs(dL) < 1e-10f) continue;
+
+                math::Vec3 pImp = n * dL;
+                if (!a.isFixed()) {
+                    a.addPseudoLinear (-pImp * a.getInverseMass());
+                    a.addPseudoAngular(c.IinvA * c.rA[i].cross(-pImp));
+                }
+                if (!b.isFixed()) {
+                    b.addPseudoLinear ( pImp * b.getInverseMass());
+                    b.addPseudoAngular(c.IinvB * c.rB[i].cross( pImp));
+                }
+            }
         }
     }
 }
@@ -109,6 +215,7 @@ bool detectSphereSphere(const CSphere& a, const CSphere& b, ContactManifold& m) 
     }
     m.numContacts      = 1;
     m.contactPoints[0] = a.getPosition() + m.normal * a.getRadius();
+    m.depths[0]        = m.penetration;
     return true;
 }
 
@@ -143,32 +250,37 @@ bool detectSphereAABB(const CSphere& sphere, const CAABB& aabb, ContactManifold&
         float dist    = std::sqrt(distSq);
         m.normal      = diff * (1.0f / dist); // AABB → sphere
         m.penetration = r - dist;
+        m.depths[0]   = m.penetration;
     } else {
-        // Sphere centre inside AABB — eject through shallowest face
+        // Sphere centre on boundary or inside AABB.
+        // Collect all faces within epsilon of the minimum depth and average their
+        // normals — handles edge/corner ties where a single-face pick would eject
+        // along a side face instead of the correct outward direction.
         float depths[6] = {
             hi.x - sp.x, sp.x - lo.x,
             hi.y - sp.y, sp.y - lo.y,
             hi.z - sp.z, sp.z - lo.z
         };
-        math::Vec3 normals[6] = {
+        const math::Vec3 normals[6] = {
             {1,0,0},{-1,0,0},
             {0,1,0},{0,-1,0},
             {0,0,1},{0,0,-1}
         };
-        int best = 0;
+        float minDepth = depths[0];
         for (int i = 1; i < 6; i++)
-            if (depths[i] < depths[best]) best = i;
+            if (depths[i] < minDepth) minDepth = depths[i];
 
-        m.normal      = normals[best];
-        m.penetration = r + depths[best];
+        math::Vec3 n = {};
+        for (int i = 0; i < 6; i++)
+            if (depths[i] <= minDepth + 1e-4f)
+                n += normals[i];
+        float len = std::sqrt(n.dot(n));
+        n = (len > 1e-7f) ? n * (1.0f / len) : math::Vec3{0.0f, 1.0f, 0.0f};
 
-        math::Vec3 fp = sp;
-        switch (best) {
-            case 0: fp.x = hi.x; break;  case 1: fp.x = lo.x; break;
-            case 2: fp.y = hi.y; break;  case 3: fp.y = lo.y; break;
-            case 4: fp.z = hi.z; break;  case 5: fp.z = lo.z; break;
-        }
-        m.contactPoints[0] = fp;
+        m.normal           = n;
+        m.penetration      = r + minDepth;
+        m.depths[0]        = m.penetration;
+        m.contactPoints[0] = sp + n * minDepth; // snaps to AABB surface along normal
     }
     return true;
 }
@@ -201,6 +313,7 @@ bool detectAABBAABB(const CAABB& a, const CAABB& b, ContactManifold& m) {
     }
     m.numContacts      = 1;
     m.contactPoints[0] = (posA + posB) * 0.5f;
+    m.depths[0]        = m.penetration;
     return true;
 }
 
@@ -234,6 +347,7 @@ bool detectSphereOBB(const CSphere& sphere, const COBB& obb, ContactManifold& m)
         float dist        = std::sqrt(distSq);
         m.normal          = diff * (1.0f / dist); // OBB → sphere
         m.penetration     = r - dist;
+        m.depths[0]       = m.penetration;
         m.contactPoints[0] = worldClosest;
     } else {
         // Sphere centre inside OBB — eject through shallowest local face
@@ -251,6 +365,7 @@ bool detectSphereOBB(const CSphere& sphere, const COBB& obb, ContactManifold& m)
 
         m.normal          = obb.getRotTransform() * localNormals[best]; // world-space outward
         m.penetration     = r + depths[best];
+        m.depths[0]       = m.penetration;
         m.contactPoints[0] = sp - m.normal * r;
     }
     return true;
@@ -327,6 +442,7 @@ bool detectAABBOBB(const CAABB& a, const COBB& b, ContactManifold& m) {
         }
         if (numCands == 0) {
             m.contactPoints[0] = (aPos + bPos) * 0.5f;
+            m.depths[0]        = m.penetration;
             m.numContacts = 1;
         } else {
             for (int i = 1; i < numCands; i++) { // insertion sort descending
@@ -335,7 +451,10 @@ bool detectAABBOBB(const CAABB& a, const COBB& b, ContactManifold& m) {
                 cands[j+1] = key;
             }
             int k = std::min(numCands, 4);
-            for (int i = 0; i < k; i++) m.contactPoints[i] = cands[i].pt;
+            for (int i = 0; i < k; i++) {
+                m.contactPoints[i] = cands[i].pt;
+                m.depths[i]        = cands[i].depth;
+            }
             m.numContacts = k;
         }
     } else if (axisType == 1) {
@@ -358,6 +477,7 @@ bool detectAABBOBB(const CAABB& a, const COBB& b, ContactManifold& m) {
         }
         if (numCands == 0) {
             m.contactPoints[0] = (aPos + bPos) * 0.5f;
+            m.depths[0]        = m.penetration;
             m.numContacts = 1;
         } else {
             for (int i = 1; i < numCands; i++) {
@@ -366,7 +486,10 @@ bool detectAABBOBB(const CAABB& a, const COBB& b, ContactManifold& m) {
                 cands[j+1] = key;
             }
             int k = std::min(numCands, 4);
-            for (int i = 0; i < k; i++) m.contactPoints[i] = cands[i].pt;
+            for (int i = 0; i < k; i++) {
+                m.contactPoints[i] = cands[i].pt;
+                m.depths[i]        = cands[i].depth;
+            }
             m.numContacts = k;
         }
     } else {
@@ -381,6 +504,7 @@ bool detectAABBOBB(const CAABB& a, const COBB& b, ContactManifold& m) {
         supportB = supportB + bAxes[1] * (normal.dot(bAxes[1]) >= 0.0f ? -bExt.y :  bExt.y);
         supportB = supportB + bAxes[2] * (normal.dot(bAxes[2]) >= 0.0f ? -bExt.z :  bExt.z);
         m.contactPoints[0] = (supportA + supportB) * 0.5f;
+        m.depths[0]        = m.penetration;
         m.numContacts = 1;
     }
     return true;
@@ -450,6 +574,7 @@ bool detectOBBOBB(const COBB& a, const COBB& b, ContactManifold& m) {
         }
         if (numCands == 0) {
             m.contactPoints[0] = (aPos + bPos) * 0.5f;
+            m.depths[0]        = m.penetration;
             m.numContacts = 1;
         } else {
             for (int i = 1; i < numCands; i++) {
@@ -458,7 +583,10 @@ bool detectOBBOBB(const COBB& a, const COBB& b, ContactManifold& m) {
                 cands[j+1] = key;
             }
             int k = std::min(numCands, 4);
-            for (int i = 0; i < k; i++) m.contactPoints[i] = cands[i].pt;
+            for (int i = 0; i < k; i++) {
+                m.contactPoints[i] = cands[i].pt;
+                m.depths[i]        = cands[i].depth;
+            }
             m.numContacts = k;
         }
     } else if (axisType == 1) {
@@ -478,6 +606,7 @@ bool detectOBBOBB(const COBB& a, const COBB& b, ContactManifold& m) {
         }
         if (numCands == 0) {
             m.contactPoints[0] = (aPos + bPos) * 0.5f;
+            m.depths[0]        = m.penetration;
             m.numContacts = 1;
         } else {
             for (int i = 1; i < numCands; i++) {
@@ -486,7 +615,10 @@ bool detectOBBOBB(const COBB& a, const COBB& b, ContactManifold& m) {
                 cands[j+1] = key;
             }
             int k = std::min(numCands, 4);
-            for (int i = 0; i < k; i++) m.contactPoints[i] = cands[i].pt;
+            for (int i = 0; i < k; i++) {
+                m.contactPoints[i] = cands[i].pt;
+                m.depths[i]        = cands[i].depth;
+            }
             m.numContacts = k;
         }
     } else {
@@ -500,18 +632,19 @@ bool detectOBBOBB(const COBB& a, const COBB& b, ContactManifold& m) {
         supportB = supportB + bAxes[1] * (normal.dot(bAxes[1]) >= 0.0f ? -bExt.y :  bExt.y);
         supportB = supportB + bAxes[2] * (normal.dot(bAxes[2]) >= 0.0f ? -bExt.z :  bExt.z);
         m.contactPoints[0] = (supportA + supportB) * 0.5f;
+        m.depths[0]        = m.penetration;
         m.numContacts = 1;
     }
     return true;
 }
 
 // ============================================================================
-// Top-level dispatch
-// Normal must be from a toward b before calling pgsCollisionResponse.
-// detectSphereAABB gives AABB→sphere, so flip when sphere is 'a'.
+// detect() — type-dispatch collision detection, append to contacts if hit.
+// Normal convention: from a toward b.
+// detectSphereAABB returns AABB→sphere, so flip normal when sphere is 'a'.
 // ============================================================================
 
-void collide(Hull& a, Hull& b, float dt) {
+void detect(Hull& a, Hull& b, std::vector<ActiveContact>& contacts) {
     if (a.isFixed() && b.isFixed()) return;
 
     auto* sa = dynamic_cast<CSphere*>(&a);
@@ -523,68 +656,15 @@ void collide(Hull& a, Hull& b, float dt) {
 
     ContactManifold m;
 
-    // ---- Sphere pairs ----
-    if (sa && sb) {
-        if (detectSphereSphere(*sa, *sb, m))
-            pgsCollisionResponse(a, b, m, dt);
-        return;
-    }
-    if (sa && ab) {
-        // detect gives AABB(b)→sphere(a); flip to a→b
-        if (detectSphereAABB(*sa, *ab, m)) {
-            m.normal = -m.normal;
-            pgsCollisionResponse(a, b, m, dt);
-        }
-        return;
-    }
-    if (aa && sb) {
-        // detect gives AABB(a)→sphere(b); already a→b
-        if (detectSphereAABB(*sb, *aa, m))
-            pgsCollisionResponse(a, b, m, dt);
-        return;
-    }
-
-    // ---- AABB pairs ----
-    if (aa && ab) {
-        if (detectAABBAABB(*aa, *ab, m))
-            pgsCollisionResponse(a, b, m, dt);
-        return;
-    }
-
-    // ---- OBB pairs ----
-    // detectSphereOBB outputs "OBB→sphere"; flip when sphere is a (a→b needed)
-    if (sa && cb) {
-        if (detectSphereOBB(*sa, *cb, m)) {
-            m.normal = -m.normal;
-            pgsCollisionResponse(a, b, m, dt);
-        }
-        return;
-    }
-    if (ca && sb) {
-        // OBB is a, sphere is b: detectSphereOBB(sphere_b, obb_a) → OBB(a)→sphere(b) = a→b
-        if (detectSphereOBB(*sb, *ca, m))
-            pgsCollisionResponse(a, b, m, dt);
-        return;
-    }
-    // detectAABBOBB outputs a→b already
-    if (aa && cb) {
-        if (detectAABBOBB(*aa, *cb, m))
-            pgsCollisionResponse(a, b, m, dt);
-        return;
-    }
-    if (ca && ab) {
-        // OBB is a, AABB is b: call with AABB as first arg → flip
-        if (detectAABBOBB(*ab, *ca, m)) {
-            m.normal = -m.normal;
-            pgsCollisionResponse(a, b, m, dt);
-        }
-        return;
-    }
-    if (ca && cb) {
-        if (detectOBBOBB(*ca, *cb, m))
-            pgsCollisionResponse(a, b, m, dt);
-        return;
-    }
+    if (sa && sb) { if (detectSphereSphere(*sa, *sb, m))   contacts.push_back({&a, &b, m}); return; }
+    if (sa && ab) { if (detectSphereAABB(*sa, *ab, m))   { m.normal = -m.normal; contacts.push_back({&a, &b, m}); } return; }
+    if (aa && sb) { if (detectSphereAABB(*sb, *aa, m))     contacts.push_back({&a, &b, m}); return; }
+    if (aa && ab) { if (detectAABBAABB(*aa, *ab, m))       contacts.push_back({&a, &b, m}); return; }
+    if (sa && cb) { if (detectSphereOBB(*sa, *cb, m))    { m.normal = -m.normal; contacts.push_back({&a, &b, m}); } return; }
+    if (ca && sb) { if (detectSphereOBB(*sb, *ca, m))      contacts.push_back({&a, &b, m}); return; }
+    if (aa && cb) { if (detectAABBOBB(*aa, *cb, m))        contacts.push_back({&a, &b, m}); return; }
+    if (ca && ab) { if (detectAABBOBB(*ab, *ca, m))      { m.normal = -m.normal; contacts.push_back({&a, &b, m}); } return; }
+    if (ca && cb) { if (detectOBBOBB(*ca, *cb, m))         contacts.push_back({&a, &b, m}); return; }
 }
 
 } // namespace physics::ColliderDiscrete

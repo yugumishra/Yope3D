@@ -11,13 +11,19 @@ namespace physics {
     inline constexpr float CCD_BOUNDED_BARRIER_PADDING   = 0.01f;
     inline constexpr float EPSILON                       = 0.0000001f;
 
-    inline constexpr float PGS_BAUMGARTE_FACTOR          = 0.2f;   // match Java
-    inline constexpr float PGS_PENETRATION_SLOP          = 0.03f;  // match Java (3e-2f)
-    inline constexpr int   PGS_ITERATIONS_SINGLE         = 8;
-    inline constexpr int   PGS_ITERATIONS_MULTI          = 12;
+    // Global PGS: all contacts detected first, then iterated globally each frame.
+    // PGS_VELOCITY_ITERATIONS: passes over the full contact list for velocity correction.
+    // PGS_POSITION_ITERATIONS: passes for the split-impulse pseudo-velocity (position) pass.
+    inline constexpr int   PGS_VELOCITY_ITERATIONS       = 24;
+    inline constexpr int   PGS_POSITION_ITERATIONS       = 5;
+
+    // Split impulse (SI) — position correction via pseudo-velocity, no energy injection.
+    inline constexpr float SPLIT_BETA       = 0.4f;
+    inline constexpr float SPLIT_SLOP       = 0.01f;
 
     inline constexpr float PGS_RESTITUTION               = 0.3f;
-    inline constexpr float PGS_RESTITUTION_THRESHOLD     = 0.5f;
+    inline constexpr float PGS_RESTITUTION_THRESHOLD     = 2.0f;  // was 0.5 — resting/pile contacts must not bounce
+    inline constexpr float PGS_DEFAULT_FRICTION          = 0.5f;
 
     // Direct one-shot analytical impulse response (all discrete pairs)
     inline constexpr float COLLISION_RESTITUTION         = 0.5f;
@@ -25,6 +31,11 @@ namespace physics {
     inline constexpr float POSITION_SLOP                 = 0.01f;
     // Below this closing speed restitution is treated as 0 — required for resting contacts.
     inline constexpr float BOUNCE_VELOCITY_THRESHOLD     = 1.0f;
+
+    // Sleeping
+    inline constexpr float SLEEP_LINEAR_THRESHOLD        = 0.75f;  // m/s
+    inline constexpr float SLEEP_ANGULAR_THRESHOLD       = 0.75f;  // rad/s
+    inline constexpr int   SLEEP_FRAMES_REQUIRED         = 60;     // ~1 s at 60 fps
 
     // Legacy names kept for any remaining references
     inline constexpr float SPHERE_RESTITUTION            = COLLISION_RESTITUTION;
@@ -41,7 +52,8 @@ namespace physics {
     // legitimate slow approach (where v_n/|v| >> this threshold).
     inline constexpr float CCD_RESTING_TANGENCY_THRESHOLD = 0.087f;
 
-    // Per-hull linear/angular velocity decay applied each integration step
-    inline constexpr float LINEAR_DAMPING                = 0.4f;   // ~67% retained/sec
-    inline constexpr float ANGULAR_DAMPING               = 0.7f;   // match linear
+    // Per-hull linear/angular velocity decay applied each integration step.
+    // With Coulomb friction active these should be near-zero (air resistance only).
+    inline constexpr float LINEAR_DAMPING                = 0.02f;
+    inline constexpr float ANGULAR_DAMPING               = 0.02f;
 }

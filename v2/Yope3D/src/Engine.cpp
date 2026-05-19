@@ -2,8 +2,6 @@
 #include "math/Math.h"
 #include "rendering/Light.h"
 #include "assets/Primitives.h"
-#include "physics/Barrier.h"
-#include "physics/BoundedBarrier.h"
 #include "physics/CSphere.h"
 #include "physics/CAABB.h"
 #include "physics/COBB.h"
@@ -13,18 +11,28 @@
 #include <ctime>
 #include <cmath>
 
-// ---- Stress-test arena ----
-// LMB (hold) = launch objects toward camera crosshair
-// LEFT/RIGHT arrow = cycle spawn type (sphere / AABB / OBB)
-// WASD + mouse = fly camera
-// Objects are kept in a 50×50×50 box (barriers at ±25 on X/Z, floor at 0, ceiling at 50).
+// ---- Shared constants -------------------------------------------------------
 
-static constexpr float ARENA_HALF = 10.0f;
-static constexpr float CEILING    = 5.0f;
-static constexpr float SPAWN_SPEED = 18.0f;  // m/s launch velocity
-static constexpr float SPAWN_RATE  = 0.10f;  // seconds between spawns while holding LMB
+static constexpr float SPAWN_SPEED = 18.0f;
+static constexpr float SPAWN_RATE  = 0.05f;
 
-// --- RNG ---
+// Pyramid
+static constexpr float PYR_HALF    = 0.45f;   // OBB half-extent
+static constexpr float PYR_SPACING = 1.0f;    // center-to-center within row
+
+// Spring cloth
+static constexpr int   GRID_N      = 20;
+static constexpr float GRID_STEP   = 1.0f;    // rest length / initial spacing
+static constexpr float NODE_HALF   = 0.45f;   // OBB half-extent for spring nodes
+static constexpr float NODE_MASS   = 1.0f;
+static constexpr float SPRING_K    = 200.0f;
+
+// Stress test arena
+static constexpr float STRESS_HALF    = 20.0f;
+static constexpr float STRESS_CEILING = 25.0f;
+
+// ---- Helpers ----------------------------------------------------------------
+
 static std::mt19937 rng(static_cast<unsigned>(std::time(nullptr)));
 
 static float randF(float lo, float hi) {
@@ -35,8 +43,7 @@ static math::Vec3 randomUnitVec() {
     math::Vec3 v;
     do { v = {randF(-1,1), randF(-1,1), randF(-1,1)}; }
     while (v.dot(v) < 1e-4f);
-    float len = std::sqrt(v.dot(v));
-    return v * (1.0f / len);
+    return v * (1.0f / std::sqrt(v.dot(v)));
 }
 
 static const char* typeName(int t) {
@@ -44,7 +51,26 @@ static const char* typeName(int t) {
     return "?";
 }
 
-// ---- init ---------------------------------------------------------------
+static const char* sceneName(int s) {
+    switch (s) {
+    case 0:  return "Pyramid (Small)";
+    case 1:  return "Pyramid (Medium)";
+    case 2:  return "Pyramid (Large)";
+    case 3:  return "Spring [Sphere] — Top Row Fixed";
+    case 4:  return "Spring [AABB]   — Top Row Fixed";
+    case 5:  return "Spring [OBB]    — Top Row Fixed";
+    case 6:  return "Spring [Sphere] — 4 Corners";
+    case 7:  return "Spring [AABB]   — 4 Corners";
+    case 8:  return "Spring [OBB]    — 4 Corners";
+    case 9:  return "Spring [Sphere] — 2 Top Corners";
+    case 10: return "Spring [AABB]   — 2 Top Corners";
+    case 11: return "Spring [OBB]    — 2 Top Corners";
+    case 12: return "Stress Test";
+    }
+    return "?";
+}
+
+// ---- Engine::init -----------------------------------------------------------
 
 bool Engine::init() {
     input = std::make_unique<Input>();
@@ -55,7 +81,7 @@ bool Engine::init() {
         if (const GLFWvidmode* mode = glfwGetVideoMode(primary))
             { screenW = mode->width; screenH = mode->height; }
 
-    window = std::make_unique<Window>("Yope3D — Physics Stress Test", screenW, screenH);
+    window = std::make_unique<Window>("Yope3D", screenW, screenH);
     window->init(input.get());
     window->setIcon("textures/tnail.png");
     glfwSetInputMode(window->getHandle(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -67,120 +93,250 @@ bool Engine::init() {
     world    = std::make_unique<World>();
     camera   = std::make_unique<Camera>(screenW, screenH, math::toRadians(70.0f));
 
-    // Lights: directional fill + flashlight (follows camera in update)
+    // Bright directional light — no flashlight
     DirectionalLight dir{};
     dir.direction[0] = -0.4f; dir.direction[1] = -1.0f; dir.direction[2] = -0.6f;
-    dir.color[0] = 0.85f; dir.color[1] = 0.9f; dir.color[2] = 1.0f;
-    dir.intensity = 0.4f;
+    dir.color[0] = 0.95f; dir.color[1] = 0.95f; dir.color[2] = 1.0f;
+    dir.intensity = 0.9f;
     world->addLight(dir);
 
-    FlashLight flash{};
-    flash.color[0] = flash.color[1] = flash.color[2] = 1.0f;
-    flash.intensity = 1.0f;
-    flash.innerConeAngle = math::toRadians(18.0f);
-    flash.outerConeAngle = math::toRadians(35.0f);
-    flash.constant = 1.0f; flash.linear = 0.03f; flash.quadratic = 0.005f;
-    world->addLight(flash);
-
     lastTime = glfwGetTime();
-    loadScene(0);
+    loadScene(sceneIndex);
     return true;
 }
 
-// ---- loadScene ----------------------------------------------------------
-// Sets up the static arena (floor + 5 wall barriers + visuals).
-// Called once at startup; sceneIndex is repurposed as spawn type.
+// ---- addFloorMesh -----------------------------------------------------------
 
-void Engine::loadScene(int /*index*/) {
+void Engine::addFloorMesh(float halfW, float halfD) {
+    auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                   Primitives::rect({halfW, 0.5f, halfD}));
+    if (m) {
+        m->color[0] = 0.32f; m->color[1] = 0.28f; m->color[2] = 0.24f; m->state = 0;
+        m->modelMatrix = math::Mat4::translate({0.0f, -0.5f, 0.0f});
+    }
+}
+
+// ---- Engine::loadScene (dispatcher) ----------------------------------------
+
+void Engine::loadScene(int index) {
+    if (hasRendered)
+        gpu->syncDevice();   // drain GPU before destroying in-flight buffers (not a full renderer teardown)
+    switch (index) {
+    case 0: loadPyramid(4); break;
+    case 1: loadPyramid(7); break;
+    case 2: loadPyramid(10); break;
+    case 3:  loadSpringCloth(0, 0); break;   // top row,   sphere
+    case 4:  loadSpringCloth(0, 1); break;   // top row,   AABB
+    case 5:  loadSpringCloth(0, 2); break;   // top row,   OBB
+    case 6:  loadSpringCloth(1, 0); break;   // 4 corners, sphere
+    case 7:  loadSpringCloth(1, 1); break;   // 4 corners, AABB
+    case 8:  loadSpringCloth(1, 2); break;   // 4 corners, OBB
+    case 9:  loadSpringCloth(2, 0); break;   // 2 corners, sphere
+    case 10: loadSpringCloth(2, 1); break;   // 2 corners, AABB
+    case 11: loadSpringCloth(2, 2); break;   // 2 corners, OBB
+    case 12: loadStressTest();      break;
+    }
+}
+
+// ---- Engine::loadPyramid ---------------------------------------------------
+// Staggered 2-D pyramid of OBBs (row i has baseN-i boxes, offset by 0.5 per row).
+// No walls — just a static CAABB floor.
+
+void Engine::loadPyramid(int baseN) {
     world->resetPhysics(*gpu);
 
-    // Ghost player sphere at camera (fixed, no gravity, not tangible so objects pass through)
     playerSphere = world->addSphere(1.0f, 0.5f, camera->getPosition());
-    playerSphere->fix();
-    playerSphere->disableGravity();
-    playerSphere->setTangible(false);
+    playerSphere->fix(); playerSphere->disableGravity(); playerSphere->setTangible(false);
 
-    // ---- Barriers (CCD) ----
-    world->addBarrier(physics::Barrier({ 0,  1,  0}, {0, 0, 0}));           // floor  y=0
-    world->addBarrier(physics::Barrier({ 0, -1,  0}, {0, CEILING, 0}));     // ceiling y=50
-    world->addBarrier(physics::Barrier({ 1,  0,  0}, {-ARENA_HALF, 0, 0})); // -X wall
-    world->addBarrier(physics::Barrier({-1,  0,  0}, { ARENA_HALF, 0, 0})); // +X wall
-    world->addBarrier(physics::Barrier({ 0,  0,  1}, {0, 0, -ARENA_HALF})); // -Z wall
-    world->addBarrier(physics::Barrier({ 0,  0, -1}, {0, 0,  ARENA_HALF})); // +Z wall
+    float halfFloor = (baseN + 15) * 1.0f;
+    world->addStaticAABB({0.0f, -0.5f, 0.0f}, {halfFloor, 0.5f, 15.0f});
+    addFloorMesh(halfFloor, 15.0f);
 
-    // ---- Visuals ----
-    // Floor slab — top face at y=0
-    {
-        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
-                                       Primitives::rect({ARENA_HALF, 0.5f, ARENA_HALF}));
-        if (m) {
-            m->color[0] = 0.32f; m->color[1] = 0.28f; m->color[2] = 0.24f; m->state = 0;
-            m->modelMatrix = math::Mat4::translate({0, -0.5f, 0});
+    for (int row = 0; row < baseN; row++) {
+        int   count = baseN - row;
+        float y     = PYR_HALF + row * (2.0f * PYR_HALF - 0.012f);
+        float t     = (baseN > 1) ? (float)row / (baseN - 1) : 0.5f;
+        for (int j = 0; j < count; j++) {
+            float x = -(count - 1) * PYR_SPACING * 0.5f + j * PYR_SPACING;
+            auto* h  = world->addOBB({PYR_HALF, PYR_HALF, PYR_HALF}, 1.0f, {x, y, 0.0f});
+            auto* rm = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                            Primitives::rect({PYR_HALF, PYR_HALF, PYR_HALF}));
+            if (rm) {
+                rm->color[0] = 0.2f + t * 0.7f;
+                rm->color[1] = 0.45f - t * 0.15f;
+                rm->color[2] = 0.9f  - t * 0.7f;
+                rm->state = 0;
+            }
+            if (h && rm) h->linkedMesh = rm;
         }
     }
-    // Four thin wall slabs — just enough to see the arena boundaries.
-    // Each wall panel: half-thickness 0.4, half-height CEILING/2, half-width ARENA_HALF.
-    float wH = CEILING * 0.5f;
+
+    float camZ = baseN + 4.0f;
+    float camY = baseN * 0.7f;
+    camera->setPosition({0.0f, camY, camZ});
+    camera->setRotation({0.0f, 0.0f, 0.0f});
+}
+
+// ---- Engine::loadSpringCloth -----------------------------------------------
+// variant:   0=top-row fixed  1=4-corners fixed  2=2-top-corners fixed
+// shapeType: 0=Sphere         1=AABB              2=OBB
+
+void Engine::loadSpringCloth(int variant, int shapeType) {
+    world->resetPhysics(*gpu);
+
+    playerSphere = world->addSphere(1.0f, 0.5f, camera->getPosition());
+    playerSphere->fix(); playerSphere->disableGravity(); playerSphere->setTangible(false);
+
+    float fh = (GRID_N + 1) * GRID_STEP * 2.0f;
+    world->addStaticAABB({0.0f, -5.0f, 0.0f}, {fh, 5.0f, fh});
+    addFloorMesh(fh, fh);
+
+    bool horizontal = (variant == 1);
+    float halfW = (GRID_N - 1) * GRID_STEP * 0.5f;
+    float topY  = horizontal ? 25.0f : (GRID_N - 1) * GRID_STEP + 25.0f;
+
+    physics::Hull* grid[GRID_N][GRID_N] = {};
+
+    for (int j = 0; j < GRID_N; j++) {
+        for (int i = 0; i < GRID_N; i++) {
+            float cx, cy, cz;
+            if (horizontal) {
+                cx = -halfW + i * GRID_STEP;
+                cy = topY;
+                cz = -halfW + j * GRID_STEP;
+            } else {
+                cx = -halfW + i * GRID_STEP;
+                cy = topY - j * GRID_STEP;
+                cz = 0.0f;
+            }
+
+            physics::Hull* h = nullptr;
+            RenderMesh*    rm = nullptr;
+            float fi = (float)i / (GRID_N - 1);
+            float fj = (float)j / (GRID_N - 1);
+
+            if (shapeType == 0) {
+                h  = world->addSphere(NODE_MASS, NODE_HALF, {cx, cy, cz});
+                rm = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                          Primitives::icosphere(NODE_HALF));
+                if (rm) { rm->color[0] = 0.9f - 0.4f*fi; rm->color[1] = 0.3f + 0.4f*fj; rm->color[2] = 0.15f + 0.3f*fi; }
+            } else if (shapeType == 1) {
+                h  = world->addAABB({NODE_HALF, NODE_HALF, NODE_HALF}, NODE_MASS, {cx, cy, cz});
+                rm = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                          Primitives::rect({NODE_HALF, NODE_HALF, NODE_HALF}));
+                if (rm) { rm->color[0] = 0.1f + 0.2f*fj; rm->color[1] = 0.5f + 0.3f*fi; rm->color[2] = 0.8f - 0.3f*fj; }
+            } else {
+                h  = world->addOBB({NODE_HALF, NODE_HALF, NODE_HALF}, NODE_MASS, {cx, cy, cz});
+                rm = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                          Primitives::rect({NODE_HALF, NODE_HALF, NODE_HALF}));
+                if (rm) { rm->color[0] = fi; rm->color[1] = fj; rm->color[2] = 0.4f + 0.3f*(fi+fj)*0.5f; }
+            }
+            if (rm) rm->state = 0;
+            if (h && rm) h->linkedMesh = rm;
+            grid[i][j] = h;
+
+            bool fix = false;
+            if (variant == 0)
+                fix = (j == 0);
+            else if (variant == 1)
+                fix = ((i == 0 || i == GRID_N-1) && (j == 0 || j == GRID_N-1));
+            else if (variant == 2)
+                fix = (j == 0 && (i == 0 || i == GRID_N-1));
+            if (fix && h) h->fix();
+        }
+    }
+
+    // Springs: horizontal (along i) + vertical (along j)
+    for (int j = 0; j < GRID_N; j++)
+        for (int i = 0; i < GRID_N - 1; i++)
+            world->addSpring(grid[i][j], grid[i+1][j], SPRING_K, GRID_STEP);
+
+    for (int i = 0; i < GRID_N; i++)
+        for (int j = 0; j < GRID_N - 1; j++)
+            world->addSpring(grid[i][j], grid[i][j+1], SPRING_K, GRID_STEP);
+
+    // Camera placement
+    float dist = (GRID_N - 1) * GRID_STEP;
+    if (horizontal) {
+        camera->setPosition({0.0f, topY + dist, dist * 0.7f});
+        camera->setRotation({-0.8f, 0.0f, 0.0f});
+    } else {
+        camera->setPosition({0.0f, topY * 0.5f, dist + 5.0f});
+        camera->setRotation({0.0f, 0.0f, 0.0f});
+    }
+}
+
+// ---- Engine::loadStressTest -------------------------------------------------
+
+void Engine::loadStressTest() {
+    world->resetPhysics(*gpu);
+
+    playerSphere = world->addSphere(1.0f, 0.5f, camera->getPosition());
+    playerSphere->fix(); playerSphere->disableGravity(); playerSphere->setTangible(false);
+
+    // Floor + ceiling
+    world->addStaticAABB({0.0f, -0.5f, 0.0f},                    {STRESS_HALF, 0.5f,  STRESS_HALF});
+    world->addStaticAABB({0.0f, STRESS_CEILING + 0.5f, 0.0f},    {STRESS_HALF, 0.5f,  STRESS_HALF});
+    addFloorMesh(STRESS_HALF, STRESS_HALF);
+
+    // Walls: physics CAABB + render mesh share the same pos/ext so they align exactly.
+    float wH = STRESS_CEILING * 0.5f;
     auto addWall = [&](math::Vec3 pos, math::Vec3 ext) {
-        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
-                                       Primitives::rect(ext));
+        world->addStaticAABB(pos, ext);
+        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(), Primitives::rect(ext));
         if (m) {
             m->color[0] = 0.22f; m->color[1] = 0.22f; m->color[2] = 0.28f; m->state = 0;
             m->modelMatrix = math::Mat4::translate(pos);
         }
     };
-    addWall({-ARENA_HALF - 0.4f, wH, 0},    {0.4f, wH, ARENA_HALF});
-    addWall({ ARENA_HALF + 0.4f, wH, 0},    {0.4f, wH, ARENA_HALF});
-    addWall({0, wH, -ARENA_HALF - 0.4f},    {ARENA_HALF, wH, 0.4f});
-    addWall({0, wH,  ARENA_HALF + 0.4f},    {ARENA_HALF, wH, 0.4f});
+    addWall({-STRESS_HALF - 0.4f, wH, 0},     {0.4f, wH, STRESS_HALF});
+    addWall({ STRESS_HALF + 0.4f, wH, 0},     {0.4f, wH, STRESS_HALF});
+    addWall({0, wH, -STRESS_HALF - 0.4f},     {STRESS_HALF, wH, 0.4f});
+    addWall({0, wH,  STRESS_HALF + 0.4f},     {STRESS_HALF, wH, 0.4f});
+
+    camera->setPosition({0.0f, 3.5f, STRESS_HALF - 2.0f});
+    camera->setRotation({0.0f, 0.0f, 0.0f});
 }
 
-// ---- spawnObject --------------------------------------------------------
+// ---- Engine::spawnObject ----------------------------------------------------
 
 void Engine::spawnObject() {
     math::Vec3 forward = camera->getForward();
     math::Vec3 origin  = camera->getPosition() + forward * 1.5f;
     math::Vec3 vel     = forward * SPAWN_SPEED;
-
-    // Random orientation (uniform axis-angle)
-    math::Quat rot = math::Quat::fromAxisAngle(randomUnitVec(), randF(0, math::PI * 2.0f));
-
-    // Random size — uniform half-extent in [0.3, 0.65]
+    math::Quat rot     = math::Quat::fromAxisAngle(randomUnitVec(), randF(0, math::PI * 2.0f));
     float s = randF(0.3f, 0.65f);
 
-    switch (sceneIndex) {
-    case 0: {   // Sphere
-        auto* h = world->addSphere(1.0f, s, origin);
+    switch (spawnType) {
+    case 0: {
+        auto* h  = world->addSphere(1.0f, s, origin);
         if (h) h->setVelocity(vel);
-        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
-                                       Primitives::icosphere(s));
-        if (m) { m->color[0] = 0.2f; m->color[1] = 0.5f; m->color[2] = 1.0f; m->state = 0; }
-        if (h && m) h->linkedMesh = m;
+        auto* rm = world->addRenderMesh(*gpu, renderer->getCommandPool(), Primitives::icosphere(s));
+        if (rm) { rm->color[0] = 0.2f; rm->color[1] = 0.5f; rm->color[2] = 1.0f; rm->state = 0; }
+        if (h && rm) h->linkedMesh = rm;
         break;
     }
-    case 1: {   // AABB
-        auto* h = world->addAABB({s, s, s}, 1.0f, origin);
+    case 1: {
+        auto* h  = world->addAABB({s, s, s}, 1.0f, origin);
         if (h) h->setVelocity(vel);
-        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
-                                       Primitives::rect({s, s, s}));
-        if (m) { m->color[0] = 0.3f; m->color[1] = 0.85f; m->color[2] = 0.4f; m->state = 0; }
-        if (h && m) h->linkedMesh = m;
+        auto* rm = world->addRenderMesh(*gpu, renderer->getCommandPool(), Primitives::rect({s, s, s}));
+        if (rm) { rm->color[0] = 0.3f; rm->color[1] = 0.85f; rm->color[2] = 0.4f; rm->state = 0; }
+        if (h && rm) h->linkedMesh = rm;
         break;
     }
-    case 2: {   // OBB — vary Y extent for more interesting shapes
+    case 2: {
         float sy = s * randF(0.5f, 1.8f);
-        auto* h = world->addOBB({s, sy, s}, 1.0f, origin);
+        auto* h  = world->addOBB({s, sy, s}, 1.0f, origin);
         if (h) { h->setVelocity(vel); h->setRotation(rot); }
-        auto* m = world->addRenderMesh(*gpu, renderer->getCommandPool(),
-                                       Primitives::rect({s, sy, s}));
-        if (m) { m->color[0] = 1.0f; m->color[1] = 0.5f; m->color[2] = 0.1f; m->state = 0; }
-        if (h && m) h->linkedMesh = m;
+        auto* rm = world->addRenderMesh(*gpu, renderer->getCommandPool(), Primitives::rect({s, sy, s}));
+        if (rm) { rm->color[0] = 1.0f; rm->color[1] = 0.5f; rm->color[2] = 0.1f; rm->state = 0; }
+        if (h && rm) h->linkedMesh = rm;
         break;
     }
     }
 }
 
-// ---- update -------------------------------------------------------------
+// ---- Engine::update ---------------------------------------------------------
 
 void Engine::update() {
     double now = glfwGetTime();
@@ -192,29 +348,41 @@ void Engine::update() {
     if (window->wasResized())
         camera->WindowChanged(window->getWidth(), window->getHeight());
 
-    // Cycle spawn type with arrow keys (rising edge)
+    // LEFT / RIGHT: switch scene
     bool rightNow = input->isKeyDown(GLFW_KEY_RIGHT);
     bool leftNow  = input->isKeyDown(GLFW_KEY_LEFT);
-    if (rightNow && !rightWasDown)
+    if (rightNow && !rightWasDown) {
         sceneIndex = (sceneIndex + 1) % SCENE_COUNT;
-    else if (leftNow && !leftWasDown)
+        loadScene(sceneIndex);
+    } else if (leftNow && !leftWasDown) {
         sceneIndex = (sceneIndex + SCENE_COUNT - 1) % SCENE_COUNT;
+        loadScene(sceneIndex);
+    }
     rightWasDown = rightNow;
     leftWasDown  = leftNow;
 
-    // Spawn on LMB hold (rate-limited)
+    // UP / DOWN: cycle spawn type
+    bool upNow   = input->isKeyDown(GLFW_KEY_UP);
+    bool downNow = input->isKeyDown(GLFW_KEY_DOWN);
+    if (upNow && !upWasDown)
+        spawnType = (spawnType + 1) % 3;
+    else if (downNow && !downWasDown)
+        spawnType = (spawnType + 3 - 1) % 3;
+    upWasDown   = upNow;
+    downWasDown = downNow;
+
+    // LMB: spawn object (rate-limited)
     spawnCooldown -= dt;
     if (input->isLMBDown() && spawnCooldown <= 0.0f) {
         spawnObject();
         spawnCooldown = SPAWN_RATE;
     }
 
-    // Update title: type + live object count
-    int objCount = static_cast<int>(world->getHulls().size()) - 1; // exclude player ghost
+    int objCount = static_cast<int>(world->getHulls().size()) - 1;
     window->setTitle(
-        std::string("Stress Test | ") + typeName(sceneIndex) +
+        std::string(sceneName(sceneIndex)) + " | " + typeName(spawnType) +
         " | Objects: " + std::to_string(objCount) +
-        " | LMB=spawn  LEFT/RIGHT=cycle  WASD=move"
+        " | LMB=spawn  UP/DOWN=type  LEFT/RIGHT=scene  WASD=move"
     );
 
     playerSphere->fixPosition(camera->getPosition());
@@ -227,10 +395,11 @@ void Engine::update() {
     }
 }
 
-// ---- render / cleanup ---------------------------------------------------
+// ---- Engine::render / cleanup -----------------------------------------------
 
 void Engine::render() {
     renderer->drawFrame(*gpu, *window, *camera, *world, *assets);
+    hasRendered = true;
 }
 
 void Engine::cleanup() {
