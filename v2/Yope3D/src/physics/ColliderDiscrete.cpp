@@ -301,19 +301,63 @@ bool detectAABBAABB(const CAABB& a, const CAABB& b, ContactManifold& m) {
 
     if (ovX <= 0.0f || ovY <= 0.0f || ovZ <= 0.0f) return false;
 
+    int axis; // separating axis: 0=x, 1=y, 2=z
     if (ovX <= ovY && ovX <= ovZ) {
         m.normal      = {posA.x < posB.x ? 1.0f : -1.0f, 0.0f, 0.0f};
         m.penetration = ovX;
+        axis = 0;
     } else if (ovY <= ovX && ovY <= ovZ) {
         m.normal      = {0.0f, posA.y < posB.y ? 1.0f : -1.0f, 0.0f};
         m.penetration = ovY;
+        axis = 1;
     } else {
         m.normal      = {0.0f, 0.0f, posA.z < posB.z ? 1.0f : -1.0f};
         m.penetration = ovZ;
+        axis = 2;
     }
-    m.numContacts      = 1;
-    m.contactPoints[0] = (posA + posB) * 0.5f;
-    m.depths[0]        = m.penetration;
+
+    // Contact points = corners of the overlap rectangle on the contact face.
+    // Using the actual overlap region (not the midpoint of the two centres) keeps each
+    // contact's moment arm bounded by the object's own extent, so the solver's effective
+    // mass stays well-conditioned regardless of how far the pair sits from either centre.
+    float loA[3] = {posA.x - eA.x, posA.y - eA.y, posA.z - eA.z};
+    float hiA[3] = {posA.x + eA.x, posA.y + eA.y, posA.z + eA.z};
+    float loB[3] = {posB.x - eB.x, posB.y - eB.y, posB.z - eB.z};
+    float hiB[3] = {posB.x + eB.x, posB.y + eB.y, posB.z + eB.z};
+    float lo[3], hi[3];
+    for (int i = 0; i < 3; i++) {
+        lo[i] = std::max(loA[i], loB[i]);
+        hi[i] = std::min(hiA[i], hiB[i]);
+    }
+
+    int u = (axis + 1) % 3;
+    int v = (axis + 2) % 3;
+    float planeAxis = 0.5f * (lo[axis] + hi[axis]);
+    // Collapse a degenerate tangent extent to its midpoint so we don't emit duplicate corners.
+    bool uFlat = (hi[u] - lo[u]) < 1e-5f;
+    bool vFlat = (hi[v] - lo[v]) < 1e-5f;
+    float uVals[2] = {lo[u], hi[u]};
+    float vVals[2] = {lo[v], hi[v]};
+    int uN = uFlat ? 1 : 2;
+    int vN = vFlat ? 1 : 2;
+    if (uFlat) uVals[0] = 0.5f * (lo[u] + hi[u]);
+    if (vFlat) vVals[0] = 0.5f * (lo[v] + hi[v]);
+
+    int n = 0;
+    for (int iu = 0; iu < uN; iu++) {
+        for (int iv = 0; iv < vN; iv++) {
+            math::Vec3 p{};
+            float comp[3];
+            comp[axis] = planeAxis;
+            comp[u]    = uVals[iu];
+            comp[v]    = vVals[iv];
+            p.x = comp[0]; p.y = comp[1]; p.z = comp[2];
+            m.contactPoints[n] = p;
+            m.depths[n]        = m.penetration;
+            n++;
+        }
+    }
+    m.numContacts = n;
     return true;
 }
 

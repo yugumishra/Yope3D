@@ -16,7 +16,7 @@ CAABB::CAABB(math::Vec3 pos, math::Vec3 ext)
 }
 
 math::Mat3 CAABB::genInverseInertiaTensor() const {
-    if (fixed) return {};
+    if (fixed) { math::Mat3 z; z.m[0] = z.m[4] = z.m[8] = 0.0f; return z; } // {} is identity, not zero
     math::Mat3 res;
     res.m[0] = 3.0f / (mass * (extent.y*extent.y + extent.z*extent.z));
     res.m[4] = 3.0f / (mass * (extent.x*extent.x + extent.z*extent.z));

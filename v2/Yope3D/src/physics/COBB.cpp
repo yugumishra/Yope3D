@@ -42,7 +42,7 @@ float COBB::projectOnto(math::Vec3 worldAxis) const {
 }
 
 math::Mat3 COBB::genInverseInertiaTensor() const {
-    if (fixed) return {};
+    if (fixed) { math::Mat3 z; z.m[0] = z.m[4] = z.m[8] = 0.0f; return z; } // {} is identity, not zero
     math::Mat3 res;
     res.m[0] = 3.0f / (mass * (extent.y*extent.y + extent.z*extent.z));
     res.m[4] = 3.0f / (mass * (extent.x*extent.x + extent.z*extent.z));
