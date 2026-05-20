@@ -19,6 +19,15 @@ Hull::Hull(math::Vec3 pos, math::Vec3 vel, float mass, math::Quat rot, math::Vec
 }
 
 math::Mat3 Hull::getInverseInertiaTensorWorld() const {
+    if (fixed) {
+        // Fixed bodies have infinite inertia -> zero inverse inertia. (math::Mat3's default
+        // ctor is the identity, so an explicit zero is required: a non-zero tensor here lets
+        // an off-centre contact's moment arm inflate the solver's effective mass and starve
+        // the contact impulse, sinking objects resting away from the body's centre.)
+        math::Mat3 z;
+        z.m[0] = z.m[4] = z.m[8] = 0.0f;
+        return z;
+    }
     math::Mat3 R = cachedRotTransform;
     return R * cachedInertiaTensor * R.transpose();
 }

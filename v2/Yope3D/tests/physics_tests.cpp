@@ -6,13 +6,84 @@
 #include "../src/physics/CAABB.h"
 #include "../src/physics/COBB.h"
 #include "../src/physics/Spring.h"
+#include "../src/physics/ColliderDiscrete.h"
+#include "../src/physics/ContactCache.h"
+#include "../src/physics/PhysicsConstants.h"
 #include "../src/math/Vec3.h"
 #include "../src/math/Math.h"
 #include <limits>
 #include <cmath>
+#include <vector>
 
 using namespace math;
 using namespace Catch::Matchers;
+
+// ============================================================================
+// Regression: objects must rest on a large fixed AABB floor regardless of how
+// far from the floor's centre they land.
+//
+// A fixed body must report ZERO inverse inertia. When it accidentally reported
+// the identity matrix (math::Mat3's default ctor), an off-centre contact's
+// moment arm rA inflated the solver's effective-mass denominator (angA·n grows
+// with |rA|^2), collapsing the contact impulse so objects sank/fell through the
+// floor away from its centre. Drives detect()+solveAll() exactly like
+// World::advance.
+// ============================================================================
+TEST_CASE("Objects rest on large AABB floor far from centre", "[discrete][offcenter]") {
+    using namespace physics;
+    const float dt = 1.0f / 60.0f;
+    const Vec3  g  = {0.0f, GRAVITY_Y, 0.0f};
+
+    // Floor top face at y = 0.5; drop each shape (half-extent / radius 0.5) far off-centre.
+    auto restY = [&](Hull& shape) {
+        CAABB floor({0,0,0}, {50.0f, 0.5f, 50.0f}); // (pos,ext) ctor => fixed
+        ContactCache cache;
+        for (int frame = 0; frame < 400; frame++) {
+            std::vector<ColliderDiscrete::ActiveContact> contacts;
+            ColliderDiscrete::detect(floor, shape, contacts); // floor = a, shape = b
+            ColliderDiscrete::solveAll(contacts, dt, cache);
+            shape.advance(dt, g);
+            floor.advance(dt, g);
+            Vec3 v = shape.getVelocity(), w = shape.getOmega();
+            shape.tickSleep(v.dot(v), w.dot(w));
+        }
+        return shape.getPosition().y;
+    };
+
+    SECTION("sphere") {
+        CSphere s(1.0f, 0.5f, {40.0f, 5.0f, 0.0f});
+        CHECK_THAT(restY(s), WithinAbs(1.0f, 0.1f)); // rests with centre ~radius above top
+    }
+    SECTION("AABB") {
+        CAABB b({0.5f, 0.5f, 0.5f}, 1.0f, {40.0f, 5.0f, 0.0f});
+        CHECK_THAT(restY(b), WithinAbs(1.0f, 0.1f));
+    }
+    SECTION("OBB") {
+        COBB o({0.5f, 0.5f, 0.5f}, 1.0f, {40.0f, 5.0f, 0.0f});
+        CHECK_THAT(restY(o), WithinAbs(1.0f, 0.15f));
+    }
+}
+
+// Guard the underlying invariant directly: a fixed body must report a ZERO inverse
+// inertia tensor, both world-space and the cached local tensor (math::Mat3's default
+// ctor is the identity, which is the trap this guards against).
+TEST_CASE("Fixed hull has zero inverse inertia tensor", "[hull][fixed]") {
+    // World-space tensor (what the solver uses) must be zero for every fixed shape.
+    physics::CAABB fixedAABB({0,0,0}, {50.0f, 0.5f, 50.0f}); // (pos,ext) ctor => fixed
+    physics::COBB  obb({0.5f, 0.5f, 0.5f}, 1.0f, {0, 3, 0});
+    obb.fix();
+    for (physics::Hull* h : {static_cast<physics::Hull*>(&fixedAABB),
+                             static_cast<physics::Hull*>(&obb)}) {
+        Mat3 world = h->getInverseInertiaTensorWorld();
+        for (int i = 0; i < 9; i++) CHECK(world.m[i] == 0.0f);
+    }
+
+    // Cached local tensor built while fixed must also be zero (guards genInverseInertiaTensor's
+    // `return {}` — which is the identity, not zero). The fixed CAABB ctor fixes before
+    // computing the cache, so its local tensor exercises that path directly.
+    Mat3 local = fixedAABB.getInverseInertiaTensor();
+    for (int i = 0; i < 9; i++) CHECK(local.m[i] == 0.0f);
+}
 
 // ============================================================================
 // Raycast — Sphere
