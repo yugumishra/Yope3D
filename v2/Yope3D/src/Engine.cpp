@@ -66,6 +66,7 @@ static const char* sceneName(int s) {
     case 10: return "Spring [AABB]   — 2 Top Corners";
     case 11: return "Spring [OBB]    — 2 Top Corners";
     case 12: return "Stress Test";
+    case 13: return "Doppler Test";
     }
     return "?";
 }
@@ -95,6 +96,15 @@ bool Engine::init() {
     world->layers.add("spring_proxy");
     camera   = std::make_unique<Camera>(screenW, screenH, math::toRadians(70.0f));
 
+    audio    = std::make_unique<AudioSystem>();
+    audio->init();
+    Listener::setGain(1.0f);
+    AudioSystem::SoundBuffer* sb = audio->loadSound("audios/test.ogg");
+    ambientEmitter = audio->createSource(sb);
+    ambientEmitter->setPosition({0.0f, 2.0f, 0.0f});
+    ambientEmitter->enableLooping(true);
+    ambientEmitter->play();
+
     // Bright directional light — no flashlight
     DirectionalLight dir{};
     dir.direction[0] = -0.4f; dir.direction[1] = -1.0f; dir.direction[2] = -0.6f;
@@ -121,8 +131,16 @@ void Engine::addFloorMesh(float halfW, float halfD) {
 // ---- Engine::loadScene (dispatcher) ----------------------------------------
 
 void Engine::loadScene(int index) {
+    // Clean up previous doppler emitter (scene-specific; not the global ambient one).
+    if (dopplerSource_) { audio->removeSource(dopplerSource_); dopplerSource_ = nullptr; }
+    dopplerHull_ = nullptr;
+
+    // Restore ambient emitter if it was muted by the previous Doppler scene.
+    if (ambientEmitter && !ambientEmitter->isPlaying() && !audioPaused)
+        ambientEmitter->play();
+
     if (hasRendered)
-        gpu->syncDevice();   // drain GPU before destroying in-flight buffers (not a full renderer teardown)
+        gpu->syncDevice();
     switch (index) {
     case 0: loadPyramid(4); break;
     case 1: loadPyramid(7); break;
@@ -137,6 +155,7 @@ void Engine::loadScene(int index) {
     case 10: loadSpringCloth(2, 1); break;   // 2 corners, AABB
     case 11: loadSpringCloth(2, 2); break;   // 2 corners, OBB
     case 12: loadStressTest();      break;
+    case 13: loadDopplerTest();     break;
     }
 }
 
@@ -299,6 +318,44 @@ void Engine::loadStressTest() {
     camera->setRotation({0.0f, 0.0f, 0.0f});
 }
 
+// ---- Engine::loadDopplerTest ------------------------------------------------
+// A single sphere drops fast past the camera along the Y axis.
+// The sound source tracks the hull — listen for the pitch sweep as it passes.
+// Camera is offset on the Z axis so the sphere falls 8 units in front of it.
+
+void Engine::loadDopplerTest() {
+    world->resetPhysics(*gpu);
+
+    // Mute the ambient emitter so only the Doppler sphere is heard.
+    if (ambientEmitter) ambientEmitter->stop();
+
+    // Deep floor so the sphere has room to fall silently after passing.
+    world->addStaticAABB({0.0f, -100.5f, 0.0f}, {50.0f, 0.5f, 50.0f});
+
+    // Falling sphere — fast initial velocity so Doppler shift is dramatic.
+    auto* sphere = world->addSphere(1.0f, 0.5f, {0.0f, 30.0f, 0.0f});
+    sphere->setVelocity({0.0f, -40.0f, 0.0f});
+
+    auto* rm = world->addRenderMesh(*gpu, renderer->getCommandPool(),
+                                    Primitives::icosphere(0.5f, 1));
+    if (rm) { rm->color[0] = 1.0f; rm->color[1] = 0.35f; rm->color[2] = 0.1f; rm->state = 0; }
+    if (sphere && rm) sphere->linkedMesh = rm;
+
+    // Attach a looping sound source to the sphere.
+    AudioSystem::SoundBuffer* sb = audio->loadSound("audios/test.ogg");
+    dopplerSource_ = audio->createSource(sb);
+    dopplerSource_->setPosition(sphere->getPosition());
+    dopplerSource_->setVelocity(sphere->getVelocity());
+    dopplerSource_->enableLooping(true);
+    dopplerSource_->play();
+    dopplerHull_ = sphere;
+
+    // Camera 8 units back on +Z, sphere falls past at Z=0.
+    // Pitch rises as sphere approaches from above, falls as it recedes below.
+    camera->setPosition({0.0f, 2.0f, 8.0f});
+    camera->setRotation({0.0f, 0.0f, 0.0f});  // look in -Z toward sphere path
+}
+
 // ---- Engine::spawnObject ----------------------------------------------------
 
 void Engine::spawnObject() {
@@ -357,6 +414,9 @@ void Engine::update() {
     if (window->wasResized())
         camera->WindowChanged(window->getWidth(), window->getHeight());
 
+    Listener::setPosition(camera->getPosition());
+    Listener::setOrientation(camera->getForward(), {0.0f, 1.0f, 0.0f});
+
     // LEFT / RIGHT: switch scene
     bool rightNow = input->isKeyDown(GLFW_KEY_RIGHT);
     bool leftNow  = input->isKeyDown(GLFW_KEY_LEFT);
@@ -387,6 +447,14 @@ void Engine::update() {
         spawnCooldown = SPAWN_RATE;
     }
 
+    // M: toggle audio pause/resume
+    bool mNow = input->isKeyDown(GLFW_KEY_M);
+    if (mNow && !mWasDown) {
+        if (!audioPaused) { audio->pauseAll();  audioPaused = true;  }
+        else              { audio->resumeAll(); audioPaused = false; }
+    }
+    mWasDown = mNow;
+
     // P: toggle physics debug overlay
     bool pNow = input->isKeyDown(GLFW_KEY_P);
     if (pNow && !pWasDown) {
@@ -411,7 +479,8 @@ void Engine::update() {
         " | Islands: " + std::to_string(world->getIslandCount()) +
         " | Threads: " + std::to_string(world->getThreadCount()) +
         " | LMB=spawn  UP/DOWN=type  LEFT/RIGHT=scene  WASD=move" +
-        (world->debugPhysics ? "  [P=debug]" : "  P=debug")
+        (world->debugPhysics ? "  [P=debug]" : "  P=debug") +
+        std::string(audioPaused ? "  [M=unmute]" : "  M=mute")
     );
 
     playerSphere->fixPosition(camera->getPosition());
@@ -428,6 +497,13 @@ void Engine::update() {
         if (hull->linkedMesh)
             hull->linkedMesh->modelMatrix = hull->getModelMatrix();
     }
+
+    // Sync doppler source to its hull every visual frame (after physics has run).
+    // Velocity must be set so OpenAL can compute the Doppler shift correctly.
+    if (dopplerSource_ && dopplerHull_) {
+        dopplerSource_->setPosition(dopplerHull_->getPosition());
+        dopplerSource_->setVelocity(dopplerHull_->getVelocity());
+    }
 }
 
 // ---- Engine::render / cleanup -----------------------------------------------
@@ -438,6 +514,7 @@ void Engine::render() {
 }
 
 void Engine::cleanup() {
+    audio.reset();   // destroy sources, buffers, context — no GPU dependency
     camera.reset();
     renderer->waitIdle(*gpu);
     if (assets) { assets->cleanup(gpu->device()); assets.reset(); }

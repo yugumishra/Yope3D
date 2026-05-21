@@ -232,10 +232,12 @@ This is the largest single block in Phase 1. Expect the most debugging time here
 
 ---
 
-### Milestone 6 — Physics Foundation
+### Milestone 6 — Physics Foundation ✅ COMPLETE
 **Weeks 14–19 | ~35 hrs**
 
 Physics is the project's emphasis. Phase 1 reproduces current behavior cleanly; Phase 2 expands it. The architecture here must be designed for extension.
+
+> **Implementation note:** All items below are complete and exceeded. The planned octree (`CollisionTree`) was superseded by a Sweep-and-Prune broadphase (`BroadphaseSAP`) for better performance. Additional systems beyond the roadmap: CAABB shape, global island-partitioned parallel PGS solver with split-impulse position correction and warm-started Coulomb friction, `ThreadPool`, `IslandDetector`, body sleeping with island wake propagation, and named `CollisionLayers`.
 
 **Hull Hierarchy:**
 - [ ] `physics/Hull.h/cpp`: abstract base. Stores `Transform*` reference (shared with rendering). Fields: `Vec3 velocity`, `Vec3 omega`, `float mass`, `bool fixed`. Methods: `advance(float dt)` — gravity is now `World::gravity` (Vec3, default `{0, -9.80665f, 0}`). `addImpulse(Vec3)`, `addAngularImpulse(Vec3)`. Pure virtual `genInertiaTensor() → Mat3`.
