@@ -2,7 +2,11 @@
 #include "../gpu/GpuDevice.h"
 #include "../physics/ColliderCCD.h"
 #include "../physics/ColliderDiscrete.h"
+#include "../physics/CSphere.h"
+#include "../physics/CAABB.h"
+#include "../physics/COBB.h"
 #include <variant>
+#include <cfloat>
 #include "../physics/PhysicsConstants.h"
 World::~World() {}
 
@@ -12,6 +16,7 @@ void World::resetPhysics(GpuDevice& gpu) {
     for (auto& mesh : renderMeshes)
         if (mesh) mesh->destroy(gpu.device());
     renderMeshes.clear();
+    destroyDebugMeshes(gpu);
     hulls.clear();
     springs.clear();
     barriers.clear();
@@ -19,16 +24,15 @@ void World::resetPhysics(GpuDevice& gpu) {
 }
 
 void World::cleanup(GpuDevice& gpu) {
-    for (auto& mesh : renderMeshes) {
+    for (auto& mesh : renderMeshes)
         if (mesh) mesh->destroy(gpu.device());
-    }
     renderMeshes.clear();
+    destroyDebugMeshes(gpu);
     lights.clear();
     hulls.clear();
     springs.clear();
     barriers.clear();
     contactCache.clear();
-    collisionTree.reset();
 }
 
 // ---- Renderables ----
@@ -115,8 +119,60 @@ physics::Spring* World::addSpring(physics::Hull* a, physics::Hull* b, float k, f
     return springs.back().get();
 }
 
-void World::initCollisionTree(math::Vec3 mn, math::Vec3 mx, int depth) {
-    collisionTree = std::make_unique<physics::CollisionTree>(mn, mx, depth);
+physics::Spring* World::addSpringWithProxies(physics::Hull* a, physics::Hull* b,
+                                              float k, float rest,
+                                              int proxyCount, float proxyRadius) {
+    springs.push_back(std::make_unique<physics::Spring>(a, b, k, rest));
+    physics::Spring* s = springs.back().get();
+    for (int i = 0; i < proxyCount; ++i) {
+        float t = (float)(i + 1) / (float)(proxyCount + 1);
+        math::Vec3 pos = a->getPosition() + (b->getPosition() - a->getPosition()) * t;
+        physics::CSphere* proxy = addSphere(1.0f, proxyRadius, pos);
+        proxy->fix();
+        proxy->disableGravity();
+        s->proxies.push_back(proxy);
+    }
+    return s;
+}
+
+physics::Spring* World::addSpringWithMesh(physics::Hull* a, physics::Hull* b,
+                                          float k, float rest, int coils,
+                                          float coilRadius, float tubeRadius,
+                                          int proxyCount, float proxyRadius,
+                                          GpuDevice& gpu, VkCommandPool pool) {
+    springs.push_back(std::make_unique<physics::Spring>(a, b, k, rest));
+    physics::Spring* s = springs.back().get();
+
+    auto [verts, inds] = physics::Spring::generateCoilMesh(coils, coilRadius, tubeRadius);
+    s->visualMesh = addRenderMesh(gpu, pool, verts, inds);
+    s->visualMesh->modelMatrix = s->computeModelMatrix();
+
+    for (int i = 0; i < proxyCount; ++i) {
+        float t = (float)(i + 1) / (float)(proxyCount + 1);
+        math::Vec3 pos = a->getPosition() + (b->getPosition() - a->getPosition()) * t;
+        physics::CSphere* proxy = addSphere(1.0f, proxyRadius, pos);
+        proxy->fix();
+        proxy->disableGravity();
+        s->proxies.push_back(proxy);
+    }
+
+    return s;
+}
+
+physics::COBB* World::addOBBFromMesh(const LoadedMesh& mesh, float mass) {
+    math::Vec3 mn = { FLT_MAX,  FLT_MAX,  FLT_MAX };
+    math::Vec3 mx = {-FLT_MAX, -FLT_MAX, -FLT_MAX };
+    for (const auto& v : mesh.vertices) {
+        mn.x = std::min(mn.x, v.position[0]);
+        mn.y = std::min(mn.y, v.position[1]);
+        mn.z = std::min(mn.z, v.position[2]);
+        mx.x = std::max(mx.x, v.position[0]);
+        mx.y = std::max(mx.y, v.position[1]);
+        mx.z = std::max(mx.z, v.position[2]);
+    }
+    math::Vec3 center     = (mn + mx) * 0.5f;
+    math::Vec3 halfExtent = (mx - mn) * 0.5f;
+    return addOBB(halfExtent, mass, center);
 }
 
 const std::vector<std::unique_ptr<physics::Hull>>& World::getHulls() const {
@@ -126,6 +182,11 @@ const std::vector<std::unique_ptr<physics::Hull>>& World::getHulls() const {
 // ---- Simulation step ----
 
 void World::advance(float dt) {
+    // 0. Sync kinematic proxy spheres to current spring endpoint positions
+    //    (before broadphase so they participate at the right locations)
+    for (auto& s : springs)
+        s->syncProxies();
+
     // 1. CCD barrier collision — skip sleeping hulls
     for (auto& h : hulls) {
         if (h->isFixed() || !h->isTangible() || h->isSleeping()) continue;
@@ -141,21 +202,18 @@ void World::advance(float dt) {
         }
     }
 
-    // 2. Hull-hull discrete collision — global PGS.
-    // Phase 1: detect all contacts into a flat list.
-    // Phase 2: solve all contacts globally (each pass propagates support one layer up the stack).
+    // 2. Hull-hull discrete collision — SAP broadphase + global PGS.
+    // Phase 1: SAP collects AABB-overlapping pairs (sorted sweep, no per-frame allocation).
+    // Phase 2: narrow-phase detect + solve all contacts globally.
+    sap_.collectPairs(hulls, sapPairs_);
+
     std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
-    for (size_t i = 0; i < hulls.size(); i++) {
-        if (!hulls[i]->isTangible()) continue;
-        for (size_t j = i + 1; j < hulls.size(); j++) {
-            if (!hulls[j]->isTangible()) continue;
-            if (hulls[i]->isFixed() && hulls[j]->isFixed()) continue;
-            if (hulls[i]->isSleeping() && hulls[j]->isSleeping()) continue;
-            // A sleeping body resting on a fixed hull is stable — skip to avoid wakeup churn.
-            if (hulls[i]->isSleeping() && hulls[j]->isFixed()) continue;
-            if (hulls[i]->isFixed() && hulls[j]->isSleeping()) continue;
-            physics::ColliderDiscrete::detect(*hulls[i], *hulls[j], contacts);
-        }
+    for (auto& [ha, hb] : sapPairs_) {
+        if (ha->isFixed() && hb->isFixed()) continue;
+        if (ha->isSleeping() && hb->isSleeping()) continue;
+        if (ha->isSleeping() && hb->isFixed()) continue;
+        if (ha->isFixed() && hb->isSleeping()) continue;
+        physics::ColliderDiscrete::detect(*ha, *hb, contacts);
     }
     physics::ColliderDiscrete::solveAll(contacts, dt, contactCache);
 
@@ -211,6 +269,65 @@ void World::advance(float dt) {
     }
 
     // 5. Springs
-    for (auto& s : springs)
+    for (auto& s : springs) {
         s->update(dt);
+        if (s->visualMesh)
+            s->visualMesh->modelMatrix = s->computeModelMatrix();
+    }
+}
+
+// ---- Physics debug meshes ----
+
+void World::rebuildDebugMeshes(GpuDevice& gpu, VkCommandPool pool) {
+    destroyDebugMeshes(gpu);
+    auto [boxV, boxI] = DebugShapes::makeBox();
+    auto [sphV, sphI] = DebugShapes::makeSphere();
+
+    for (auto& h : hulls) {
+        // nullptr placeholder for intangible hulls (e.g. player sphere) —
+        // keeps debugMeshes[i] aligned with hulls[i] for syncDebugMeshes.
+        if (!h->isTangible()) {
+            debugMeshes.push_back(nullptr);
+            continue;
+        }
+        if (dynamic_cast<physics::CSphere*>(h.get()))
+            debugMeshes.push_back(std::make_unique<RenderMesh>(gpu, pool, sphV, sphI));
+        else
+            debugMeshes.push_back(std::make_unique<RenderMesh>(gpu, pool, boxV, boxI));
+    }
+    syncDebugMeshes();
+}
+
+void World::syncDebugMeshes() {
+    // Debug meshes are built in the same order as hulls — keep indices in sync.
+    size_t n = std::min(hulls.size(), debugMeshes.size());
+    for (size_t i = 0; i < n; ++i) {
+        if (!debugMeshes[i]) continue; // intangible hull placeholder
+        auto& h  = *hulls[i];
+        auto& dm = *debugMeshes[i];
+
+        math::Vec3 ext = h.getBroadExtent(); // half-extents (or radius for sphere)
+        math::Mat4 T;
+        T.m[12] = h.getPosition().x;
+        T.m[13] = h.getPosition().y;
+        T.m[14] = h.getPosition().z;
+        math::Mat4 R;
+        R.setRotationScale(h.getRotTransform());
+        // Box unit mesh has half-extent=1 → scale by half-extents directly.
+        // Sphere unit mesh has radius=1   → scale by radius directly (getBroadExtent = {r,r,r}).
+        math::Mat4 S = math::Mat4::scale(ext);
+        dm.modelMatrix = T * R * S;
+    }
+}
+
+void World::toggleProxies(bool enabled) {
+    for (auto& s : springs)
+        for (auto* p : s->proxies)
+            p->setTangible(enabled);
+}
+
+void World::destroyDebugMeshes(GpuDevice& gpu) {
+    for (auto& m : debugMeshes)
+        if (m) m->destroy(gpu.device());
+    debugMeshes.clear();
 }

@@ -95,6 +95,13 @@ public:
     // Milestone 6 render bridge — non-owning
     RenderMesh* linkedMesh = nullptr;
 
+    // ---- Collision filtering ----
+    // A contact between A and B is generated only when:
+    //   (A.collisionLayer & B.collisionMask) && (B.collisionLayer & A.collisionMask)
+    // Default ALL/ALL preserves the original "collide with everything" behaviour.
+    uint32_t collisionLayer = 0xFFFFFFFF;
+    uint32_t collisionMask  = 0xFFFFFFFF;
+
     // ---- Per-hull material (combine with geometric mean at contact) ----
     float friction       = PGS_DEFAULT_FRICTION;
     float restitution    = PGS_RESTITUTION;

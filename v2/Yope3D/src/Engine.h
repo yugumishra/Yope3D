@@ -53,7 +53,12 @@ struct Engine {
     bool leftWasDown   = false;
     bool upWasDown     = false;
     bool downWasDown   = false;
+    bool pWasDown      = false;
     float spawnCooldown = 0.0f;
+
+    float fpsAccum  = 0.0f;
+    int   fpsFrames = 0;
+    int   displayFps = 0;
 
     bool init();
     void update();

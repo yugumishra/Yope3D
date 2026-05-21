@@ -91,6 +91,8 @@ bool Engine::init() {
     assets   = std::make_unique<AssetManager>();
     assets->init(*gpu, renderer->getCommandPool(), renderer->getTextureSetLayout());
     world    = std::make_unique<World>();
+    world->layers.add("default");
+    world->layers.add("spring_proxy");
     camera   = std::make_unique<Camera>(screenW, screenH, math::toRadians(70.0f));
 
     // Bright directional light — no flashlight
@@ -218,7 +220,7 @@ void Engine::loadSpringCloth(int variant, int shapeType) {
             if (shapeType == 0) {
                 h  = world->addSphere(NODE_MASS, NODE_HALF, {cx, cy, cz});
                 rm = world->addRenderMesh(*gpu, renderer->getCommandPool(),
-                                          Primitives::icosphere(NODE_HALF));
+                                          Primitives::icosphere(NODE_HALF, 1));
                 if (rm) { rm->color[0] = 0.9f - 0.4f*fi; rm->color[1] = 0.3f + 0.4f*fj; rm->color[2] = 0.15f + 0.3f*fi; }
             } else if (shapeType == 1) {
                 h  = world->addAABB({NODE_HALF, NODE_HALF, NODE_HALF}, NODE_MASS, {cx, cy, cz});
@@ -246,7 +248,6 @@ void Engine::loadSpringCloth(int variant, int shapeType) {
         }
     }
 
-    // Springs: horizontal (along i) + vertical (along j)
     for (int j = 0; j < GRID_N; j++)
         for (int i = 0; i < GRID_N - 1; i++)
             world->addSpring(grid[i][j], grid[i+1][j], SPRING_K, GRID_STEP);
@@ -305,13 +306,13 @@ void Engine::spawnObject() {
     math::Vec3 origin  = camera->getPosition() + forward * 1.5f;
     math::Vec3 vel     = forward * SPAWN_SPEED;
     math::Quat rot     = math::Quat::fromAxisAngle(randomUnitVec(), randF(0, math::PI * 2.0f));
-    float s = randF(0.3f, 0.65f);
+    float s =  (0.65f);
 
     switch (spawnType) {
     case 0: {
         auto* h  = world->addSphere(1.0f, s, origin);
         if (h) h->setVelocity(vel);
-        auto* rm = world->addRenderMesh(*gpu, renderer->getCommandPool(), Primitives::icosphere(s));
+        auto* rm = world->addRenderMesh(*gpu, renderer->getCommandPool(), Primitives::icosphere(s, 1));
         if (rm) { rm->color[0] = 0.2f; rm->color[1] = 0.5f; rm->color[2] = 1.0f; rm->state = 0; }
         if (h && rm) h->linkedMesh = rm;
         break;
@@ -343,6 +344,14 @@ void Engine::update() {
     float  dt  = static_cast<float>(now - lastTime);
     lastTime   = now;
     if (dt > 0.05f) dt = 0.05f;
+
+    fpsAccum += dt;
+    ++fpsFrames;
+    if (fpsAccum >= 0.5f) {
+        displayFps = static_cast<int>(fpsFrames / fpsAccum + 0.5f);
+        fpsAccum  = 0.0f;
+        fpsFrames = 0;
+    }
 
     camera->update(*input, dt);
     if (window->wasResized())
@@ -378,11 +387,27 @@ void Engine::update() {
         spawnCooldown = SPAWN_RATE;
     }
 
+    // P: toggle physics debug overlay
+    bool pNow = input->isKeyDown(GLFW_KEY_P);
+    if (pNow && !pWasDown) {
+        world->debugPhysics = !world->debugPhysics;
+        if (world->debugPhysics)
+            world->rebuildDebugMeshes(*gpu, renderer->getCommandPool());
+        else
+            world->destroyDebugMeshes(*gpu);
+    }
+    pWasDown = pNow;
+
+    if (world->debugPhysics)
+        world->syncDebugMeshes();
+
     int objCount = static_cast<int>(world->getHulls().size()) - 1;
     window->setTitle(
+        std::to_string(displayFps) + " fps | " +
         std::string(sceneName(sceneIndex)) + " | " + typeName(spawnType) +
         " | Objects: " + std::to_string(objCount) +
-        " | LMB=spawn  UP/DOWN=type  LEFT/RIGHT=scene  WASD=move"
+        " | LMB=spawn  UP/DOWN=type  LEFT/RIGHT=scene  WASD=move" +
+        (world->debugPhysics ? "  [P=debug]" : "  P=debug")
     );
 
     playerSphere->fixPosition(camera->getPosition());
