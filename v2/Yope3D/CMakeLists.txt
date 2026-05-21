@@ -141,6 +141,9 @@ add_executable(yope3d
     src/assets/ImageLoader.cpp
     src/assets/AudioLoader.cpp
     src/assets/Primitives.cpp
+    src/audio/AudioSystem.cpp
+    src/audio/Source.cpp
+    src/audio/Listener.cpp
     ${PHYSICS_SOURCES}
 )
 

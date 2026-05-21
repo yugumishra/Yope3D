@@ -8,6 +8,8 @@
 #include "rendering/Camera.h"
 #include "world/World.h"
 #include "assets/AssetManager.h"
+#include "audio/AudioSystem.h"
+#include "audio/Listener.h"
 
 // ---------------------------------------------------------------------------
 // Engine — top-level context.
@@ -26,6 +28,7 @@
 //   10 — Spring [AABB]    — 2 Top Corners
 //   11 — Spring [OBB]     — 2 Top Corners
 //   12 — Stress test (wide arena)
+//   13 — Doppler test (sphere drops past camera)
 //
 // Spawn type (UP / DOWN arrow): Sphere → AABB → OBB
 // Spawn object: hold LMB
@@ -39,15 +42,19 @@ struct Engine {
     std::unique_ptr<Camera>        camera;
     std::unique_ptr<World>         world;
     std::unique_ptr<AssetManager>  assets;
+    std::unique_ptr<AudioSystem>   audio;
 
     double lastTime          = 0.0;
     float  physicsAccumulator_ = 0.0f;
 
-    physics::CSphere* playerSphere = nullptr;
+    physics::CSphere* playerSphere    = nullptr;
+    Source*           ambientEmitter  = nullptr;  // non-owning; audio owns it
+    Source*           dopplerSource_  = nullptr;  // non-owning; tracks dopplerHull_
+    physics::Hull*    dopplerHull_    = nullptr;  // non-owning; owned by World
 
     int  sceneIndex  = 12;  // which scene is loaded (default: stress test)
     int  spawnType   = 0;   // 0=Sphere 1=AABB 2=OBB
-    static constexpr int SCENE_COUNT = 13;
+    static constexpr int SCENE_COUNT = 14;
 
     bool hasRendered   = false;  // guards waitIdle on first loadScene call
     bool rightWasDown  = false;
@@ -55,6 +62,8 @@ struct Engine {
     bool upWasDown     = false;
     bool downWasDown   = false;
     bool pWasDown      = false;
+    bool mWasDown      = false;
+    bool audioPaused   = false;
     float spawnCooldown = 0.0f;
 
     float fpsAccum  = 0.0f;
@@ -71,6 +80,7 @@ private:
     void loadPyramid(int baseN);
     void loadSpringCloth(int variant, int shapeType);  // variant: 0=top-row 1=4-corners 2=2-top-corners  shapeType: 0=Sphere 1=AABB 2=OBB
     void loadStressTest();
+    void loadDopplerTest();
     void spawnObject();
     void addFloorMesh(float halfW, float halfD);
 };
