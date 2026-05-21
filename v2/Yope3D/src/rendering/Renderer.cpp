@@ -537,6 +537,21 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
         mesh->draw(cmd);
     }
 
+    // Physics debug overlay — solid-colored shapes at each hull's actual collision extent.
+    if (world.debugPhysics) {
+        for (const auto& dm : world.getDebugMeshes()) {
+            if (!dm) continue; // intangible hull placeholder (e.g. player sphere)
+            struct PushConstants { math::Mat4 model; float color[3]; int32_t state; } push{};
+            push.model    = dm->modelMatrix;
+            push.color[0] = 0.0f; push.color[1] = 1.0f; push.color[2] = 0.2f; // bright green
+            push.state    = 0; // STATE_SOLID
+            vkCmdPushConstants(cmd, pipelineLayout,
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                0, 80, &push);
+            dm->draw(cmd);
+        }
+    }
+
     vkCmdEndRenderPass(cmd);
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
         throw std::runtime_error("Failed to record command buffer");

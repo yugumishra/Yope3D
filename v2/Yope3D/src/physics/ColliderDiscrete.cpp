@@ -690,6 +690,7 @@ bool detectOBBOBB(const COBB& a, const COBB& b, ContactManifold& m) {
 
 void detect(Hull& a, Hull& b, std::vector<ActiveContact>& contacts) {
     if (a.isFixed() && b.isFixed()) return;
+    if (!(a.collisionLayer & b.collisionMask) || !(b.collisionLayer & a.collisionMask)) return;
 
     auto* sa = dynamic_cast<CSphere*>(&a);
     auto* sb = dynamic_cast<CSphere*>(&b);

@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "../src/physics/Raycast.h"
-#include "../src/physics/CollisionTree.h"
+#include "../src/physics/BroadphaseSAP.h"
 #include "../src/physics/CSphere.h"
 #include "../src/physics/CAABB.h"
 #include "../src/physics/COBB.h"
@@ -152,67 +152,58 @@ TEST_CASE("Raycast AABB corner approach", "[raycast][aabb]") {
 }
 
 // ============================================================================
-// Octree — 8-corner regression
+// SAP broadphase
 // ============================================================================
 
-TEST_CASE("Octree: sphere straddling centre is found from both sides", "[octree]") {
-    // Tree spans [-10,-10,-10] to [10,10,10], depth 2.
-    // Sphere centred exactly at origin (tree midpoint) with radius 1 should appear
-    // in queries from any quadrant — the 6-probe bug would miss it for off-axis queries.
-    physics::CollisionTree tree({-10,-10,-10}, {10,10,10}, 2);
+TEST_CASE("SAP: overlapping spheres produce a pair", "[sap]") {
+    std::vector<std::unique_ptr<physics::Hull>> hulls;
+    hulls.push_back(std::make_unique<physics::CSphere>(1.0f, 1.0f, math::Vec3{0,0,0}));
+    hulls.push_back(std::make_unique<physics::CSphere>(1.0f, 1.0f, math::Vec3{1,0,0}));
 
-    physics::CSphere center(1.0f, 1.0f, {0,0,0});
-    tree.addObject(&center);
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<physics::Hull*, physics::Hull*>> pairs;
+    sap.collectPairs(hulls, pairs);
 
-    // Query from a sphere in the +x+y+z octant
-    physics::CSphere query(1.0f, 0.5f, {4,4,4});
-    auto results = tree.getObjects(&query);
     bool found = false;
-    for (auto* h : results) if (h == &center) { found = true; break; }
-    CHECK(found);
-
-    // Query from the opposite octant
-    physics::CSphere query2(1.0f, 0.5f, {-4,-4,-4});
-    auto results2 = tree.getObjects(&query2);
-    found = false;
-    for (auto* h : results2) if (h == &center) { found = true; break; }
+    for (auto& [a, b] : pairs)
+        if ((a == hulls[0].get() && b == hulls[1].get()) ||
+            (a == hulls[1].get() && b == hulls[0].get()))
+            found = true;
     CHECK(found);
 }
 
-TEST_CASE("Octree: returns only nearby hulls, excludes distant ones", "[octree]") {
-    physics::CollisionTree tree({-20,-20,-20}, {20,20,20}, 3);
+TEST_CASE("SAP: distant hulls produce no pair", "[sap]") {
+    std::vector<std::unique_ptr<physics::Hull>> hulls;
+    hulls.push_back(std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{  0,0,0}));
+    hulls.push_back(std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{100,0,0}));
 
-    physics::CSphere near1(1.0f, 0.5f, {1,0,0});
-    physics::CSphere near2(1.0f, 0.5f, {-1,0,0});
-    physics::CSphere far1 (1.0f, 0.5f, {18,18,18});
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<physics::Hull*, physics::Hull*>> pairs;
+    sap.collectPairs(hulls, pairs);
 
-    tree.addObject(&near1);
-    tree.addObject(&near2);
-    tree.addObject(&far1);
+    CHECK(pairs.empty());
+}
 
-    // Query hull at origin — should find near1 and near2 but not far1
-    physics::CSphere query(1.0f, 0.5f, {0,0,0});
-    auto results = tree.getObjects(&query);
+TEST_CASE("SAP: nearby pair found, distant pair excluded", "[sap]") {
+    std::vector<std::unique_ptr<physics::Hull>> hulls;
+    hulls.push_back(std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{ 0, 0, 0}));
+    hulls.push_back(std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{ 0.5f, 0, 0}));
+    hulls.push_back(std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{50, 0, 0}));
 
-    bool foundNear1 = false, foundNear2 = false, foundFar = false;
-    for (auto* h : results) {
-        if (h == &near1) foundNear1 = true;
-        if (h == &near2) foundNear2 = true;
-        if (h == &far1)  foundFar  = true;
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<physics::Hull*, physics::Hull*>> pairs;
+    sap.collectPairs(hulls, pairs);
+
+    bool nearFound = false, farFound = false;
+    physics::Hull* h0 = hulls[0].get();
+    physics::Hull* h1 = hulls[1].get();
+    physics::Hull* h2 = hulls[2].get();
+    for (auto& [a, b] : pairs) {
+        if ((a == h0 || a == h1) && (b == h0 || b == h1)) nearFound = true;
+        if (a == h2 || b == h2) farFound = true;
     }
-    CHECK(foundNear1);
-    CHECK(foundNear2);
-    CHECK_FALSE(foundFar);
-}
-
-TEST_CASE("Octree: query hull does not appear in its own results", "[octree]") {
-    physics::CollisionTree tree({-10,-10,-10}, {10,10,10}, 2);
-    physics::CSphere s(1.0f, 1.0f, {0,0,0});
-    tree.addObject(&s);
-
-    auto results = tree.getObjects(&s);
-    for (auto* h : results)
-        CHECK(h != &s);
+    CHECK(nearFound);
+    CHECK_FALSE(farFound);
 }
 
 // ============================================================================

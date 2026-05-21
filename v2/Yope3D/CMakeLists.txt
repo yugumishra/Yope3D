@@ -100,7 +100,7 @@ set(PHYSICS_SOURCES
     src/physics/CAABB.cpp
     src/physics/COBB.cpp
     src/physics/BarrierHull.cpp
-    src/physics/CollisionTree.cpp
+    src/physics/BroadphaseSAP.cpp
     src/physics/ColliderCCD.cpp
     src/physics/ColliderDiscrete.cpp
     src/physics/Spring.cpp
