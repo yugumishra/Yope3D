@@ -103,6 +103,8 @@ set(PHYSICS_SOURCES
     src/physics/BroadphaseSAP.cpp
     src/physics/ColliderCCD.cpp
     src/physics/ColliderDiscrete.cpp
+    src/physics/IslandDetector.cpp
+    src/physics/ThreadPool.cpp
     src/physics/Spring.cpp
     src/physics/Raycast.cpp
 )

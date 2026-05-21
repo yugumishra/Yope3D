@@ -15,16 +15,18 @@
 #include "../physics/BarrierHull.h"
 #include "../physics/Spring.h"
 #include "../physics/BroadphaseSAP.h"
+#include "../physics/IslandDetector.h"
 #include "../physics/PhysicsConstants.h"
 #include "../physics/ContactCache.h"
 #include "../physics/CollisionLayers.h"
 #include "../physics/DebugShapes.h"
 
 class GpuDevice;
+class ThreadPool;
 
 class World {
 public:
-    World() = default;
+    World();
     ~World();
 
     void init(GpuDevice& gpu);
@@ -79,6 +81,9 @@ public:
     void                  advance(float dt);
     void                  resetPhysics(GpuDevice& gpu);
 
+    int getIslandCount()  const { return lastIslandCount_; }
+    int getThreadCount()  const;
+
     const std::vector<std::unique_ptr<physics::Hull>>& getHulls() const;
 
     math::Vec3 gravity = {0.0f, physics::GRAVITY_Y, 0.0f};
@@ -113,5 +118,8 @@ private:
     physics::BroadphaseSAP                                          sap_;
     std::vector<std::pair<physics::Hull*, physics::Hull*>>          sapPairs_;
     physics::ContactCache                                           contactCache;
+    physics::IslandDetector                                         islandDetector_;
+    std::unique_ptr<ThreadPool>                                     threadPool_;
+    int                                                             lastIslandCount_ = 0;
     std::vector<std::unique_ptr<RenderMesh>>                        debugMeshes;
 };

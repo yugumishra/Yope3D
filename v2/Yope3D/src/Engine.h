@@ -40,7 +40,8 @@ struct Engine {
     std::unique_ptr<World>         world;
     std::unique_ptr<AssetManager>  assets;
 
-    double lastTime = 0.0;
+    double lastTime          = 0.0;
+    float  physicsAccumulator_ = 0.0f;
 
     physics::CSphere* playerSphere = nullptr;
 
