@@ -52,7 +52,12 @@ namespace ColliderDiscrete {
     // Phase 1: detect one pair and append to contacts if colliding.
     void detect(Hull& a, Hull& b, std::vector<ActiveContact>& contacts);
 
-    // Phase 2: global PGS solve over all detected contacts.
+    // Phase 2: PGS solve over a contact list using the provided cache (read warm-start, write back).
+    // Safe to call from multiple threads simultaneously provided each call's contacts
+    // reference a disjoint set of hulls and an independent cache snapshot.
+    void solveIsland(std::vector<ActiveContact>& contacts, float dt, ContactCache& cache);
+
+    // Legacy wrapper — solves all contacts as one island (used by tests).
     void solveAll(std::vector<ActiveContact>& contacts, float dt, ContactCache& cache);
 
 } // namespace ColliderDiscrete

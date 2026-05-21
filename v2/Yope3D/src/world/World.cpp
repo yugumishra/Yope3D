@@ -2,15 +2,24 @@
 #include "../gpu/GpuDevice.h"
 #include "../physics/ColliderCCD.h"
 #include "../physics/ColliderDiscrete.h"
+#include "../physics/IslandDetector.h"
+#include "../physics/ThreadPool.h"
 #include "../physics/CSphere.h"
 #include "../physics/CAABB.h"
 #include "../physics/COBB.h"
 #include <variant>
 #include <cfloat>
+#include <thread>
 #include "../physics/PhysicsConstants.h"
-World::~World() {}
+
+World::World()  = default;
+World::~World() = default;
 
 void World::init(GpuDevice& /*gpu*/) {}
+
+int World::getThreadCount() const {
+    return threadPool_ ? static_cast<int>(threadPool_->size()) : 0;
+}
 
 void World::resetPhysics(GpuDevice& gpu) {
     for (auto& mesh : renderMeshes)
@@ -202,9 +211,11 @@ void World::advance(float dt) {
         }
     }
 
-    // 2. Hull-hull discrete collision — SAP broadphase + global PGS.
+    // 2. Hull-hull discrete collision — SAP broadphase + island-partitioned PGS.
     // Phase 1: SAP collects AABB-overlapping pairs (sorted sweep, no per-frame allocation).
-    // Phase 2: narrow-phase detect + solve all contacts globally.
+    // Phase 2: narrow-phase detect into flat contact list.
+    // Phase 3: island detection partitions contacts into connected components.
+    // Phase 4: each island solved independently; disjoint hull sets allow parallel execution.
     sap_.collectPairs(hulls, sapPairs_);
 
     std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
@@ -215,7 +226,28 @@ void World::advance(float dt) {
         if (ha->isFixed() && hb->isSleeping()) continue;
         physics::ColliderDiscrete::detect(*ha, *hb, contacts);
     }
-    physics::ColliderDiscrete::solveAll(contacts, dt, contactCache);
+
+    lastIslandCount_ = 0;
+    if (!contacts.empty()) {
+        // Lazy thread pool init (first advance call).
+        if (!threadPool_) {
+            unsigned int n = std::max(1u, std::thread::hardware_concurrency() - 1u);
+            threadPool_ = std::make_unique<ThreadPool>(n);
+        }
+
+        std::vector<physics::Island> islands;
+        islandDetector_.build(contacts, contactCache, islands);
+        lastIslandCount_ = static_cast<int>(islands.size());
+
+        for (auto& island : islands) {
+            threadPool_->enqueue([&island, dt] {
+                physics::ColliderDiscrete::solveIsland(island.contacts, dt, island.localCache);
+            });
+        }
+        threadPool_->wait();
+
+        physics::IslandDetector::mergeCache(islands, contactCache);
+    }
 
     // 2b. Barrier pseudo-position clamp.
     // The split-impulse position pass gives the lower body a downward pseudo-velocity to

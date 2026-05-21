@@ -393,8 +393,10 @@ void Engine::update() {
         world->debugPhysics = !world->debugPhysics;
         if (world->debugPhysics)
             world->rebuildDebugMeshes(*gpu, renderer->getCommandPool());
-        else
+        else {
+            gpu->syncDevice();
             world->destroyDebugMeshes(*gpu);
+        }
     }
     pWasDown = pNow;
 
@@ -406,13 +408,21 @@ void Engine::update() {
         std::to_string(displayFps) + " fps | " +
         std::string(sceneName(sceneIndex)) + " | " + typeName(spawnType) +
         " | Objects: " + std::to_string(objCount) +
+        " | Islands: " + std::to_string(world->getIslandCount()) +
+        " | Threads: " + std::to_string(world->getThreadCount()) +
         " | LMB=spawn  UP/DOWN=type  LEFT/RIGHT=scene  WASD=move" +
         (world->debugPhysics ? "  [P=debug]" : "  P=debug")
     );
 
     playerSphere->fixPosition(camera->getPosition());
     playerSphere->setVelocity({});
-    world->advance(dt);
+
+    physicsAccumulator_ += dt;
+    physicsAccumulator_  = std::min(physicsAccumulator_, physics::MAX_PHYSICS_ACCUMULATOR);
+    while (physicsAccumulator_ >= physics::PHYSICS_DT) {
+        world->advance(physics::PHYSICS_DT);
+        physicsAccumulator_ -= physics::PHYSICS_DT;
+    }
 
     for (auto& hull : world->getHulls()) {
         if (hull->linkedMesh)

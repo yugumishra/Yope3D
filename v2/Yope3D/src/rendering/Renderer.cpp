@@ -509,7 +509,8 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
         0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-    // Iterate over all RenderMeshes in the world and draw each.
+    // In debug mode, skip normal meshes — debug shapes are drawn exclusively below.
+    if (!world.debugPhysics)
     for (const auto& mesh : world.getRenderMeshes()) {
         // Bind the mesh's texture descriptor set (set 1).
         // If the mesh has no texture, use the default white texture.
@@ -539,6 +540,12 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
 
     // Physics debug overlay — solid-colored shapes at each hull's actual collision extent.
     if (world.debugPhysics) {
+        // Pipeline always expects set 1 (texture). Bind the default white texture once
+        // for all debug draws — the shader uses STATE_SOLID so it ignores it.
+        VkDescriptorSet defaultTex = assets.getDefaultTexture()->getDescriptorSet();
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+            1, 1, &defaultTex, 0, nullptr);
+
         for (const auto& dm : world.getDebugMeshes()) {
             if (!dm) continue; // intangible hull placeholder (e.g. player sphere)
             struct PushConstants { math::Mat4 model; float color[3]; int32_t state; } push{};

@@ -18,7 +18,7 @@ namespace physics::ColliderDiscrete {
 // Normal convention: from a toward b throughout.
 // ============================================================================
 
-void solveAll(std::vector<ActiveContact>& contacts, float dt, ContactCache& cache) {
+void solveIsland(std::vector<ActiveContact>& contacts, float dt, ContactCache& cache) {
     // ---- Precompute ----
     for (auto& c : contacts) {
         Hull& a = *c.a;
@@ -193,6 +193,10 @@ void solveAll(std::vector<ActiveContact>& contacts, float dt, ContactCache& cach
             }
         }
     }
+}
+
+void solveAll(std::vector<ActiveContact>& contacts, float dt, ContactCache& cache) {
+    solveIsland(contacts, dt, cache);
 }
 
 // ============================================================================

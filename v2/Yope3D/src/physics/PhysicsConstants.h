@@ -1,6 +1,9 @@
 #pragma once
 
 namespace physics {
+    inline constexpr float PHYSICS_DT                    = 1.0f / 240.0f;
+    inline constexpr float MAX_PHYSICS_ACCUMULATOR       = 4.0f * PHYSICS_DT; // max 4 sub-steps per frame
+
     inline constexpr float SPRING_DAMPING_COEFF          = 0.0075f;
     inline constexpr float GRAVITY_Y                     = -9.80665f;
 
@@ -35,7 +38,7 @@ namespace physics {
     // Sleeping
     inline constexpr float SLEEP_LINEAR_THRESHOLD        = 0.75f;  // m/s
     inline constexpr float SLEEP_ANGULAR_THRESHOLD       = 0.75f;  // rad/s
-    inline constexpr int   SLEEP_FRAMES_REQUIRED         = 60;     // ~1 s at 60 fps
+    inline constexpr int   SLEEP_FRAMES_REQUIRED         = 240;    // ~1 s at 240 hz physics
 
     // Legacy names kept for any remaining references
     inline constexpr float SPHERE_RESTITUTION            = COLLISION_RESTITUTION;
