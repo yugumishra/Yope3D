@@ -293,19 +293,13 @@ void World::advance(float dt) {
         s->syncProxies();
 
     // 1. CCD barrier collision.
+    /*
     for (auto* h : hullCache_) {
         if (h->isFixed() || !h->isTangible() || h->isSleeping()) continue;
         for (auto& bv : barriers_) {
             std::visit([&](auto& b){ physics::ColliderCCD::collideBarrier(*h, b, dt, gravity); }, bv);
         }
-        for (auto* other : hullCache_) {
-            if (auto* bh = dynamic_cast<physics::BarrierHull*>(other)) {
-                for (auto& bv : bh->getBarriers()) {
-                    std::visit([&](auto& b){ physics::ColliderCCD::collideBarrier(*h, b, dt, gravity); }, bv);
-                }
-            }
-        }
-    }
+    }*/
 
     // 2. SAP broadphase + island-partitioned PGS.
     sap_.collectPairs(hullCache_, sapPairs_);
@@ -338,6 +332,7 @@ void World::advance(float dt) {
     }
 
     // 2b. Barrier pseudo-position clamp.
+    /*
     for (auto* h : hullCache_) {
         if (!h->isTangible() || h->isFixed()) continue;
         auto clampAgainstBarriers = [&](const auto& bv) {
@@ -359,10 +354,7 @@ void World::advance(float dt) {
             }, bv);
         };
         for (auto& bv : barriers_) clampAgainstBarriers(bv);
-        for (auto* other : hullCache_)
-            if (auto* bh = dynamic_cast<physics::BarrierHull*>(other))
-                for (auto& bv : bh->getBarriers()) clampAgainstBarriers(bv);
-    }
+    }*/
 
     // 3. Integration.
     for (auto* h : hullCache_) {

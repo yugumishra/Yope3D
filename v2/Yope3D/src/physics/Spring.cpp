@@ -16,12 +16,13 @@ void Spring::update(float dt) {
 
     float displacement = length - restLength;
     delta = delta * ((1.0f / length) * displacement * k);
+    delta *= (1 - SPRING_DAMPING_COEFF);
 
-    first->addVelocity(delta * (-dt / first->getMass()));
-    second->addVelocity(delta * (dt / second->getMass()));
+    math::Vec3  firstVel = first->getVelocity() + (delta * (-dt / first->getMass()));
+    math::Vec3 secondVel =second->getVelocity() + (delta * ( dt /second->getMass()));
 
-    first->addVelocity(first->getVelocity()   * -SPRING_DAMPING_COEFF);
-    second->addVelocity(second->getVelocity() * -SPRING_DAMPING_COEFF);
+    first->setVelocity(firstVel);
+    second->setVelocity(secondVel);
 }
 
 void Spring::syncProxies() const {
