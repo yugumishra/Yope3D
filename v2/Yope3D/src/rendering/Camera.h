@@ -25,23 +25,19 @@ public:
     // fov in radians.
     void setFOV(float fov);
 
-    // Consume mouse delta + WASD state from input, advance by dt seconds.
-    void update(const Input& input, float dt);
-
     math::Mat4 genViewMatrix()       const;
     math::Mat4 genProjectionMatrix() const;
 
     math::Vec3 getPosition() const { return position; }
+    math::Vec3 getRotation() const { return rotation; }
     math::Vec3 getForward()  const;  // Returns the camera's forward direction in world space
 
     void setPosition(const math::Vec3& p) { position = p; }
     void setRotation(const math::Vec3& r) { rotation = r; }
 
 private:
-    static constexpr float SENSITIVITY = 0.002f;   // radians per pixel
-    static constexpr float SPEED       = 5.0f;     // world units per second
-    static constexpr float NEAR_PLANE  = 0.1f;
-    static constexpr float FAR_PLANE   = 2000.0f;
+    static constexpr float NEAR_PLANE = 0.1f;
+    static constexpr float FAR_PLANE  = 2000.0f;
 
     float fov;
     int   windowWidth;
@@ -50,5 +46,4 @@ private:
 
     math::Vec3 position;
     math::Vec3 rotation;  // pitch (x), yaw (y), roll (z) — all radians
-    math::Vec3 velocity;
 };

@@ -12,7 +12,7 @@ namespace physics {
 // Reuses internal buffers across frames — no per-frame heap allocation.
 class BroadphaseSAP {
 public:
-    void collectPairs(const std::vector<std::unique_ptr<Hull>>& hulls,
+    void collectPairs(const std::vector<Hull*>& hulls,
                       std::vector<std::pair<Hull*, Hull*>>& out);
 
 private:

@@ -511,7 +511,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
 
     // In debug mode, skip normal meshes — debug shapes are drawn exclusively below.
     if (!world.debugPhysics)
-    for (const auto& mesh : world.getRenderMeshes()) {
+    for (auto* mesh : world.getRenderMeshes()) {
         // Bind the mesh's texture descriptor set (set 1).
         // If the mesh has no texture, use the default white texture.
         Texture* textureToUse = mesh->texture ? mesh->texture : assets.getDefaultTexture();

@@ -26,6 +26,7 @@ public:
     void setPitch(float pitch);
     void setPosition(math::Vec3 pos);
     void setVelocity(math::Vec3 vel);
+    void setReferenceDistance(float dist);
     void enableLooping(bool loop);
 
     bool isPlaying() const;

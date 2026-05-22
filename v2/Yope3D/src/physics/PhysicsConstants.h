@@ -21,7 +21,7 @@ namespace physics {
     inline constexpr int   PGS_POSITION_ITERATIONS       = 5;
 
     // Split impulse (SI) — position correction via pseudo-velocity, no energy injection.
-    inline constexpr float SPLIT_BETA       = 0.4f;
+    inline constexpr float SPLIT_BETA       = 0.5f;
     inline constexpr float SPLIT_SLOP       = 0.01f;
 
     inline constexpr float PGS_RESTITUTION               = 0.3f;
@@ -36,9 +36,9 @@ namespace physics {
     inline constexpr float BOUNCE_VELOCITY_THRESHOLD     = 1.0f;
 
     // Sleeping
-    inline constexpr float SLEEP_LINEAR_THRESHOLD        = 0.75f;  // m/s
-    inline constexpr float SLEEP_ANGULAR_THRESHOLD       = 0.75f;  // rad/s
-    inline constexpr int   SLEEP_FRAMES_REQUIRED         = 240;    // ~1 s at 240 hz physics
+    inline constexpr float SLEEP_LINEAR_THRESHOLD        = 0.5f;  // m/s
+    inline constexpr float SLEEP_ANGULAR_THRESHOLD       = 0.5f;  // rad/s
+    inline constexpr int   SLEEP_FRAMES_REQUIRED         = 120;    // ~0.5 s at 240 hz physics
 
     // Legacy names kept for any remaining references
     inline constexpr float SPHERE_RESTITUTION            = COLLISION_RESTITUTION;

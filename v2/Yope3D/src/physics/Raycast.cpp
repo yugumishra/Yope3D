@@ -1,6 +1,7 @@
 #include "Raycast.h"
 #include "initializer_list"
 #include <cmath>
+#include <array>
 
 namespace physics::Raycast {
 
@@ -63,6 +64,36 @@ float raycastAABB(math::Vec3 ray, math::Vec3 start,
     }
 
     return result;
+}
+
+float raycastOBB(math::Vec3 ray, math::Vec3 start,
+                 math::Vec3 pos, math::Vec3 extent,
+                 const std::array<math::Vec3, 3>& axes)
+{
+    constexpr float MISS = std::numeric_limits<float>::min();
+    math::Vec3 d = pos - start;
+
+    float tEnter = -std::numeric_limits<float>::max();
+    float tExit  =  std::numeric_limits<float>::max();
+
+    const float hs[3] = { extent.x, extent.y, extent.z };
+    for (int i = 0; i < 3; ++i) {
+        float e = axes[i].dot(d);
+        float f = axes[i].dot(ray);
+        if (std::abs(f) > 1e-7f) {
+            float t1 = (e - hs[i]) / f;
+            float t2 = (e + hs[i]) / f;
+            if (t1 > t2) std::swap(t1, t2);
+            if (t1 > tEnter) tEnter = t1;
+            if (t2 < tExit)  tExit  = t2;
+            if (tEnter > tExit) return MISS;
+        } else if (std::abs(e) > hs[i]) {
+            return MISS;
+        }
+    }
+
+    if (tExit < 0.0f) return MISS;
+    return tEnter >= 0.0f ? tEnter : tExit;
 }
 
 } // namespace physics::Raycast
