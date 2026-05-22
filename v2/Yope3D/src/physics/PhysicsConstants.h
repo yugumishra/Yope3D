@@ -29,8 +29,8 @@ namespace physics {
     inline constexpr float PGS_DEFAULT_FRICTION          = 0.5f;
 
     // Direct one-shot analytical impulse response (all discrete pairs)
-    inline constexpr float COLLISION_RESTITUTION         = 0.5f;
-    inline constexpr float POSITION_CORRECTION           = 0.4f;  // fraction of penetration corrected per frame
+    inline constexpr float COLLISION_RESTITUTION         = 0.3f;
+    inline constexpr float POSITION_CORRECTION           = 0.5f;  // fraction of penetration corrected per frame
     inline constexpr float POSITION_SLOP                 = 0.01f;
     // Below this closing speed restitution is treated as 0 — required for resting contacts.
     inline constexpr float BOUNCE_VELOCITY_THRESHOLD     = 1.0f;
@@ -57,6 +57,6 @@ namespace physics {
 
     // Per-hull linear/angular velocity decay applied each integration step.
     // With Coulomb friction active these should be near-zero (air resistance only).
-    inline constexpr float LINEAR_DAMPING                = 0.02f;
-    inline constexpr float ANGULAR_DAMPING               = 0.02f;
+    inline constexpr float LINEAR_DAMPING                = 0.04f;
+    inline constexpr float ANGULAR_DAMPING               = 0.04f;
 }

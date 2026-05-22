@@ -25,6 +25,7 @@ public:
     // ---- Accessors ----
     math::Vec3 getPosition()    const { return transform.position; }
     math::Vec3 getVelocity()    const { return fixed ? math::Vec3{} : velocity; }
+    math::Vec3 getScale()       const { return transform.scale; }
     virtual math::Vec3 getOmega() const { return fixed ? math::Vec3{} : omega; }
     virtual math::Quat getRotation() const { return transform.rotation; }
 
