@@ -33,7 +33,7 @@ static constexpr int   GRID_N      = 20;
 static constexpr float GRID_STEP   = 1.0f;
 static constexpr float NODE_HALF   = 0.45f;
 static constexpr float NODE_MASS   = 1.0f;
-static constexpr float SPRING_K    = 200.0f;
+static constexpr float SPRING_K    = 300.0f;
 
 static constexpr float STRESS_HALF    = 20.0f;
 static constexpr float STRESS_CEILING = 25.0f;
@@ -355,7 +355,7 @@ void SandboxScript::loadSpringCloth(int variant, int shapeType) {
 
             if (shapeType == 0) {
                 obj = ctx_->world->addSphere(NODE_MASS, NODE_HALF, {cx, cy, cz});
-                ctx_->world->attachMesh(obj, Primitives::icosphere(NODE_HALF, 1));
+                ctx_->world->attachMesh(obj, Primitives::icosphere(NODE_HALF));
                 if (auto* m = obj->getMesh()) {
                     m->color[0] = 0.9f - 0.4f*fi; m->color[1] = 0.3f + 0.4f*fj;
                     m->color[2] = 0.15f + 0.3f*fi; m->state = 0;
@@ -442,7 +442,7 @@ void SandboxScript::loadDopplerTest() {
 
     auto* obj = ctx_->world->addSphere(1.0f, 0.5f, {0.0f, 30.0f, 0.0f});
     obj->getHull()->setVelocity({0.0f, -40.0f, 0.0f});
-    ctx_->world->attachMesh(obj, Primitives::icosphere(0.5f, 1));
+    ctx_->world->attachMesh(obj, Primitives::icosphere(0.5f));
     if (auto* m = obj->getMesh()) {
         m->color[0] = 1.0f; m->color[1] = 0.35f; m->color[2] = 0.1f; m->state = 0;
     }
@@ -472,7 +472,7 @@ void SandboxScript::spawnObject() {
     case 0: {
         auto* obj = ctx_->world->addSphere(1.0f, s, origin);
         obj->getHull()->setVelocity(vel);
-        ctx_->world->attachMesh(obj, Primitives::icosphere(s, 1));
+        ctx_->world->attachMesh(obj, Primitives::icosphere(s));
         if (auto* m = obj->getMesh()) {
             m->color[0] = 0.2f; m->color[1] = 0.5f; m->color[2] = 1.0f; m->state = 0;
         }

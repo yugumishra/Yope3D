@@ -2,6 +2,8 @@
 #include <memory>
 #include <vector>
 #include <variant>
+#include <atomic>
+#include <mutex>
 #include "SceneObject.h"
 #include "RenderMesh.h"
 #include "../rendering/Light.h"
@@ -97,6 +99,14 @@ public:
     void advance(float dt);
     void resetPhysics();   // Syncs GPU, destroys all objects/springs/barriers, clears caches.
 
+    // Called by physics thread at end of each advance() to push a transform snapshot.
+    void publishSnapshot();
+    // Called by main thread before drawFrame() to apply the latest snapshot to RenderMesh.modelMatrix.
+    void syncRenderMeshesFromFront();
+
+    // Set by physics thread after each publishSnapshot(); cleared by main thread after consuming.
+    std::atomic<bool> newSnapshotReady_{ false };
+
     int getIslandCount() const { return lastIslandCount_; }
     int getThreadCount() const;
 
@@ -117,8 +127,26 @@ public:
     World& operator=(const World&) = delete;
 
 private:
+    struct TransformSnapshot {
+        math::Vec3  pos;
+        math::Quat  rot;
+        math::Vec3  scale;
+        RenderMesh* mesh;
+    };
+
     GpuDevice*   gpu_  = nullptr;
     VkCommandPool pool_ = VK_NULL_HANDLE;
+
+    // Double-buffered transform snapshots. Physics thread writes snapshotBack_,
+    // main thread reads snapshotFront_. Swap is guarded by snapshotMtx_.
+    std::vector<TransformSnapshot>                 snapshotBack_, snapshotFront_;
+    // Spring visual mesh matrices (full Mat4 since computeModelMatrix() returns one directly).
+    std::vector<std::pair<RenderMesh*, math::Mat4>> springSnapshotBack_, springSnapshotFront_;
+    std::mutex snapshotMtx_;
+
+    // Guards hullCache_/meshCache_/springs_ against concurrent advance() and add/remove calls.
+    // Recursive because addSpringWith* internally calls addSphere/addRenderObject.
+    std::recursive_mutex structureMtx_;
 
     std::vector<std::unique_ptr<SceneObject>> objects_;
 

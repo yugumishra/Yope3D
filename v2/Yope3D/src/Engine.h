@@ -1,6 +1,8 @@
 #pragma once
 
 #include <memory>
+#include <thread>
+#include <atomic>
 #include "platform/Window.h"
 #include "platform/Input.h"
 #include "gpu/GpuDevice.h"
@@ -26,8 +28,10 @@ struct Engine {
 
     ScriptContext scriptCtx_;
 
-    double lastTime           = 0.0;
-    float  physicsAccumulator_ = 0.0f;
+    std::thread       physicsThread_;
+    std::atomic<bool> stopPhysics_{ false };
+
+    double lastTime  = 0.0;
 
     float fpsAccum   = 0.0f;
     int   fpsFrames  = 0;

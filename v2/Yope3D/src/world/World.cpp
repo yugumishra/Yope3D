@@ -11,6 +11,7 @@
 #include <cfloat>
 #include <thread>
 #include <algorithm>
+#include <mutex>
 #include "../physics/PhysicsConstants.h"
 
 World::World()  = default;
@@ -42,6 +43,7 @@ void World::rebuildCaches() {
 
 template<class HullT, class... Args>
 SceneObject* World::makeHullObject(Args&&... args) {
+    std::lock_guard lk(structureMtx_);
     auto obj = std::make_unique<SceneObject>();
     obj->hull = std::make_unique<HullT>(std::forward<Args>(args)...);
     objects_.push_back(std::move(obj));
@@ -91,13 +93,20 @@ SceneObject* World::addOBBFromMesh(const LoadedMesh& loadedMesh, float mass) {
 
 // ---- Bare barriers ----
 
-void World::addBarrier(physics::Barrier b)        { barriers_.emplace_back(std::move(b)); }
-void World::addBarrier(physics::BoundedBarrier b)  { barriers_.emplace_back(std::move(b)); }
+void World::addBarrier(physics::Barrier b) {
+    std::lock_guard lk(structureMtx_);
+    barriers_.emplace_back(std::move(b));
+}
+void World::addBarrier(physics::BoundedBarrier b) {
+    std::lock_guard lk(structureMtx_);
+    barriers_.emplace_back(std::move(b));
+}
 
 // ---- Visual-only factory methods ----
 
 SceneObject* World::addRenderObject(const std::vector<Vertex>& vertices,
                                      const std::vector<uint32_t>& indices) {
+    std::lock_guard lk(structureMtx_);
     auto obj = std::make_unique<SceneObject>();
     obj->mesh = std::make_unique<RenderMesh>(*gpu_, pool_, vertices, indices);
     objects_.push_back(std::move(obj));
@@ -114,6 +123,7 @@ SceneObject* World::addRenderObject(const LoadedMesh& mesh) {
 RenderMesh* World::attachMesh(SceneObject* obj,
                                const std::vector<Vertex>& vertices,
                                const std::vector<uint32_t>& indices) {
+    std::lock_guard lk(structureMtx_);
     obj->mesh = std::make_unique<RenderMesh>(*gpu_, pool_, vertices, indices);
     if (obj->hull) obj->hull->linkedMesh = obj->mesh.get();
     rebuildCaches();
@@ -127,6 +137,7 @@ RenderMesh* World::attachMesh(SceneObject* obj, const LoadedMesh& mesh) {
 // ---- Springs ----
 
 physics::Spring* World::addSpring(physics::Hull* a, physics::Hull* b, float k, float rest) {
+    std::lock_guard lk(structureMtx_);
     springs_.push_back(std::make_unique<physics::Spring>(a, b, k, rest));
     return springs_.back().get();
 }
@@ -134,6 +145,7 @@ physics::Spring* World::addSpring(physics::Hull* a, physics::Hull* b, float k, f
 physics::Spring* World::addSpringWithProxies(physics::Hull* a, physics::Hull* b,
                                               float k, float rest,
                                               int proxyCount, float proxyRadius) {
+    std::lock_guard lk(structureMtx_);
     springs_.push_back(std::make_unique<physics::Spring>(a, b, k, rest));
     physics::Spring* s = springs_.back().get();
     for (int i = 0; i < proxyCount; ++i) {
@@ -152,6 +164,7 @@ physics::Spring* World::addSpringWithMesh(physics::Hull* a, physics::Hull* b,
                                           float k, float rest, int coils,
                                           float coilRadius, float tubeRadius,
                                           int proxyCount, float proxyRadius) {
+    std::lock_guard lk(structureMtx_);
     springs_.push_back(std::make_unique<physics::Spring>(a, b, k, rest));
     physics::Spring* s = springs_.back().get();
 
@@ -190,6 +203,7 @@ const std::vector<Light>& World::getLights() const { return lights_; }
 
 void World::removeObject(SceneObject* obj) {
     if (!obj) return;
+    std::lock_guard lk(structureMtx_);
     physics::Hull* h = obj->hull.get();
 
     if (h) {
@@ -256,6 +270,7 @@ void World::removeObject(SceneObject* obj) {
 // ---- resetPhysics ----
 
 void World::resetPhysics() {
+    std::lock_guard lk(structureMtx_);
     // Sync GPU before destroying Vulkan buffers.
     if (gpu_) gpu_->syncDevice();
 
@@ -274,6 +289,7 @@ void World::resetPhysics() {
 // ---- cleanup ----
 
 void World::cleanup() {
+    std::lock_guard lk(structureMtx_);
     destroyDebugMeshes();
     for (auto& obj : objects_)
         if (obj->mesh) obj->mesh->destroy(gpu_->device());
@@ -288,6 +304,8 @@ void World::cleanup() {
 // ---- Simulation step ----
 
 void World::advance(float dt) {
+    std::lock_guard lk(structureMtx_);
+
     // 0. Sync spring proxies.
     for (auto& s : springs_)
         s->syncProxies();
@@ -371,11 +389,45 @@ void World::advance(float dt) {
     }
 
     // 5. Springs.
-    for (auto& s : springs_) {
+    for (auto& s : springs_)
         s->update(dt);
-        if (s->visualMesh)
-            s->visualMesh->modelMatrix = s->computeModelMatrix();
+
+    publishSnapshot();
+}
+
+// ---- Snapshot double-buffer ----
+
+void World::publishSnapshot() {
+    // Called at end of advance(), still holding structureMtx_.
+    snapshotBack_.resize(hullCache_.size());
+    for (size_t i = 0; i < hullCache_.size(); ++i) {
+        auto* h = hullCache_[i];
+        snapshotBack_[i] = { h->getPosition(), h->getRotation(), h->getScale(), h->linkedMesh };
     }
+
+    springSnapshotBack_.clear();
+    for (auto& s : springs_)
+        if (s->visualMesh)
+            springSnapshotBack_.emplace_back(s->visualMesh, s->computeModelMatrix());
+
+    if (debugPhysics)
+        syncDebugMeshes();
+
+    {
+        std::lock_guard lk(snapshotMtx_);
+        std::swap(snapshotFront_, snapshotBack_);
+        std::swap(springSnapshotFront_, springSnapshotBack_);
+    }
+    newSnapshotReady_.store(true, std::memory_order_release);
+}
+
+void World::syncRenderMeshesFromFront() {
+    // Called on the main thread after newSnapshotReady_ is observed; no lock needed
+    // since snapshotFront_ is only swapped under snapshotMtx_ before this call.
+    for (auto& s : snapshotFront_)
+        if (s.mesh) s.mesh->modelMatrix = Transform{s.pos, s.rot, s.scale}.getModelMatrix();
+    for (auto& [mesh, mat] : springSnapshotFront_)
+        mesh->modelMatrix = mat;
 }
 
 // ---- Debug overlay ----

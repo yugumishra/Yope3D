@@ -5,6 +5,7 @@
 #include "math/Math.h"
 #include <GLFW/glfw3.h>
 #include <string>
+#include <chrono>
 
 bool Engine::init() {
     input = std::make_unique<Input>();
@@ -49,6 +50,24 @@ bool Engine::init() {
     script_->init(scriptCtx_);
 
     lastTime = glfwGetTime();
+
+    physicsThread_ = std::thread([this] {
+        using namespace std::chrono_literals;
+        double last    = glfwGetTime();
+        float  accum   = 0.0f;
+        while (!stopPhysics_.load(std::memory_order_relaxed)) {
+            double now = glfwGetTime();
+            float  dt  = std::min(static_cast<float>(now - last), 0.05f);
+            last = now;
+            accum = std::min(accum + dt, physics::MAX_PHYSICS_ACCUMULATOR);
+            while (accum >= physics::PHYSICS_DT) {
+                world->advance(physics::PHYSICS_DT);
+                accum -= physics::PHYSICS_DT;
+            }
+            std::this_thread::sleep_for(100us);
+        }
+    });
+
     return true;
 }
 
@@ -74,30 +93,18 @@ void Engine::update() {
     // Listener tracks camera (updated after script may have moved it).
     Listener::setPosition(camera->getPosition());
     Listener::setOrientation(camera->getForward(), {0.0f, 1.0f, 0.0f});
-
-    // Fixed-timestep physics.
-    physicsAccumulator_ += dt;
-    physicsAccumulator_  = std::min(physicsAccumulator_, physics::MAX_PHYSICS_ACCUMULATOR);
-    while (physicsAccumulator_ >= physics::PHYSICS_DT) {
-        world->advance(physics::PHYSICS_DT);
-        physicsAccumulator_ -= physics::PHYSICS_DT;
-    }
-
-    // Hull → mesh modelMatrix sync.
-    for (auto* hull : world->getHulls()) {
-        if (hull->linkedMesh)
-            hull->linkedMesh->modelMatrix = hull->getModelMatrix();
-    }
-
-    if (world->debugPhysics)
-        world->syncDebugMeshes();
 }
 
 void Engine::render() {
+    if (world->newSnapshotReady_.exchange(false, std::memory_order_acquire))
+        world->syncRenderMeshesFromFront();
     renderer->drawFrame(*gpu, *window, *camera, *world, *assets);
 }
 
 void Engine::cleanup() {
+    stopPhysics_.store(true, std::memory_order_release);
+    physicsThread_.join();
+
     script_.reset();
     audio.reset();
     camera.reset();
