@@ -144,6 +144,10 @@ add_executable(yope3d
     src/audio/AudioSystem.cpp
     src/audio/Source.cpp
     src/audio/Listener.cpp
+    src/rendering/CameraController.cpp
+    src/scripting/ScriptFactory.cpp
+    src/scripting/Config.cpp
+    src/scripting/SandboxScript.cpp
     ${PHYSICS_SOURCES}
 )
 

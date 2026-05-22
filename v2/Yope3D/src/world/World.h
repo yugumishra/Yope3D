@@ -2,6 +2,7 @@
 #include <memory>
 #include <vector>
 #include <variant>
+#include "SceneObject.h"
 #include "RenderMesh.h"
 #include "../rendering/Light.h"
 #include "../assets/ObjLoader.h"
@@ -24,102 +25,123 @@
 class GpuDevice;
 class ThreadPool;
 
+// World — owns all scene state via SceneObject (hull + mesh ownership bundled).
+// Physics and rendering consume non-owning flat caches (hullCache_, meshCache_)
+// rebuilt eagerly after each add/remove. Hull and RenderMesh heap addresses are
+// stable (unique_ptr pointees don't move), so SAP pairs, Spring endpoints,
+// and ContactCache keys remain valid across SceneObject vector reallocation.
 class World {
 public:
     World();
     ~World();
 
-    void init(GpuDevice& gpu);
-    void cleanup(GpuDevice& gpu);
+    // Call once after GpuDevice and Renderer are ready.
+    // World caches gpu + pool so factory methods need no GPU params.
+    void init(GpuDevice& gpu, VkCommandPool pool);
+    void cleanup();
 
-    // ---- Renderables ----
-    RenderMesh* addRenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
-                              const std::vector<Vertex>&   vertices,
-                              const std::vector<uint32_t>& indices);
-    RenderMesh* addRenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
-                              const LoadedMesh& mesh);
+    // ---- Scene objects ----
+    // Physics-only bodies (hull-only SceneObject, no visual).
+    SceneObject* addSphere    (float mass, float radius, math::Vec3 pos = {});
+    SceneObject* addOBB       (math::Vec3 extent, float mass, math::Vec3 pos = {});
+    SceneObject* addAABB      (math::Vec3 extent, float mass, math::Vec3 pos = {});
+    SceneObject* addStaticAABB(math::Vec3 pos, math::Vec3 extent);
+    SceneObject* addBarrierHull(math::Vec3 extent, math::Vec3 pos);
+    SceneObject* addOBBFromMesh(const LoadedMesh& mesh, float mass);
 
-    const std::vector<std::unique_ptr<RenderMesh>>& getRenderMeshes() const;
-    RenderMesh* getRenderMesh(size_t index);
+    // Bare-barrier registration (static planes, no hull).
+    void addBarrier(physics::Barrier b);
+    void addBarrier(physics::BoundedBarrier b);
+
+    // Visual-only SceneObject (mesh, no physics body).
+    SceneObject* addRenderObject(const std::vector<Vertex>&   vertices,
+                                 const std::vector<uint32_t>& indices);
+    SceneObject* addRenderObject(const LoadedMesh& mesh);
+
+    // Attach a mesh to an existing SceneObject (creates mesh, sets hull->linkedMesh).
+    // Returns the new RenderMesh* for immediate property configuration.
+    RenderMesh* attachMesh(SceneObject* obj,
+                           const std::vector<Vertex>&   vertices,
+                           const std::vector<uint32_t>& indices);
+    RenderMesh* attachMesh(SceneObject* obj, const LoadedMesh& mesh);
+
+    // Remove a SceneObject: purges springs/cache referencing its hull, frees GPU mesh,
+    // erases from objects, rebuilds caches. Call only between frames (not during advance).
+    void removeObject(SceneObject* obj);
+
+    const std::vector<SceneObject*>& getObjects() const { return objectPtrs_; }
+
+    // ---- Flat caches (non-owning, rebuilt on add/remove) ----
+    const std::vector<physics::Hull*>& getHulls()        const { return hullCache_; }
+    const std::vector<RenderMesh*>&    getRenderMeshes()  const { return meshCache_; }
+
+    // ---- Springs ----
+    physics::Spring* addSpring(physics::Hull* a, physics::Hull* b, float k, float rest);
+    physics::Spring* addSpringWithProxies(physics::Hull* a, physics::Hull* b,
+                                          float k, float rest,
+                                          int proxyCount, float proxyRadius);
+    physics::Spring* addSpringWithMesh(physics::Hull* a, physics::Hull* b,
+                                       float k, float rest, int coils,
+                                       float coilRadius, float tubeRadius,
+                                       int proxyCount, float proxyRadius);
 
     // ---- Lights ----
     void addLight(const Light& light);
     void removeLight(int index);
     void lightChanged();
     const std::vector<Light>& getLights() const;
-    bool isLightsDirty() const { return lightsDirty; }
-    void clearLightsDirty()    { lightsDirty = false; }
+    bool isLightsDirty()   const { return lightsDirty; }
+    void clearLightsDirty()      { lightsDirty = false; }
 
-    // ---- Physics ----
-    physics::CSphere*     addSphere(float mass, float radius, math::Vec3 pos = {});
-    physics::COBB*        addOBB(math::Vec3 extent, float mass, math::Vec3 pos = {});
-    physics::CAABB*       addAABB(math::Vec3 extent, float mass, math::Vec3 pos = {});
-    physics::CAABB*       addStaticAABB(math::Vec3 pos, math::Vec3 extent);
-    void                  addBarrier(physics::Barrier b);
-    void                  addBarrier(physics::BoundedBarrier b);
-    physics::BarrierHull* addBarrierHull(math::Vec3 extent, math::Vec3 pos);
-    physics::Spring*      addSpring(physics::Hull* a, physics::Hull* b, float k, float rest);
-    // Creates a spring with kinematic proxy spheres for collision along the body.
-    // No visual mesh — configure collisionLayer/collisionMask on the returned
-    // spring's proxies and on the endpoint hulls to prevent self-interaction.
-    physics::Spring*      addSpringWithProxies(physics::Hull* a, physics::Hull* b,
-                                               float k, float rest,
-                                               int proxyCount, float proxyRadius);
-    // Creates a spring with a procedural helix visual mesh and optional kinematic
-    // proxy spheres for collision presence along the spring body.
-    // proxyCount  — number of proxy spheres (0 = none); evenly spaced between endpoints
-    // proxyRadius — collision radius for each proxy (typically coilRadius + tubeRadius)
-    // After creation, configure proxy/endpoint collisionLayer + collisionMask to prevent
-    // the proxies from spuriously pushing the endpoint hulls apart.
-    physics::Spring*      addSpringWithMesh(physics::Hull* a, physics::Hull* b,
-                                            float k, float rest, int coils,
-                                            float coilRadius, float tubeRadius,
-                                            int proxyCount, float proxyRadius,
-                                            GpuDevice& gpu, VkCommandPool commandPool);
-    // Creates an OBB whose half-extents match the axis-aligned bounding box of mesh vertices.
-    physics::COBB*        addOBBFromMesh(const LoadedMesh& mesh, float mass);
-    void                  advance(float dt);
-    void                  resetPhysics(GpuDevice& gpu);
+    // ---- Simulation ----
+    void advance(float dt);
+    void resetPhysics();   // Syncs GPU, destroys all objects/springs/barriers, clears caches.
 
-    int getIslandCount()  const { return lastIslandCount_; }
-    int getThreadCount()  const;
-
-    const std::vector<std::unique_ptr<physics::Hull>>& getHulls() const;
+    int getIslandCount() const { return lastIslandCount_; }
+    int getThreadCount() const;
 
     math::Vec3 gravity = {0.0f, physics::GRAVITY_Y, 0.0f};
 
-    // Named collision layer registry — use before creating hulls that need filtering.
     physics::CollisionLayers layers;
 
-    // ---- Physics debug rendering ----
-    // When true, the Renderer overlays each hull as its actual collision shape
-    // (box for CAABB/COBB/BarrierHull, sphere for CSphere) in a bright debug color.
-    // Call rebuildDebugMeshes() once after scene setup, then syncDebugMeshes() each frame.
+    // ---- Physics debug overlay ----
     bool debugPhysics = false;
-    void rebuildDebugMeshes(GpuDevice& gpu, VkCommandPool commandPool);
+    void rebuildDebugMeshes();
     void syncDebugMeshes();
-    void destroyDebugMeshes(GpuDevice& gpu);
-    const std::vector<std::unique_ptr<RenderMesh>>& getDebugMeshes() const { return debugMeshes; }
+    void destroyDebugMeshes();
+    const std::vector<std::unique_ptr<RenderMesh>>& getDebugMeshes() const { return debugMeshes_; }
 
-    // Toggle tangibility on every spring proxy sphere (use to isolate proxy collision impact).
     void toggleProxies(bool enabled);
 
     World(const World&) = delete;
     World& operator=(const World&) = delete;
 
 private:
-    std::vector<std::unique_ptr<RenderMesh>> renderMeshes;
-    std::vector<Light>                       lights;
-    bool                                     lightsDirty = false;
+    GpuDevice*   gpu_  = nullptr;
+    VkCommandPool pool_ = VK_NULL_HANDLE;
 
-    std::vector<std::unique_ptr<physics::Hull>>                     hulls;
-    std::vector<std::variant<physics::Barrier, physics::BoundedBarrier>> barriers;
-    std::vector<std::unique_ptr<physics::Spring>>                   springs;
-    physics::BroadphaseSAP                                          sap_;
-    std::vector<std::pair<physics::Hull*, physics::Hull*>>          sapPairs_;
-    physics::ContactCache                                           contactCache;
-    physics::IslandDetector                                         islandDetector_;
-    std::unique_ptr<ThreadPool>                                     threadPool_;
-    int                                                             lastIslandCount_ = 0;
-    std::vector<std::unique_ptr<RenderMesh>>                        debugMeshes;
+    std::vector<std::unique_ptr<SceneObject>> objects_;
+
+    // Non-owning flat caches — rebuilt eagerly after add/remove.
+    std::vector<physics::Hull*> hullCache_;
+    std::vector<RenderMesh*>    meshCache_;
+    std::vector<SceneObject*>   objectPtrs_;
+
+    std::vector<Light>                                                     lights_;
+    bool                                                                   lightsDirty = false;
+    std::vector<std::variant<physics::Barrier, physics::BoundedBarrier>>   barriers_;
+    std::vector<std::unique_ptr<physics::Spring>>                          springs_;
+    physics::BroadphaseSAP                                                 sap_;
+    std::vector<std::pair<physics::Hull*, physics::Hull*>>                 sapPairs_;
+    physics::ContactCache                                                  contactCache_;
+    physics::IslandDetector                                                islandDetector_;
+    std::unique_ptr<ThreadPool>                                            threadPool_;
+    int                                                                    lastIslandCount_ = 0;
+    std::vector<std::unique_ptr<RenderMesh>>                               debugMeshes_;
+
+    void rebuildCaches();
+
+    // Creates a new SceneObject with a hull, registers it, rebuilds caches. Returns raw ptr.
+    template<class HullT, class... Args>
+    SceneObject* makeHullObject(Args&&... args);
 };

@@ -31,6 +31,10 @@ void Source::setVelocity(math::Vec3 vel) {
     alSource3f(id_, AL_VELOCITY, vel.x, vel.y, vel.z);
 }
 
+void Source::setReferenceDistance(float dist) {
+    alSourcef(id_, AL_REFERENCE_DISTANCE, dist);
+}
+
 void Source::enableLooping(bool loop) {
     alSourcei(id_, AL_LOOPING, loop ? AL_TRUE : AL_FALSE);
 }

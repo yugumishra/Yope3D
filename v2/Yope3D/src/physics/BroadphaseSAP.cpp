@@ -4,13 +4,13 @@
 
 namespace physics {
 
-void BroadphaseSAP::collectPairs(const std::vector<std::unique_ptr<Hull>>& hulls,
+void BroadphaseSAP::collectPairs(const std::vector<Hull*>& hulls,
                                   std::vector<std::pair<Hull*, Hull*>>& out)
 {
     out.clear();
     entries_.clear();
 
-    for (const auto& h : hulls) {
+    for (Hull* h : hulls) {
         if (!h->isTangible()) continue;
         math::Vec3 pos = h->getPosition();
         math::Vec3 ext = h->getBroadExtent();
@@ -18,7 +18,7 @@ void BroadphaseSAP::collectPairs(const std::vector<std::unique_ptr<Hull>>& hulls
             pos.x - ext.x, pos.x + ext.x,
             pos.y - ext.y, pos.y + ext.y,
             pos.z - ext.z, pos.z + ext.z,
-            h.get()
+            h
         });
     }
 

@@ -156,9 +156,9 @@ TEST_CASE("Raycast AABB corner approach", "[raycast][aabb]") {
 // ============================================================================
 
 TEST_CASE("SAP: overlapping spheres produce a pair", "[sap]") {
-    std::vector<std::unique_ptr<physics::Hull>> hulls;
-    hulls.push_back(std::make_unique<physics::CSphere>(1.0f, 1.0f, math::Vec3{0,0,0}));
-    hulls.push_back(std::make_unique<physics::CSphere>(1.0f, 1.0f, math::Vec3{1,0,0}));
+    auto h0 = std::make_unique<physics::CSphere>(1.0f, 1.0f, math::Vec3{0,0,0});
+    auto h1 = std::make_unique<physics::CSphere>(1.0f, 1.0f, math::Vec3{1,0,0});
+    std::vector<physics::Hull*> hulls = { h0.get(), h1.get() };
 
     physics::BroadphaseSAP sap;
     std::vector<std::pair<physics::Hull*, physics::Hull*>> pairs;
@@ -166,16 +166,16 @@ TEST_CASE("SAP: overlapping spheres produce a pair", "[sap]") {
 
     bool found = false;
     for (auto& [a, b] : pairs)
-        if ((a == hulls[0].get() && b == hulls[1].get()) ||
-            (a == hulls[1].get() && b == hulls[0].get()))
+        if ((a == h0.get() && b == h1.get()) ||
+            (a == h1.get() && b == h0.get()))
             found = true;
     CHECK(found);
 }
 
 TEST_CASE("SAP: distant hulls produce no pair", "[sap]") {
-    std::vector<std::unique_ptr<physics::Hull>> hulls;
-    hulls.push_back(std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{  0,0,0}));
-    hulls.push_back(std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{100,0,0}));
+    auto h0 = std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{  0,0,0});
+    auto h1 = std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{100,0,0});
+    std::vector<physics::Hull*> hulls = { h0.get(), h1.get() };
 
     physics::BroadphaseSAP sap;
     std::vector<std::pair<physics::Hull*, physics::Hull*>> pairs;
@@ -185,19 +185,19 @@ TEST_CASE("SAP: distant hulls produce no pair", "[sap]") {
 }
 
 TEST_CASE("SAP: nearby pair found, distant pair excluded", "[sap]") {
-    std::vector<std::unique_ptr<physics::Hull>> hulls;
-    hulls.push_back(std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{ 0, 0, 0}));
-    hulls.push_back(std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{ 0.5f, 0, 0}));
-    hulls.push_back(std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{50, 0, 0}));
+    auto u0 = std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{ 0, 0, 0});
+    auto u1 = std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{ 0.5f, 0, 0});
+    auto u2 = std::make_unique<physics::CSphere>(1.0f, 0.5f, math::Vec3{50, 0, 0});
+    std::vector<physics::Hull*> hulls = { u0.get(), u1.get(), u2.get() };
 
     physics::BroadphaseSAP sap;
     std::vector<std::pair<physics::Hull*, physics::Hull*>> pairs;
     sap.collectPairs(hulls, pairs);
 
     bool nearFound = false, farFound = false;
-    physics::Hull* h0 = hulls[0].get();
-    physics::Hull* h1 = hulls[1].get();
-    physics::Hull* h2 = hulls[2].get();
+    physics::Hull* h0 = u0.get();
+    physics::Hull* h1 = u1.get();
+    physics::Hull* h2 = u2.get();
     for (auto& [a, b] : pairs) {
         if ((a == h0 || a == h1) && (b == h0 || b == h1)) nearFound = true;
         if (a == h2 || b == h2) farFound = true;
