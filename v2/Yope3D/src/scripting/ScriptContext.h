@@ -6,6 +6,7 @@ class Input;
 class AudioSystem;
 class AssetManager;
 class Window;
+class UIManager;
 
 // ScriptContext — restricted view of Engine internals exposed to scripts.
 // Renderer and GpuDevice are intentionally omitted; mesh creation goes
@@ -17,4 +18,5 @@ struct ScriptContext {
     AudioSystem*  audio    = nullptr;
     AssetManager* assets   = nullptr;
     Window*       window   = nullptr;
+    UIManager*    ui       = nullptr;
 };

@@ -14,6 +14,7 @@
 #include "audio/Listener.h"
 #include "scripting/Script.h"
 #include "scripting/ScriptContext.h"
+#include "ui/UIManager.h"
 
 struct Engine {
     std::unique_ptr<Window>        window;
@@ -24,6 +25,7 @@ struct Engine {
     std::unique_ptr<World>         world;
     std::unique_ptr<AssetManager>  assets;
     std::unique_ptr<AudioSystem>   audio;
+    std::unique_ptr<UIManager>     uiManager;
     std::unique_ptr<Script>        script_;
 
     ScriptContext scriptCtx_;
@@ -36,6 +38,10 @@ struct Engine {
     float fpsAccum   = 0.0f;
     int   fpsFrames  = 0;
     int   displayFps = 0;
+
+    bool prevLMB_ = false;
+
+    ~Engine();
 
     bool init();
     void update();

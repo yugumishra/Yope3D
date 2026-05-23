@@ -48,6 +48,7 @@ public:
     float       color[3] = {1.0f, 1.0f, 1.0f};  // Solid color or texture modulation
     int         state = 0;  // Render state: STATE_SOLID (0) or STATE_TEXTURED (1)
     math::Mat4  modelMatrix;  // Updated each frame by physics hull sync
+    bool        transformReady = false;  // False until first snapshot propagates; suppresses the 0,0,0 flicker
 
     RenderMesh(const RenderMesh&) = delete;
     RenderMesh& operator=(const RenderMesh&) = delete;
