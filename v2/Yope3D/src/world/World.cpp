@@ -1,5 +1,6 @@
 #include "World.h"
 #include "../gpu/GpuDevice.h"
+#include <cmath>
 #include "../physics/ColliderCCD.h"
 #include "../physics/ColliderDiscrete.h"
 #include "../physics/IslandDetector.h"
@@ -102,6 +103,43 @@ void World::addBarrier(physics::BoundedBarrier b) {
     barriers_.emplace_back(std::move(b));
 }
 
+// ---- Primitive-type detection ----
+// Called after constructing a RenderMesh from a named Primitive to let the
+// raytracer choose parametric intersection instead of triangle soup.
+static void setPrimitiveInfo(RenderMesh* rm, const LoadedMesh& mesh) {
+    if (mesh.name == "Icosphere" || mesh.name == "Sphere") {
+        rm->primitiveType = (mesh.name == "Icosphere") ? PrimitiveType::Icosphere
+                                                       : PrimitiveType::Sphere;
+        float maxR2 = 0.f;
+        for (const auto& v : mesh.vertices)
+            maxR2 = std::max(maxR2, v.position[0]*v.position[0]
+                                  + v.position[1]*v.position[1]
+                                  + v.position[2]*v.position[2]);
+        rm->primitiveExtents = {std::sqrt(maxR2), 0.f, 0.f};
+    } else if (mesh.name == "Rect" || mesh.name == "Cube") {
+        rm->primitiveType = (mesh.name == "Rect") ? PrimitiveType::Rect : PrimitiveType::Cube;
+        math::Vec3 e{};
+        for (const auto& v : mesh.vertices) {
+            e.x = std::max(e.x, std::abs(v.position[0]));
+            e.y = std::max(e.y, std::abs(v.position[1]));
+            e.z = std::max(e.z, std::abs(v.position[2]));
+        }
+        rm->primitiveExtents = e;
+    } else if (mesh.name == "Plane") {
+        rm->primitiveType = PrimitiveType::Plane;
+        float hx = 0.f;
+        for (const auto& v : mesh.vertices)
+            hx = std::max(hx, std::abs(v.position[0]));
+        rm->primitiveExtents = {hx, 0.f, 0.f};
+    }
+    // else: stays Custom
+
+    if (rm->primitiveType != PrimitiveType::Custom) {
+        rm->cpuVertices.clear(); rm->cpuVertices.shrink_to_fit();
+        rm->cpuIndices.clear();  rm->cpuIndices.shrink_to_fit();
+    }
+}
+
 // ---- Visual-only factory methods ----
 
 SceneObject* World::addRenderObject(const std::vector<Vertex>& vertices,
@@ -116,7 +154,9 @@ SceneObject* World::addRenderObject(const std::vector<Vertex>& vertices,
 }
 
 SceneObject* World::addRenderObject(const LoadedMesh& mesh) {
-    return addRenderObject(mesh.vertices, mesh.indices);
+    SceneObject* obj = addRenderObject(mesh.vertices, mesh.indices);
+    setPrimitiveInfo(obj->mesh.get(), mesh);
+    return obj;
 }
 
 // ---- Attach mesh to existing object ----
@@ -137,7 +177,9 @@ RenderMesh* World::attachMesh(SceneObject* obj,
 }
 
 RenderMesh* World::attachMesh(SceneObject* obj, const LoadedMesh& mesh) {
-    return attachMesh(obj, mesh.vertices, mesh.indices);
+    RenderMesh* rm = attachMesh(obj, mesh.vertices, mesh.indices);
+    setPrimitiveInfo(rm, mesh);
+    return rm;
 }
 
 // ---- Springs ----

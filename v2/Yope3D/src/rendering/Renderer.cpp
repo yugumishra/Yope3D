@@ -1,4 +1,5 @@
 #include "Renderer.h"
+#include "Raytracer.h"
 #include "Camera.h"
 #include "gpu/GpuDevice.h"
 #include "gpu/Swapchain.h"
@@ -99,6 +100,19 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
     createCommandPool(gpu);
     allocateCommandBuffers(gpu.device());
     createSyncObjects(gpu.device());
+
+    // Raytracer (requires commandPool, so constructed last)
+    createRaytracePass(gpu);
+    std::array<VkBuffer,     2> uboBuffs{},   lightBuffs{};
+    std::array<VkDeviceSize, 2> uboSizes{},   lightSizes{};
+    for (int i = 0; i < MAX_FRAMES; ++i) {
+        uboBuffs[i]   = uniformBuffers[i].get();
+        uboSizes[i]   = sizeof(GlobalUBO);
+        lightBuffs[i] = lightBuffers[i].get();
+        lightSizes[i] = lightBuffers[i].getSize();
+    }
+    raytracer_ = std::make_unique<Raytracer>(gpu, commandPool, *swapchain, raytracePass_->get(),
+                                             uboBuffs, uboSizes, lightBuffs, lightSizes);
 }
 
 Renderer::~Renderer() {
@@ -111,6 +125,10 @@ VkDescriptorSetLayout Renderer::getTextureSetLayout() const {
 
 void Renderer::waitIdle(GpuDevice& gpu) {
     vkDeviceWaitIdle(gpu.device());
+
+    // Destroy raytracer before destroying commandPool / buffers it references.
+    raytracer_.reset();
+    raytracePass_.reset();
 
     for (int i = 0; i < MAX_FRAMES; ++i) {
         vkDestroySemaphore(gpu.device(), imageAvailable[i], nullptr);
@@ -140,6 +158,11 @@ void Renderer::waitIdle(GpuDevice& gpu) {
     depthBuffer.reset();
     renderPass.reset();
     swapchain.reset();
+}
+
+void Renderer::createRaytracePass(GpuDevice& gpu) {
+    raytracePass_ = std::make_unique<RenderPass>(
+        RenderPass::createRaytracePass(gpu.device(), swapchain->imageFormat()));
 }
 
 // ---------------------------------------------------------------------------
@@ -473,6 +496,7 @@ void Renderer::recreateSwapchain(GpuDevice& gpu, Window& window) {
     depthBuffer = std::make_unique<DepthBuffer>(gpu, swapchain->extent().width, swapchain->extent().height);
     createFramebuffers(gpu.device());
     createUIFramebuffers(gpu.device());
+    raytracer_->onResize(gpu, swapchain->extent().width, swapchain->extent().height, commandPool);
 
     VkSemaphoreCreateInfo si{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     renderFinished.resize(swapchain->imageCount());
@@ -491,90 +515,116 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
 
-    VkClearValue clearValues[2]{};
-    clearValues[0].color = {0.05f, 0.05f, 0.05f, 1.0f};
-    clearValues[1].depthStencil = {1.0f, 0};
+    if (mode_ == RenderMode::RAYTRACE) {
+        // ---- Raytracer path ----
+        // Compute dispatch (outside any render pass), then blit into raytrace pass.
+        raytracer_->dispatch(cmd, currentFrame);
 
-    VkRenderPassBeginInfo rpbi{};
-    rpbi.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    rpbi.renderPass        = renderPass->get();
-    rpbi.framebuffer       = framebuffers[imageIndex];
-    rpbi.renderArea.offset = {0, 0};
-    rpbi.renderArea.extent = swapchain->extent();
-    rpbi.clearValueCount   = 2;
-    rpbi.pClearValues      = clearValues;
+        VkClearValue rtClear{};
+        rtClear.color = {0.0f, 0.0f, 0.0f, 1.0f};
 
-    vkCmdBeginRenderPass(cmd, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        VkRenderPassBeginInfo rtRpbi{};
+        rtRpbi.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rtRpbi.renderPass        = raytracePass_->get();
+        rtRpbi.framebuffer       = raytracer_->framebuffers[imageIndex];
+        rtRpbi.renderArea.offset = {0, 0};
+        rtRpbi.renderArea.extent = swapchain->extent();
+        rtRpbi.clearValueCount   = 1;
+        rtRpbi.pClearValues      = &rtClear;
 
-    VkViewport viewport{};
-    viewport.x        = 0.0f;
-    viewport.y        = 0.0f;
-    viewport.width    = static_cast<float>(swapchain->extent().width);
-    viewport.height   = static_cast<float>(swapchain->extent().height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
+        vkCmdBeginRenderPass(cmd, &rtRpbi, VK_SUBPASS_CONTENTS_INLINE);
 
-    VkRect2D scissor{ {0, 0}, swapchain->extent() };
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
+        VkViewport rtVp{};
+        rtVp.width    = static_cast<float>(swapchain->extent().width);
+        rtVp.height   = static_cast<float>(swapchain->extent().height);
+        rtVp.minDepth = 0.0f;
+        rtVp.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd, 0, 1, &rtVp);
+        VkRect2D rtSc{ {0, 0}, swapchain->extent() };
+        vkCmdSetScissor(cmd, 0, 1, &rtSc);
 
-    // Bind the per-frame global UBO + SSBO (set 0: view + proj + cameraPos + lights).
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-        0, 1, &descriptorSets[currentFrame], 0, nullptr);
+        raytracer_->recordBlit(cmd, currentFrame);
+        vkCmdEndRenderPass(cmd);
 
-    // In debug mode, skip normal meshes — debug shapes are drawn exclusively below.
-    if (!world.debugPhysics)
-    for (auto* mesh : world.getRenderMeshes()) {
-        if (!mesh->transformReady) continue;
-        // Bind the mesh's texture descriptor set (set 1).
-        // If the mesh has no texture, use the default white texture.
-        Texture* textureToUse = mesh->texture ? mesh->texture : assets.getDefaultTexture();
-        VkDescriptorSet textureSet = textureToUse->getDescriptorSet();
+    } else {
+        // ---- Rasterizer path ----
+        VkClearValue clearValues[2]{};
+        clearValues[0].color        = {0.05f, 0.05f, 0.05f, 1.0f};
+        clearValues[1].depthStencil = {1.0f, 0};
+
+        VkRenderPassBeginInfo rpbi{};
+        rpbi.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rpbi.renderPass        = renderPass->get();
+        rpbi.framebuffer       = framebuffers[imageIndex];
+        rpbi.renderArea.offset = {0, 0};
+        rpbi.renderArea.extent = swapchain->extent();
+        rpbi.clearValueCount   = 2;
+        rpbi.pClearValues      = clearValues;
+
+        vkCmdBeginRenderPass(cmd, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+        VkViewport viewport{};
+        viewport.x        = 0.0f;
+        viewport.y        = 0.0f;
+        viewport.width    = static_cast<float>(swapchain->extent().width);
+        viewport.height   = static_cast<float>(swapchain->extent().height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+        VkRect2D scissor{ {0, 0}, swapchain->extent() };
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-            1, 1, &textureSet, 0, nullptr);
+            0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-        // Prepare push constants: identity model matrix + per-mesh color + state.
-        struct PushConstants {
-            math::Mat4 model;
-            float      color[3];
-            int32_t    state;
-        } push{};
-        push.model = mesh->modelMatrix;
-        push.color[0] = mesh->color[0];
-        push.color[1] = mesh->color[1];
-        push.color[2] = mesh->color[2];
-        push.state = mesh->state;
+        if (!world.debugPhysics)
+        for (auto* mesh : world.getRenderMeshes()) {
+            if (!mesh->transformReady) continue;
+            Texture* textureToUse = mesh->texture ? mesh->texture : assets.getDefaultTexture();
+            VkDescriptorSet textureSet = textureToUse->getDescriptorSet();
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+                1, 1, &textureSet, 0, nullptr);
 
-        vkCmdPushConstants(cmd, pipelineLayout,
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-            0, 80, &push);
+            struct PushConstants {
+                math::Mat4 model;
+                float      color[3];
+                int32_t    state;
+            } push{};
+            push.model    = mesh->modelMatrix;
+            push.color[0] = mesh->color[0];
+            push.color[1] = mesh->color[1];
+            push.color[2] = mesh->color[2];
+            push.state    = mesh->state;
 
-        mesh->draw(cmd);
-    }
-
-    // Physics debug overlay — solid-colored shapes at each hull's actual collision extent.
-    if (world.debugPhysics) {
-        // Pipeline always expects set 1 (texture). Bind the default white texture once
-        // for all debug draws — the shader uses STATE_SOLID so it ignores it.
-        VkDescriptorSet defaultTex = assets.getDefaultTexture()->getDescriptorSet();
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-            1, 1, &defaultTex, 0, nullptr);
-
-        for (const auto& dm : world.getDebugMeshes()) {
-            if (!dm) continue; // intangible hull placeholder (e.g. player sphere)
-            struct PushConstants { math::Mat4 model; float color[3]; int32_t state; } push{};
-            push.model    = dm->modelMatrix;
-            push.color[0] = 0.0f; push.color[1] = 1.0f; push.color[2] = 0.2f; // bright green
-            push.state    = 0; // STATE_SOLID
             vkCmdPushConstants(cmd, pipelineLayout,
                 VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                 0, 80, &push);
-            dm->draw(cmd);
-        }
-    }
 
-    vkCmdEndRenderPass(cmd);
+            mesh->draw(cmd);
+        }
+
+        if (world.debugPhysics) {
+            VkDescriptorSet defaultTex = assets.getDefaultTexture()->getDescriptorSet();
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+                1, 1, &defaultTex, 0, nullptr);
+
+            for (const auto& dm : world.getDebugMeshes()) {
+                if (!dm) continue;
+                struct PushConstants { math::Mat4 model; float color[3]; int32_t state; } push{};
+                push.model    = dm->modelMatrix;
+                push.color[0] = 0.0f; push.color[1] = 1.0f; push.color[2] = 0.2f;
+                push.state    = 0;
+                vkCmdPushConstants(cmd, pipelineLayout,
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    0, 80, &push);
+                dm->draw(cmd);
+            }
+        }
+
+        vkCmdEndRenderPass(cmd);
+    }
 
     // ---------------------------------------------------------------------------
     // UI render pass — runs after the 3D pass, loads color, no depth.
@@ -839,6 +889,10 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, c
 
     // Upload UBO with updated numLights.
     uniformBuffers[currentFrame].write(&uboData, sizeof(GlobalUBO));
+
+    // Pack world geometry into the raytracer SSBO (only in raytrace mode).
+    if (mode_ == RenderMode::RAYTRACE)
+        raytracer_->prepareFrame(currentFrame, world);
 
     // Build UI geometry for this frame before recording commands.
     if (uiManager_) {

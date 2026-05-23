@@ -1,0 +1,411 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 4, local_size_z = 1) in;
+
+// ---------------------------------------------------------------------------
+// Descriptors — matches Raytracer::createComputeLayout bindings
+// ---------------------------------------------------------------------------
+
+layout(set = 0, binding = 0) uniform GlobalUBO {
+    mat4 view;
+    mat4 proj;
+    vec3 cameraPos;
+    int  numLights;
+} ubo;
+
+layout(std430, set = 0, binding = 1) readonly buffer LightBuffer {
+    float lightData[];
+};
+
+layout(std430, set = 0, binding = 2) readonly buffer GeoBuffer {
+    float geoData[];
+};
+
+layout(binding = 3, rgba8) writeonly uniform image2D outputImage;
+
+// ---------------------------------------------------------------------------
+// Geometry primitive types (must match Raytracer.cpp packer tags)
+// ---------------------------------------------------------------------------
+#define TYPE_SPHERE   0
+#define TYPE_QUAD     1
+#define TYPE_TRIANGLE 2
+
+// ---------------------------------------------------------------------------
+// Ray / Hit
+// ---------------------------------------------------------------------------
+
+struct Ray { vec3 origin; vec3 dir; };
+
+struct Hit {
+    float t;
+    vec3  normal;
+    vec3  albedo;
+    float reflectivity;
+};
+
+Hit noHit() {
+    Hit h;
+    h.t            = 1e30;
+    h.normal       = vec3(0.0);
+    h.albedo       = vec3(0.0);
+    h.reflectivity = 0.0;
+    return h;
+}
+
+// ---------------------------------------------------------------------------
+// Sphere — analytical
+// ---------------------------------------------------------------------------
+bool sphereHit(Ray ray, vec3 center, float radius, out float t) {
+    vec3  oc    = ray.origin - center;
+    float a     = dot(ray.dir, ray.dir);
+    float b     = 2.0 * dot(oc, ray.dir);
+    float c     = dot(oc, oc) - radius * radius;
+    float disc  = b*b - 4.0*a*c;
+    if (disc < 0.0) return false;
+    float sq = sqrt(disc);
+    float t0 = (-b - sq) / (2.0 * a);
+    float t1 = (-b + sq) / (2.0 * a);
+    if (t0 > 0.001) { t = t0; return true; }
+    if (t1 > 0.001) { t = t1; return true; }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// Quad — parallelogram (origin + e1*u + e2*v, u,v in [0,1])
+// ---------------------------------------------------------------------------
+bool quadHit(Ray ray, vec3 origin, vec3 e1, vec3 e2, out float t, out vec3 normal) {
+    vec3  n     = cross(e1, e2);
+    float nLen  = length(n);
+    if (nLen < 1e-8) return false;
+    n /= nLen;
+
+    float denom = dot(n, ray.dir);
+    if (abs(denom) < 1e-8) return false;
+
+    t = dot(origin - ray.origin, n) / denom;
+    if (t < 0.001) return false;
+
+    vec3  hit   = ray.origin + t * ray.dir - origin;
+    float u     = dot(hit, e1) / dot(e1, e1);
+    float v     = dot(hit, e2) / dot(e2, e2);
+    if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0) return false;
+
+    normal = (denom < 0.0) ? n : -n;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Triangle — Möller-Trumbore
+// ---------------------------------------------------------------------------
+bool triHit(Ray ray, vec3 v0, vec3 v1, vec3 v2, out float t, out vec3 normal) {
+    vec3  e1  = v1 - v0;
+    vec3  e2  = v2 - v0;
+    vec3  h   = cross(ray.dir, e2);
+    float a   = dot(e1, h);
+    if (abs(a) < 1e-8) return false;
+    float f   = 1.0 / a;
+    vec3  s   = ray.origin - v0;
+    float u   = f * dot(s, h);
+    if (u < 0.0 || u > 1.0) return false;
+    vec3  q   = cross(s, e1);
+    float v   = f * dot(ray.dir, q);
+    if (v < 0.0 || u + v > 1.0) return false;
+    t = f * dot(e2, q);
+    if (t < 0.001) return false;
+    normal = normalize(cross(e1, e2));
+    if (dot(normal, ray.dir) > 0.0) normal = -normal;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Traverse geometry SSBO
+// ---------------------------------------------------------------------------
+Hit traceScene(Ray ray) {
+    Hit best = noHit();
+
+    int numEntries = int(geoData[0]);
+    int cursor     = 1;
+
+    for (int i = 0; i < numEntries; ++i) {
+        int   type  = int(geoData[cursor]);
+        float refl  = geoData[cursor + 1];
+        vec3  color = vec3(geoData[cursor + 2], geoData[cursor + 3], geoData[cursor + 4]);
+        cursor += 5;
+
+        if (type == TYPE_SPHERE) {
+            vec3  center = vec3(geoData[cursor], geoData[cursor+1], geoData[cursor+2]);
+            float radius = geoData[cursor + 3];
+            cursor += 4;
+            float t;
+            if (sphereHit(ray, center, radius, t) && t < best.t) {
+                best.t            = t;
+                best.normal       = normalize(ray.origin + t * ray.dir - center);
+                best.albedo       = color;
+                best.reflectivity = refl;
+            }
+
+        } else if (type == TYPE_QUAD) {
+            vec3 org = vec3(geoData[cursor],   geoData[cursor+1], geoData[cursor+2]);
+            vec3 e1  = vec3(geoData[cursor+3], geoData[cursor+4], geoData[cursor+5]);
+            vec3 e2  = vec3(geoData[cursor+6], geoData[cursor+7], geoData[cursor+8]);
+            cursor += 9;
+            float t; vec3 n;
+            if (quadHit(ray, org, e1, e2, t, n) && t < best.t) {
+                best.t            = t;
+                best.normal       = n;
+                best.albedo       = color;
+                best.reflectivity = refl;
+            }
+
+        } else if (type == TYPE_TRIANGLE) {
+            vec3 v0 = vec3(geoData[cursor],   geoData[cursor+1], geoData[cursor+2]);
+            vec3 v1 = vec3(geoData[cursor+3], geoData[cursor+4], geoData[cursor+5]);
+            vec3 v2 = vec3(geoData[cursor+6], geoData[cursor+7], geoData[cursor+8]);
+            cursor += 9;
+            float t; vec3 n;
+            if (triHit(ray, v0, v1, v2, t, n) && t < best.t) {
+                best.t            = t;
+                best.normal       = n;
+                best.albedo       = color;
+                best.reflectivity = refl;
+            }
+
+        } else {
+            // Unknown type — stop to avoid cursor corruption
+            break;
+        }
+    }
+
+    return best;
+}
+
+// ---------------------------------------------------------------------------
+// Shadow ray — returns true if anything blocks the path from `from` to the
+// light. `maxT` is the light distance (use 1e30 for directional lights).
+// ---------------------------------------------------------------------------
+bool traceShadow(vec3 from, vec3 dir, float maxT) {
+    int numEntries = int(geoData[0]);
+    int cursor     = 1;
+
+    for (int i = 0; i < numEntries; ++i) {
+        int type = int(geoData[cursor]);
+        cursor += 5;  // skip type + refl + rgb
+
+        if (type == TYPE_SPHERE) {
+            vec3  center = vec3(geoData[cursor], geoData[cursor+1], geoData[cursor+2]);
+            float radius = geoData[cursor+3];
+            cursor += 4;
+            float t;
+            if (sphereHit(Ray(from, dir), center, radius, t) && t < maxT) return true;
+
+        } else if (type == TYPE_QUAD) {
+            vec3 org = vec3(geoData[cursor],   geoData[cursor+1], geoData[cursor+2]);
+            vec3 e1  = vec3(geoData[cursor+3], geoData[cursor+4], geoData[cursor+5]);
+            vec3 e2  = vec3(geoData[cursor+6], geoData[cursor+7], geoData[cursor+8]);
+            cursor += 9;
+            float t; vec3 n;
+            if (quadHit(Ray(from, dir), org, e1, e2, t, n) && t < maxT) return true;
+
+        } else if (type == TYPE_TRIANGLE) {
+            vec3 v0 = vec3(geoData[cursor],   geoData[cursor+1], geoData[cursor+2]);
+            vec3 v1 = vec3(geoData[cursor+3], geoData[cursor+4], geoData[cursor+5]);
+            vec3 v2 = vec3(geoData[cursor+6], geoData[cursor+7], geoData[cursor+8]);
+            cursor += 9;
+            float t; vec3 n;
+            if (triHit(Ray(from, dir), v0, v1, v2, t, n) && t < maxT) return true;
+
+        } else {
+            break;
+        }
+    }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// Blinn-Phong shading using the same light encoding as triangle.frag
+// ---------------------------------------------------------------------------
+vec3 shade(vec3 hitPos, vec3 N, vec3 viewDir, vec3 albedo) {
+    vec3 shadowOrigin  = hitPos + N * 0.002;
+    vec3 totalDiffuse  = vec3(0.0);
+    vec3 totalSpecular = vec3(0.0);
+    vec3 totalAmbient  = vec3(0.0);
+
+    int cursor = 0;
+    for (int i = 0; i < ubo.numLights; ++i) {
+        int  lightType = int(lightData[cursor]);
+        cursor++;
+
+        vec3  diffuseColor  = vec3(0.0);
+        vec3  specularColor = vec3(0.0);
+        vec3  lightColor    = vec3(0.0);
+        vec3  toLightDir    = vec3(0.0);
+        float lightMaxT     = 1e30;
+
+        if (lightType == 3) {
+            // FlashLight: [r,g,b, kC,kL,kQ, cosInner,cosOuter] — 8 more floats
+            vec3  col      = vec3(lightData[cursor], lightData[cursor+1], lightData[cursor+2]);
+            float kC       = lightData[cursor+3];
+            float kL       = lightData[cursor+4];
+            float kQ       = lightData[cursor+5];
+            float cosInner = lightData[cursor+6];
+            float cosOuter = lightData[cursor+7];
+            cursor += 8;
+
+            float dist    = length(ubo.cameraPos - hitPos);
+            float atten   = 1.0 / (kC + kL*dist + kQ*dist*dist);
+            lightColor    = atten * col;
+
+            vec3  lightDir   = normalize(ubo.cameraPos - hitPos);
+            toLightDir = lightDir;
+            lightMaxT  = dist;
+            vec3  camFwd     = -vec3(ubo.view[0][2], ubo.view[1][2], ubo.view[2][2]);
+            float dotAngle   = dot(-lightDir, camFwd);
+            float e          = cosInner - cosOuter;
+            float intensity  = clamp((dotAngle - cosOuter) / e, 0.0, 1.0);
+
+            float diff    = max(dot(lightDir, N), 0.0);
+            diffuseColor  = diff * lightColor * intensity;
+
+            vec3  h    = normalize(lightDir + viewDir);
+            float spec = pow(max(dot(N, h), 0.0), 64.0);
+            specularColor = spec * lightColor * intensity;
+
+        } else if (lightType == 0) {
+            // PointLight: [r,g,b, pos.xyz, kC,kL,kQ] — 9 more floats
+            vec3  col = vec3(lightData[cursor], lightData[cursor+1], lightData[cursor+2]);
+            vec3  pos = vec3(lightData[cursor+3], lightData[cursor+4], lightData[cursor+5]);
+            float kC  = lightData[cursor+6];
+            float kL  = lightData[cursor+7];
+            float kQ  = lightData[cursor+8];
+            cursor += 9;
+
+            float dist  = length(pos - hitPos);
+            float atten = 1.0 / (kC + kL*dist + kQ*dist*dist);
+            lightColor  = atten * col;
+
+            vec3  lightDir = normalize(pos - hitPos);
+            toLightDir = lightDir;
+            lightMaxT  = dist;
+            float diff     = max(dot(lightDir, N), 0.0);
+            diffuseColor   = diff * lightColor;
+
+            vec3  h    = normalize(lightDir + viewDir);
+            float spec = pow(max(dot(N, h), 0.0), 64.0);
+            specularColor = spec * lightColor;
+
+        } else if (lightType == 1) {
+            // DirectionalLight: [r,g,b, dir.xyz] — 6 more floats
+            vec3 col = vec3(lightData[cursor], lightData[cursor+1], lightData[cursor+2]);
+            vec3 dir = vec3(lightData[cursor+3], lightData[cursor+4], lightData[cursor+5]);
+            cursor += 6;
+            dir = -dir;  // CPU packing negates direction; dir now points toward light
+
+            toLightDir = normalize(dir);
+            lightMaxT  = 1e30;
+
+            float diff   = max(dot(N, dir), 0.0);
+            diffuseColor = diff * col;
+
+            vec3  h    = normalize(dir + viewDir);
+            float spec = pow(max(dot(N, h), 0.0), 64.0);
+            specularColor = spec * col;
+            lightColor    = col;
+
+        } else if (lightType == 2) {
+            // SpotLight: [r,g,b, pos.xyz, dir.xyz, kC,kL,kQ, cosInner,cosOuter] — 14 more
+            vec3  col      = vec3(lightData[cursor], lightData[cursor+1], lightData[cursor+2]);
+            vec3  pos      = vec3(lightData[cursor+3], lightData[cursor+4], lightData[cursor+5]);
+            vec3  spotDir  = vec3(lightData[cursor+6], lightData[cursor+7], lightData[cursor+8]);
+            float kC       = lightData[cursor+9];
+            float kL       = lightData[cursor+10];
+            float kQ       = lightData[cursor+11];
+            float cosInner = lightData[cursor+12];
+            float cosOuter = lightData[cursor+13];
+            cursor += 14;
+
+            float dist    = length(pos - hitPos);
+            float atten   = 1.0 / (kC + kL*dist + kQ*dist*dist);
+            lightColor    = atten * col;
+
+            vec3  lightDir  = normalize(pos - hitPos);
+            toLightDir = lightDir;
+            lightMaxT  = dist;
+            float dotAngle  = dot(-lightDir, spotDir);
+            float e         = cosInner - cosOuter;
+            float intensity = clamp((dotAngle - cosOuter) / e, 0.0, 1.0);
+
+            float diff    = max(dot(lightDir, N), 0.0);
+            diffuseColor  = diff * lightColor * intensity;
+
+            vec3  h    = normalize(lightDir + viewDir);
+            float spec = pow(max(dot(N, h), 0.0), 64.0);
+            specularColor = spec * lightColor * intensity;
+        }
+
+        // Ambient is always added; diffuse+specular only if the light is unoccluded.
+        totalAmbient += lightColor * 0.01;
+        if (!traceShadow(shadowOrigin, toLightDir, lightMaxT)) {
+            totalDiffuse  += diffuseColor;
+            totalSpecular += specularColor;
+        }
+    }
+
+    totalAmbient  = clamp(totalAmbient,  0.0, 1.0);
+    totalDiffuse  = clamp(totalDiffuse,  0.0, 1.0);
+    totalSpecular = clamp(totalSpecular, 0.0, 1.0);
+
+    return clamp((totalAmbient + totalDiffuse + totalSpecular) * albedo, 0.0, 1.0);
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 dims  = imageSize(outputImage);
+    if (coord.x >= dims.x || coord.y >= dims.y) return;
+
+    // Pixel centre in [0,1], y=0 at top
+    float px = (float(coord.x) + 0.5) / float(dims.x);
+    float py = (float(coord.y) + 0.5) / float(dims.y);
+
+    // Vulkan NDC: x in [-1,1] left→right, y in [-1,1] top→bottom
+    float ndcX = px * 2.0 - 1.0;
+    float ndcY = py * 2.0 - 1.0;
+
+    mat4 invView = inverse(ubo.view);
+    vec3 rayDirView  = normalize(vec3(ndcX / ubo.proj[0][0], ndcY / ubo.proj[1][1], -1.0));
+    vec3 rayDirWorld = normalize((invView * vec4(rayDirView, 0.0)).xyz);
+
+    Ray ray;
+    ray.origin = ubo.cameraPos;
+    ray.dir    = rayDirWorld;
+
+    vec3 finalColor = vec3(0.0);
+    vec3 throughput = vec3(1.0);
+
+    for (int bounce = 0; bounce < 5; bounce++) {
+        Hit hit = traceScene(ray);
+
+        if (hit.t >= 1e29) {
+            float t_sky   = clamp(ray.dir.y * 0.5 + 0.5, 0.0, 1.0);
+            finalColor   += throughput * mix(vec3(0.05, 0.05, 0.05), vec3(0.4, 0.6, 1.0), t_sky);
+            break;
+        }
+
+        vec3 hitPos  = ray.origin + hit.t * ray.dir;
+        vec3 viewDir = normalize(ray.origin - hitPos);
+
+        // Diffuse contribution scales with how non-reflective the surface is.
+        finalColor += throughput * (1.0 - hit.reflectivity) * shade(hitPos, hit.normal, viewDir, hit.albedo);
+
+        if (hit.reflectivity < 0.001) break;
+
+        // Set up mirror reflection for next bounce.
+        throughput   *= hit.reflectivity;
+        ray.origin    = hitPos + hit.normal * 0.002;  // offset avoids self-intersection
+        ray.dir       = reflect(ray.dir, hit.normal);
+    }
+
+    imageStore(outputImage, coord, vec4(clamp(finalColor, 0.0, 1.0), 1.0));
+}

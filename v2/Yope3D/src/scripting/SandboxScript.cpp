@@ -69,15 +69,15 @@ static const char* sceneName(int s) {
     case 0:  return "Pyramid (Small)";
     case 1:  return "Pyramid (Medium)";
     case 2:  return "Pyramid (Large)";
-    case 3:  return "Spring [Sphere] — Top Row Fixed";
-    case 4:  return "Spring [AABB]   — Top Row Fixed";
-    case 5:  return "Spring [OBB]    — Top Row Fixed";
-    case 6:  return "Spring [Sphere] — 4 Corners";
-    case 7:  return "Spring [AABB]   — 4 Corners";
-    case 8:  return "Spring [OBB]    — 4 Corners";
-    case 9:  return "Spring [Sphere] — 2 Top Corners";
-    case 10: return "Spring [AABB]   — 2 Top Corners";
-    case 11: return "Spring [OBB]    — 2 Top Corners";
+    case 3:  return "Spring [Sphere] - Top Row Fixed";
+    case 4:  return "Spring [AABB]   - Top Row Fixed";
+    case 5:  return "Spring [OBB]    - Top Row Fixed";
+    case 6:  return "Spring [Sphere] - 4 Corners";
+    case 7:  return "Spring [AABB]   - 4 Corners";
+    case 8:  return "Spring [OBB]    - 4 Corners";
+    case 9:  return "Spring [Sphere] - 2 Top Corners";
+    case 10: return "Spring [AABB]   - 2 Top Corners";
+    case 11: return "Spring [OBB]    - 2 Top Corners";
     case 12: return "Stress Test";
     case 13: return "Doppler Test";
     }
@@ -106,6 +106,7 @@ private:
     bool  rightWasDown = false, leftWasDown = false;
     bool  upWasDown    = false, downWasDown  = false;
     bool  pWasDown     = false, mWasDown     = false;
+    bool  rWasDown     = false;
     bool  audioPaused_ = false;
     float spawnCooldown = 0.0f;
 
@@ -182,6 +183,7 @@ void SandboxScript::update(ScriptContext& ctx, float dt) {
         if (fpsLabel_) fpsLabel_->setText("FPS: " + std::to_string(fps_));
         if (debugLabel_ && debugVisible_) {
             int objCount = static_cast<int>(ctx.world->getHulls().size()) - 1;
+            bool isRT = ctx.renderMode && (*ctx.renderMode == RenderMode::RAYTRACE);
             debugLabel_->setText(
                 std::string("Scene: ") + sceneName(sceneIndex) +
                 "  \nIslands: " + std::to_string(ctx.world->getIslandCount()) +
@@ -190,7 +192,8 @@ void SandboxScript::update(ScriptContext& ctx, float dt) {
                 "  Spawn Type: " + typeName(spawnType) +
                 (ctx.world->debugPhysics ? "  [P: physics on]" : "  P: physics") +
                 (audioPaused_           ? "  [M: unmute]"     : "  M: mute") + "\n" +
-                "WASD: move  LMB: spawn  LEFT/RIGHT: scene  UP/DOWN: type  H: hide"
+                "WASD: move  LMB: spawn  LEFT/RIGHT: scene  UP/DOWN: type  H: hide\n" +
+                (isRT ? "[R: RAYTRACE]" : "R: raytrace")
             );
         }
     }
@@ -249,6 +252,15 @@ void SandboxScript::update(ScriptContext& ctx, float dt) {
     }
     hWasDown = hNow;
 
+    // R: toggle raytrace / raster mode.
+    bool rNow = ctx.input->isKeyDown(GLFW_KEY_R);
+    if (rNow && !rWasDown && ctx.renderMode) {
+        *ctx.renderMode = (*ctx.renderMode == RenderMode::RASTER)
+                              ? RenderMode::RAYTRACE
+                              : RenderMode::RASTER;
+    }
+    rWasDown = rNow;
+
     // P: toggle physics debug overlay.
     bool pNow = ctx.input->isKeyDown(GLFW_KEY_P);
     if (pNow && !pWasDown) {
@@ -277,6 +289,11 @@ void SandboxScript::loadScene(int index) {
     }
     dopplerObj_ = nullptr;
     playerObj_  = nullptr;
+
+    // Reset camera to a consistent starting position so scene geometry
+    // is always in front of the player regardless of where they were previously.
+    ctx_->camera->setPosition({0.0f, 2.0f, 10.0f});
+    ctx_->camera->setRotation({0.0f, 0.0f, 0.0f});
 
     if (ambientEmitter_ && !ambientEmitter_->isPlaying() && !audioPaused_)
         ambientEmitter_->play();
@@ -447,7 +464,7 @@ void SandboxScript::loadStressTest() {
     playerObj_->getHull()->setTangible(false);
 
     ctx_->world->addStaticAABB({0.0f, -0.5f, 0.0f},                 {STRESS_HALF, 0.5f, STRESS_HALF});
-    ctx_->world->addStaticAABB({0.0f, STRESS_CEILING+0.5f, 0.0f},   {STRESS_HALF, 0.5f, STRESS_HALF});
+    //ctx_->world->addStaticAABB({0.0f, STRESS_CEILING+0.5f, 0.0f},   {STRESS_HALF, 0.5f, STRESS_HALF});
     addFloorMesh(STRESS_HALF, STRESS_HALF);
 
     float wH = STRESS_CEILING * 0.5f;
@@ -463,6 +480,15 @@ void SandboxScript::loadStressTest() {
     addWall({ STRESS_HALF + 0.4f, wH, 0},   {0.4f, wH, STRESS_HALF});
     addWall({0, wH, -STRESS_HALF - 0.4f},   {STRESS_HALF, wH, 0.4f});
     addWall({0, wH,  STRESS_HALF + 0.4f},   {STRESS_HALF, wH, 0.4f});
+
+    // Reflective mirror — a Primitives::plane just above the floor surface.
+    // Plane geometry lives at local y=-1; translation (0,1.01,0) places vertices at y=0.01.
+    auto* mirrorFloor = ctx_->world->addRenderObject(Primitives::plane(STRESS_HALF - 1.0f));
+    if (auto* m = mirrorFloor->getMesh()) {
+        m->modelMatrix  = math::Mat4::translate({0.f, 1.01f, 0.f});
+        m->reflectivity = 0.8f;
+        m->color[0] = 0.85f; m->color[1] = 0.90f; m->color[2] = 0.95f;
+    }
 
     ctx_->camera->setPosition({0.0f, 3.5f, STRESS_HALF - 2.0f});
     ctx_->camera->setRotation({0.0f, 0.0f, 0.0f});

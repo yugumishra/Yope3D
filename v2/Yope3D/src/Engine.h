@@ -8,6 +8,7 @@
 #include "gpu/GpuDevice.h"
 #include "rendering/Renderer.h"
 #include "rendering/Camera.h"
+#include "rendering/RenderMode.h"
 #include "world/World.h"
 #include "assets/AssetManager.h"
 #include "audio/AudioSystem.h"
@@ -40,6 +41,8 @@ struct Engine {
     int   displayFps = 0;
 
     bool prevLMB_ = false;
+
+    RenderMode renderMode_ = RenderMode::RASTER;
 
     ~Engine();
 
