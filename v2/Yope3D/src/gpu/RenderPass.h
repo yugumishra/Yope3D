@@ -10,6 +10,10 @@ public:
     // initialLayout = PRESENT_SRC_KHR (left by the 3D pass), finalLayout = PRESENT_SRC_KHR.
     static RenderPass createUIPass(VkDevice device, VkFormat colorFormat);
 
+    // Raytrace render pass: clears color (no depth), finalLayout = PRESENT_SRC_KHR.
+    // Used in RAYTRACE mode instead of the 3D pass.
+    static RenderPass createRaytracePass(VkDevice device, VkFormat colorFormat);
+
     ~RenderPass();
 
     VkRenderPass get() const { return renderPass; }

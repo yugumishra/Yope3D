@@ -47,13 +47,14 @@ bool Engine::init() {
                     static_cast<float>(screenW), static_cast<float>(screenH));
     renderer->setUIManager(uiManager.get());
 
-    scriptCtx_.world  = world.get();
-    scriptCtx_.camera = camera.get();
-    scriptCtx_.input  = input.get();
-    scriptCtx_.audio  = audio.get();
-    scriptCtx_.assets = assets.get();
-    scriptCtx_.window = window.get();
-    scriptCtx_.ui     = uiManager.get();
+    scriptCtx_.world       = world.get();
+    scriptCtx_.camera      = camera.get();
+    scriptCtx_.input       = input.get();
+    scriptCtx_.audio       = audio.get();
+    scriptCtx_.assets      = assets.get();
+    scriptCtx_.window      = window.get();
+    scriptCtx_.ui          = uiManager.get();
+    scriptCtx_.renderMode  = &renderMode_;
 
     script_ = ScriptFactory::create(cfg.script);
     script_->init(scriptCtx_);
@@ -122,6 +123,7 @@ void Engine::update() {
 void Engine::render() {
     if (world->newSnapshotReady_.exchange(false, std::memory_order_acquire))
         world->syncRenderMeshesFromFront();
+    renderer->setMode(renderMode_);
     renderer->drawFrame(*gpu, *window, *camera, *world, *assets);
 }
 

@@ -32,6 +32,9 @@ public:
     math::Vec3 getRotation() const { return rotation; }
     math::Vec3 getForward()  const;  // Returns the camera's forward direction in world space
 
+    float getFov()         const { return fov; }
+    float getAspectRatio() const { return aspectRatio; }
+
     void setPosition(const math::Vec3& p) { position = p; }
     void setRotation(const math::Vec3& r) { rotation = r; }
 

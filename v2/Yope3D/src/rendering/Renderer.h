@@ -10,6 +10,7 @@
 #include "gpu/UIBuffer.h"
 #include "Light.h"
 #include "../world/World.h"
+#include "RenderMode.h"
 
 class GpuDevice;
 class Window;
@@ -20,6 +21,7 @@ class RenderPass;
 class DescriptorSetLayout;
 class DescriptorPool;
 class UIManager;
+class Raytracer;
 
 // ---------------------------------------------------------------------------
 // Renderer
@@ -46,6 +48,7 @@ public:
     void waitIdle(GpuDevice& gpu);
 
     void setUIManager(UIManager* mgr) { uiManager_ = mgr; }
+    void setMode(RenderMode mode)    { mode_ = mode; }
 
     VkCommandPool         getCommandPool()      const { return commandPool; }
     VkDescriptorSetLayout getTextureSetLayout() const;
@@ -88,6 +91,11 @@ private:
     std::array<VkFence,     MAX_FRAMES> inFlightFence{};
     uint32_t currentFrame = 0;
 
+    // Raytracer
+    std::unique_ptr<Raytracer>  raytracer_;
+    RenderMode                  mode_          = RenderMode::RASTER;
+    std::unique_ptr<RenderPass> raytracePass_;
+
     void createRenderPass(GpuDevice& gpu);
     void createUBOLayout(VkDevice device);
     void createTextureSetLayout(VkDevice device);
@@ -109,6 +117,8 @@ private:
     void createUIFramebuffers(VkDevice device);
     void createUIPipeline(VkDevice device);
     void createUIBuffers(GpuDevice& gpu);
+
+    void createRaytracePass(GpuDevice& gpu);
 
     void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, const World& world,
                             class AssetManager& assets);

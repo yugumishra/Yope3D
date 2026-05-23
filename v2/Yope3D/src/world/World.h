@@ -77,6 +77,9 @@ public:
     const std::vector<physics::Hull*>& getHulls()        const { return hullCache_; }
     const std::vector<RenderMesh*>&    getRenderMeshes()  const { return meshCache_; }
 
+    // Standalone barriers (added via addBarrier()). Hull-owned barriers live in BarrierHull::getBarriers().
+    const std::vector<std::variant<physics::Barrier, physics::BoundedBarrier>>& getBarriers() const { return barriers_; }
+
     // ---- Springs ----
     physics::Spring* addSpring(physics::Hull* a, physics::Hull* b, float k, float rest);
     physics::Spring* addSpringWithProxies(physics::Hull* a, physics::Hull* b,

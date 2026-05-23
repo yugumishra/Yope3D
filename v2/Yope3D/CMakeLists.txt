@@ -30,6 +30,9 @@ set(SHADER_SOURCES
     "${SHADER_SRC_DIR}/triangle.frag"
     "${SHADER_SRC_DIR}/ui.vert"
     "${SHADER_SRC_DIR}/ui.frag"
+    "${SHADER_SRC_DIR}/raytracer.comp"
+    "${SHADER_SRC_DIR}/fullscreen.vert"
+    "${SHADER_SRC_DIR}/fullscreen.frag"
 )
 
 set(COMPILED_SHADERS "")
@@ -134,8 +137,11 @@ add_executable(yope3d
     src/gpu/StorageBuffer.cpp
     src/gpu/Texture.cpp
     src/rendering/Renderer.cpp
+    src/rendering/Raytracer.cpp
     src/rendering/Camera.cpp
     src/rendering/Light.cpp
+    src/gpu/StorageImage.cpp
+    src/gpu/ComputePipeline.cpp
     src/world/World.cpp
     src/world/RenderMesh.cpp
     src/assets/AssetManager.cpp

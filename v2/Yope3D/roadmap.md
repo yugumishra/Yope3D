@@ -559,6 +559,94 @@ Testing should be added incrementally throughout all milestones, not deferred en
 
 ---
 
+### Milestone 20 — Hybrid Render Mode (Rasterization + Ray-Traced Lighting)
+**Phase 2 — estimate ~30–40 hrs**
+
+A third `RenderMode::HYBRID` (joining `RASTER` and `RAYTRACE`) that uses rasterization for primary visibility and the compute raytracer exclusively for secondary effects: hard/soft shadows, ambient occlusion, and one-bounce indirect lighting. The core insight is that rasterization is fast and cache-friendly for primary rays (coherent, one-per-pixel), while raytracing earns its keep on secondary rays (incoherent, but few enough to be tractable). This split makes high-quality lighting feasible at interactive framerates without a full path-tracer for every pixel.
+
+**G-Buffer Pass:**
+- [ ] Add a new `RenderPass` configuration for a geometry pass (MRT — multiple render targets). Three output attachments: `position` (RGBA32F), `normal` (RGBA16F, world-space), `albedo` (RGBA8). Depth attachment reused from existing pass.
+- [ ] Modify `triangle.vert`/`triangle.frag` to write position and normal to the extra attachments when `HYBRID_MODE` is active (push constant flag). Otherwise identical to the current rasterization pass.
+- [ ] New `GBuffer` wrapper class in `src/gpu/` owns the three `StorageImage` objects and the associated `VkFramebuffer`. Created alongside the swapchain; recreated on resize.
+- [ ] The rasterization pass writes position/normal/albedo to the G-buffer textures instead of (or in addition to) the swapchain image.
+
+**Secondary-Ray Compute Pass:**
+- [ ] New shader `shaders/hybrid_lighting.comp`. Reads G-buffer textures (as `sampler2D` rather than `image2D` — read-only); for each pixel with valid geometry (discard sky pixels via alpha = 0 sentinel in position attachment), casts secondary rays into the existing geometry SSBO:
+  - Shadow rays: one per light, same `traceShadow` logic as `raytracer.comp`.
+  - AO rays (optional, toggled): N=8 cosine-weighted hemisphere rays per pixel, averaged into an occlusion factor. Darkens indirect regions without needing a light source.
+  - One-bounce indirect (optional, toggled): one random hemisphere ray per pixel, shaded at the bounce point and accumulated as indirect radiance.
+- [ ] Writes a lighting contribution image (RGBA16F) that the composition pass blends over the rasterized albedo.
+- [ ] BVH acceleration is **most important here**, since secondary rays are incoherent — each pixel dispatches in a different direction, thrashing the geometry cache. Adding BVH (Milestone 21) yields the biggest speedup in hybrid mode, not in the pure raytracer.
+
+**Composition Pass:**
+- [ ] A fullscreen quad pass (reuse `fullscreen.vert`) with a new `hybrid_composite.frag` that reads the rasterized color + the lighting contribution image and blends them. Gamma correction and tonemapping applied here.
+- [ ] Toggle between RASTER / RAYTRACE / HYBRID via the existing key binding system (`R` cycles modes).
+
+**C++ Side:**
+- [ ] `RenderMode.h`: add `HYBRID` enumerant.
+- [ ] `Renderer` dispatches the G-buffer pass when in HYBRID mode; `Raytracer` dispatches the secondary-ray compute; a new `HybridCompositor` issues the fullscreen blit.
+- [ ] Shared geometry SSBO between `Raytracer` and the hybrid compute pass — no duplication needed.
+
+**Risks:**
+- MoltenVK input attachment sampling in compute: read G-buffer as regular `sampler2D` bindings (not input attachments) to stay compatible with compute stages on Metal.
+- G-buffer memory bandwidth: three full-res floating-point textures is ~24 MB at 1080p. Keep `normal` as RGBA16F (not 32F); pack metallic/roughness into the albedo alpha channel if material system expands.
+
+---
+
+### Milestone 21 — Raytracer Optimizations (BVH + Temporal Accumulation)
+**Phase 2 — estimate ~40–55 hrs**
+
+Two independent optimizations that compound: BVH cuts per-ray cost from O(N) to O(log N), and temporal accumulation amortizes per-frame sample cost over many frames. Together they make full path tracing feasible at interactive framerates.
+
+**Note on physics BVH:** The physics system uses `BroadphaseSAP` (sweep-and-prune), not a tree structure. There is no BVH in the physics code to reuse. A dedicated raytracing BVH must be built over the packed geometry SSBO.
+
+**BVH — CPU Build, GPU Traverse:**
+- [ ] CPU builder (`src/rendering/BVHBuilder.h/.cpp`): takes the packed geometry SSBO float array as input (or a parallel `std::vector<AABB>` of entry bounding boxes) and builds a flat binary BVH using surface-area heuristic (SAH) partitioning. Output: a flat array of `BVHNode` structs `{ vec3 aabbMin; uint leftOrPrimIdx; vec3 aabbMax; uint primCountOrRightIdx; }` (8 floats / 32 bytes per node, cacheline-friendly on GPU).
+- [ ] New `BVHBuffer` SSBO (binding 4 in the raytracer descriptor set). Uploaded each frame when `packGeometry` runs (geometry changes every frame due to physics). CPU BVH rebuild time target: < 0.5 ms for 1,000 primitives (SAH sweep is O(N log N) with early-out).
+- [ ] GLSL traversal in `raytracer.comp` and `hybrid_lighting.comp`: replace the linear scan in `traceScene`/`traceShadow` with a stack-based BVH descent. Fixed-size register stack (`vec4 stack[32]`) avoids dynamic allocation. Inner loop: test both child AABBs, push farther child, descend into nearer. Leaf nodes: test all contained primitives.
+- [ ] Shadow ray optimization: `traceShadow` exits immediately on first hit — no need to find the closest intersection. BVH gives the biggest speedup here since shadow rays are incoherent and O(N) shadow tracing is the dominant cost in scenes with many lights.
+- [ ] Fallback: if BVH is disabled (a `#define USE_BVH 0` specialization constant), `raytracer.comp` falls back to the existing linear scan for correctness testing.
+
+**Temporal Accumulation:**
+- [ ] New `StorageImage` at full resolution (`rgba32f`, persistent across frames) — the history buffer. Not recreated each frame; cleared on camera jump or scene change.
+- [ ] Accumulation counter: a `uint` per-pixel storage buffer (or packed into the history image alpha channel). Incremented each frame.
+- [ ] Each frame: `outputPixel = mix(historyPixel, newSample, 1.0 / (accumCount + 1.0))`. When `accumCount` is large, the new sample has negligible weight and noise averages out.
+- [ ] Reprojection: before blending, reproject the previous frame's pixel using the previous view-projection matrix (stored in a small UBO field `prevViewProj`). Sample history at the reprojected UV rather than the current pixel coordinate. This allows the history to remain valid under camera motion.
+- [ ] Disocclusion handling: if the reprojected position's depth differs from the current G-buffer depth by more than a threshold, reset the accumulation counter for that pixel (treat it as newly visible). Without this, ghosting artifacts appear when objects move in front of previously occluded surfaces.
+- [ ] Toggle: temporal accumulation is disabled in `RAYTRACE` mode by default (single-frame output is already acceptable for the original demo); enabled in HYBRID mode where it amortizes the GI bounce cost.
+
+---
+
+### Milestone 22 — Vulkan RT Extensions (Hardware Ray Tracing)
+**Phase 2 — estimate ~60–80 hrs**
+
+Replace the compute raytracer with the dedicated Vulkan ray tracing pipeline (`VK_KHR_ray_tracing_pipeline` + `VK_KHR_acceleration_structure`). This is a complete rewrite of the raytracing backend — the compute shader disappears; in its place are five shader stages and hardware-managed BVH traversal. On Apple Silicon, MoltenVK translates these extensions to Metal 3's `raytracing` API, which maps cleanly to the hardware RT units in M2+.
+
+**Acceleration Structure:**
+- [ ] Bottom-level acceleration structure (BLAS): one BLAS per unique `RenderMesh` geometry. Built from vertex + index buffers directly (no CPU copy needed — the GPU reads them via `VkAccelerationStructureGeometryTrianglesDataKHR`). For analytical primitives (spheres, quads), either use triangle approximation or procedural AABBs (`VK_GEOMETRY_TYPE_AABBS_KHR`) with a custom intersection shader.
+- [ ] Top-level acceleration structure (TLAS): one instance per active `RenderMesh` with its current `modelMatrix` as the `VkTransformMatrixKHR`. Rebuilt every frame (dynamic scene). TLAS rebuild is O(N) with compaction hints; for N < 10,000 this is GPU-side fast enough for per-frame updates.
+- [ ] `src/gpu/AccelStructure.h/.cpp`: RAII wrappers for BLAS/TLAS. `build()` records the build commands into a command buffer and submits. `update()` does an in-place update (faster than rebuild when geometry doesn't change topology).
+
+**RT Pipeline + Shader Stages:**
+- [ ] Ray generation shader (`shaders/rt_raygen.rgen`): equivalent to `raytracer.comp`'s `main()`. Calls `traceRayEXT` for primary ray; on hit, calls `traceRayEXT` again for shadows and reflections. No manual intersection loop — the hardware BVH handles traversal.
+- [ ] Closest-hit shader (`shaders/rt_chit.rchit`): invoked when a ray hits geometry. Reads vertex data from a storage buffer indexed by `gl_PrimitiveID` + `gl_InstanceID`. Computes shading (diffuse, specular) and writes to a payload struct. For reflections, recursively calls `traceRayEXT` up to a `gl_MaxRecursionDepth` limit (typically 4–8).
+- [ ] Miss shader (`shaders/rt_miss.rmiss`): invoked when no geometry is hit. Returns sky color (same gradient as current `raytracer.comp`).
+- [ ] Shadow miss shader (`shaders/rt_shadow.rmiss`): a second miss shader for shadow rays. Returns `shadowed = false`. The closest-hit for shadow rays can be a trivial any-hit shader that sets `shadowed = true` and calls `terminateRayEXT`.
+- [ ] Any-hit shader (`shaders/rt_ahit.rahit`): used for alpha-tested geometry (future transparency). For now, a pass-through.
+
+**C++ Pipeline:**
+- [ ] Feature detection at startup: query `VkPhysicalDeviceRayTracingPipelinePropertiesKHR`. If the extension is absent (older GPU, MoltenVK < 3.2), fall back to the compute raytracer silently. Log the capability at startup.
+- [ ] Shader binding table (SBT): `VkStridedDeviceAddressRegionKHR` for raygen, miss, hit, callable groups. The SBT is a `Buffer` with aligned entries for each shader group.
+- [ ] `Raytracer` class gains a `bool hwRT_` flag. When true, `dispatch()` calls `vkCmdTraceRaysKHR` instead of `vkCmdDispatch`. Geometry SSBO for `shade()` is replaced by the TLAS; light SSBO is reused unchanged.
+- [ ] Output image binding unchanged — the RT raygen shader writes to the same `StorageImage` that the fullscreen blit reads.
+
+**MoltenVK Notes:**
+- `VK_KHR_acceleration_structure` and `VK_KHR_ray_tracing_pipeline` are supported from MoltenVK 1.2.8+ on M2 and later. M1 supports BLAS/TLAS but the RT pipeline maps to Metal's `MPSAccelerationStructure`; performance is acceptable but not as optimized as M2+.
+- Procedural AABB intersection shaders require `VK_KHR_ray_query` for inline queries, which MoltenVK supports via Metal's `intersection_query`. Prefer triangle BLASes over procedural AABBs to avoid this complexity.
+- Recursive `traceRayEXT` calls require `maxRecursionDepth > 0` in the pipeline create info. Metal limits this; if the driver rejects the limit, replace recursion with an iterative bounce loop in the raygen shader (same approach as the current compute raytracer's `for (int bounce = 0; ...)` loop).
+
+---
+
 ## Timeline Summary
 
 | Phase | Milestone | Area | Estimated Weeks | Cumulative |
@@ -582,10 +670,14 @@ Testing should be added incrementally throughout all milestones, not deferred en
 | **2** | 17 | Physics Expansion | 44–60 | Wk 60 |
 | **2** | 18 | UI Expansion | 50–56 | Wk 56 |
 | **2** | 19 | Quality + Docs | Ongoing | — |
+| **2** | 20 | Hybrid Render Mode | TBD | — |
+| **2** | 21 | Raytracer Optimizations | TBD | — |
+| **2** | 22 | Vulkan RT Extensions | TBD | — |
 
 *Phase 1 completes at approximately Week 27 (~7 months at initial pace).*
 *Phase 2 key milestones (Editor + ECS + Python + Material) complete around Week 43 (~11 months total).*
 *Physics expansion and animation extend well into the second year — both are deliberately open-ended.*
+*Phase 2 raytracing milestones (20–22) are sequenced: Hybrid → Optimizations → Hardware RT. Each builds on the previous.*
 
 ---
 
