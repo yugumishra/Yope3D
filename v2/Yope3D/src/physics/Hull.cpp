@@ -111,7 +111,7 @@ void Hull::advance(float dt, const math::Vec3& gravity) {
 }
 
 void Hull::tickSleep(float linSpeedSq, float angSpeedSq) {
-    if (fixed) return;
+    if (fixed || !sleepingEnabled_) return;
     constexpr float linT = SLEEP_LINEAR_THRESHOLD  * SLEEP_LINEAR_THRESHOLD;
     constexpr float angT = SLEEP_ANGULAR_THRESHOLD * SLEEP_ANGULAR_THRESHOLD;
     if (linSpeedSq < linT && angSpeedSq < angT) {

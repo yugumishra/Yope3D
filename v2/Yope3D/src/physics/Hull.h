@@ -57,6 +57,11 @@ public:
     // ---- Sleep ----
     void wakeUp()    { sleeping = false; sleepFrames = 0; }
     void tickSleep(float linSpeedSq, float angSpeedSq);
+    // Permanently opt this hull out of sleeping. Required for kinematically-driven
+    // bodies (player characters) so that setVelocity()/addImpulse() from the script
+    // thread actually integrates — sleeping hulls short-circuit Hull::advance().
+    void disableSleeping() { sleepingEnabled_ = false; sleeping = false; sleepFrames = 0; }
+    bool isSleepingEnabled() const { return sleepingEnabled_; }
 
     // ---- Impulse accumulation ----
     void addImpulse(const math::Vec3& imp)        { linearImpulse  += imp; }
@@ -120,6 +125,7 @@ protected:
 
     int        sleepFrames = 0;
     bool       sleeping    = false;
+    bool       sleepingEnabled_ = true;
 
     math::Vec3 pseudoVel   {};
     math::Vec3 pseudoOmega {};

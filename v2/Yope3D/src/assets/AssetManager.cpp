@@ -18,6 +18,7 @@ AssetManager::~AssetManager() {
 void AssetManager::init(GpuDevice& gpu, VkCommandPool commandPool,
                        VkDescriptorSetLayout textureSetLayout)
 {
+    gpu_ = &gpu;
     device = gpu.device();
     this->commandPool = commandPool;
     descriptorSetLayout = textureSetLayout;
@@ -120,6 +121,11 @@ Texture* AssetManager::loadTexture(GpuDevice& gpu, const std::string& path)
     Texture* texturePtr = texture.get();
     textures[path] = std::move(texture);
     return texturePtr;
+}
+
+Texture* AssetManager::loadTexture(const std::string& path)
+{
+    return loadTexture(*gpu_, path);
 }
 
 Texture* AssetManager::getDefaultTexture() const

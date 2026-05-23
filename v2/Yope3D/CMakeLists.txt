@@ -156,6 +156,8 @@ add_executable(yope3d
     src/scripting/ScriptFactory.cpp
     src/scripting/Config.cpp
     src/scripting/SandboxScript.cpp
+    src/scripting/PlatformerScript.cpp
+    src/scripting/ArchitectScript.cpp
     src/gpu/UIBuffer.cpp
     src/ui/Background.cpp
     src/ui/TexturedBackground.cpp
