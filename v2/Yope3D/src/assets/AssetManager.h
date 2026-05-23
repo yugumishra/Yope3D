@@ -31,6 +31,7 @@ public:
     // Load a texture from disk (deduplicates by path).
     // Supports both embedded assets (YOPE_EMBED_ASSETS) and filesystem mode.
     Texture* loadTexture(GpuDevice& gpu, const std::string& path);
+    Texture* loadTexture(const std::string& path);  // script-friendly: uses cached gpu
 
     // Get the default 1×1 white texture (used for untextured meshes).
     Texture* getDefaultTexture() const;
@@ -51,6 +52,7 @@ private:
     std::unique_ptr<Texture> defaultTexture;
     std::unordered_map<std::string, std::unique_ptr<RenderMesh>> meshes;
 
+    GpuDevice*            gpu_ = nullptr;
     VkDescriptorPool      descriptorPool = VK_NULL_HANDLE;
     VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
     VkCommandPool         commandPool = VK_NULL_HANDLE;
