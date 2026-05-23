@@ -109,6 +109,7 @@ SceneObject* World::addRenderObject(const std::vector<Vertex>& vertices,
     std::lock_guard lk(structureMtx_);
     auto obj = std::make_unique<SceneObject>();
     obj->mesh = std::make_unique<RenderMesh>(*gpu_, pool_, vertices, indices);
+    obj->mesh->transformReady = true;  // static mesh: transform is known at creation
     objects_.push_back(std::move(obj));
     rebuildCaches();
     return objects_.back().get();
@@ -125,7 +126,12 @@ RenderMesh* World::attachMesh(SceneObject* obj,
                                const std::vector<uint32_t>& indices) {
     std::lock_guard lk(structureMtx_);
     obj->mesh = std::make_unique<RenderMesh>(*gpu_, pool_, vertices, indices);
-    if (obj->hull) obj->hull->linkedMesh = obj->mesh.get();
+    if (obj->hull) {
+        obj->hull->linkedMesh = obj->mesh.get();
+        // transformReady will be set by the snapshot cycle
+    } else {
+        obj->mesh->transformReady = true;  // no hull: static visual, transform is already known
+    }
     rebuildCaches();
     return obj->mesh.get();
 }
@@ -425,9 +431,14 @@ void World::syncRenderMeshesFromFront() {
     // Called on the main thread after newSnapshotReady_ is observed; no lock needed
     // since snapshotFront_ is only swapped under snapshotMtx_ before this call.
     for (auto& s : snapshotFront_)
-        if (s.mesh) s.mesh->modelMatrix = Transform{s.pos, s.rot, s.scale}.getModelMatrix();
-    for (auto& [mesh, mat] : springSnapshotFront_)
-        mesh->modelMatrix = mat;
+        if (s.mesh) {
+            s.mesh->modelMatrix     = Transform{s.pos, s.rot, s.scale}.getModelMatrix();
+            s.mesh->transformReady  = true;
+        }
+    for (auto& [mesh, mat] : springSnapshotFront_) {
+        mesh->modelMatrix    = mat;
+        mesh->transformReady = true;
+    }
 }
 
 // ---- Debug overlay ----

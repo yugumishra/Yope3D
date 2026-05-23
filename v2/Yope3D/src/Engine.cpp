@@ -3,9 +3,12 @@
 #include "scripting/ScriptFactory.h"
 #include "physics/PhysicsConstants.h"
 #include "math/Math.h"
+#include "ui/UIManager.h"
 #include <GLFW/glfw3.h>
 #include <string>
 #include <chrono>
+
+Engine::~Engine() = default;
 
 bool Engine::init() {
     input = std::make_unique<Input>();
@@ -39,12 +42,18 @@ bool Engine::init() {
     audio->init();
     Listener::setGain(1.0f);
 
+    uiManager = std::make_unique<UIManager>();
+    uiManager->init(*gpu, renderer->getCommandPool(), renderer->getTextureSetLayout(),
+                    static_cast<float>(screenW), static_cast<float>(screenH));
+    renderer->setUIManager(uiManager.get());
+
     scriptCtx_.world  = world.get();
     scriptCtx_.camera = camera.get();
     scriptCtx_.input  = input.get();
     scriptCtx_.audio  = audio.get();
     scriptCtx_.assets = assets.get();
     scriptCtx_.window = window.get();
+    scriptCtx_.ui     = uiManager.get();
 
     script_ = ScriptFactory::create(cfg.script);
     script_->init(scriptCtx_);
@@ -85,10 +94,25 @@ void Engine::update() {
         fpsFrames = 0;
     }
 
-    if (window->wasResized())
+    if (window->wasResized()) {
         camera->WindowChanged(window->getWidth(), window->getHeight());
+        uiManager->handleResize(static_cast<float>(window->getWidth()),
+                                static_cast<float>(window->getHeight()));
+    }
 
     script_->update(scriptCtx_, dt);
+    uiManager->update(dt);
+
+    // Dispatch UI click on LMB press edge (held→not tracked, only the falling edge).
+    bool lmbNow = input->isLMBDown();
+    if (lmbNow && !prevLMB_) {
+        double mx, my;
+        glfwGetCursorPos(window->getHandle(), &mx, &my);
+        float fx = static_cast<float>(mx) / window->getWidth();
+        float fy = static_cast<float>(my) / window->getHeight();
+        uiManager->handleClick(fx, fy, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS);
+    }
+    prevLMB_ = lmbNow;
 
     // Listener tracks camera (updated after script may have moved it).
     Listener::setPosition(camera->getPosition());
@@ -109,6 +133,7 @@ void Engine::cleanup() {
     audio.reset();
     camera.reset();
     renderer->waitIdle(*gpu);
+    if (uiManager) { uiManager->cleanup(gpu->device()); uiManager.reset(); }
     if (assets) { assets->cleanup(gpu->device()); assets.reset(); }
     world->cleanup();
     world.reset();

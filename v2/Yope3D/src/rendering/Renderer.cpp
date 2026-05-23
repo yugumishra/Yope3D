@@ -10,6 +10,7 @@
 #include "math/Mat4.h"
 #include "platform/Window.h"
 #include "assets/AssetManager.h"
+#include "ui/UIManager.h"
 #include <GLFW/glfw3.h>
 #include <stdexcept>
 #include <array>
@@ -91,6 +92,10 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
     createDescriptorSets(gpu.device());
     createPipeline(gpu.device());
     createFramebuffers(gpu.device());
+    createUIRenderPass(gpu);
+    createUIFramebuffers(gpu.device());
+    createUIPipeline(gpu.device());
+    createUIBuffers(gpu);
     createCommandPool(gpu);
     allocateCommandBuffers(gpu.device());
     createSyncObjects(gpu.device());
@@ -119,6 +124,13 @@ void Renderer::waitIdle(GpuDevice& gpu) {
 
     vkDestroyPipeline(gpu.device(), pipeline, nullptr);
     vkDestroyPipelineLayout(gpu.device(), pipelineLayout, nullptr);
+
+    // UI pipeline cleanup
+    vkDestroyPipeline(gpu.device(), uiPipeline, nullptr);
+    vkDestroyPipelineLayout(gpu.device(), uiPipelineLayout, nullptr);
+    destroyUIFramebuffers(gpu.device());
+    for (auto& ub : uiBuffers) ub.destroy(gpu.device());
+    uiRenderPass.reset();
 
     for (auto& ub : uniformBuffers) ub.destroy(gpu.device());
     for (auto& sb : lightBuffers) sb.destroy(gpu.device());
@@ -455,10 +467,12 @@ void Renderer::recreateSwapchain(GpuDevice& gpu, Window& window) {
     renderFinished.clear();
 
     destroyFramebuffers(gpu.device());
+    destroyUIFramebuffers(gpu.device());
     depthBuffer.reset();
     swapchain->recreate(gpu, window);
     depthBuffer = std::make_unique<DepthBuffer>(gpu, swapchain->extent().width, swapchain->extent().height);
     createFramebuffers(gpu.device());
+    createUIFramebuffers(gpu.device());
 
     VkSemaphoreCreateInfo si{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     renderFinished.resize(swapchain->imageCount());
@@ -512,6 +526,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
     // In debug mode, skip normal meshes — debug shapes are drawn exclusively below.
     if (!world.debugPhysics)
     for (auto* mesh : world.getRenderMeshes()) {
+        if (!mesh->transformReady) continue;
         // Bind the mesh's texture descriptor set (set 1).
         // If the mesh has no texture, use the default white texture.
         Texture* textureToUse = mesh->texture ? mesh->texture : assets.getDefaultTexture();
@@ -560,8 +575,216 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
     }
 
     vkCmdEndRenderPass(cmd);
+
+    // ---------------------------------------------------------------------------
+    // UI render pass — runs after the 3D pass, loads color, no depth.
+    // ---------------------------------------------------------------------------
+    if (uiManager_) {
+        const auto& drawCalls = uiManager_->getDrawCalls();
+        if (!drawCalls.empty()) {
+            VkRenderPassBeginInfo uiRpbi{};
+            uiRpbi.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            uiRpbi.renderPass        = uiRenderPass->get();
+            uiRpbi.framebuffer       = uiFramebuffers[imageIndex];
+            uiRpbi.renderArea.offset = {0, 0};
+            uiRpbi.renderArea.extent = swapchain->extent();
+            uiRpbi.clearValueCount   = 0;   // LOAD — no clear
+
+            vkCmdBeginRenderPass(cmd, &uiRpbi, VK_SUBPASS_CONTENTS_INLINE);
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, uiPipeline);
+
+            VkViewport viewport{};
+            viewport.width    = static_cast<float>(swapchain->extent().width);
+            viewport.height   = static_cast<float>(swapchain->extent().height);
+            viewport.minDepth = 0.0f;
+            viewport.maxDepth = 1.0f;
+            vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+            VkRect2D scissor{ {0, 0}, swapchain->extent() };
+            vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+            const UIBuffer& ubuf = uiBuffers[currentFrame];
+            VkBuffer vb = ubuf.vertexBuffer();
+            VkDeviceSize offset = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
+            vkCmdBindIndexBuffer(cmd, ubuf.indexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+            for (const auto& dc : drawCalls) {
+                if (dc.texture != VK_NULL_HANDLE) {
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        uiPipelineLayout, 0, 1, &dc.texture, 0, nullptr);
+                }
+                vkCmdPushConstants(cmd, uiPipelineLayout,
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(int32_t), &dc.state);
+                vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset,
+                                 dc.vertexOffset, 0);
+            }
+
+            vkCmdEndRenderPass(cmd);
+        }
+    }
+
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
         throw std::runtime_error("Failed to record command buffer");
+}
+
+// ---------------------------------------------------------------------------
+// destroyFramebuffers helpers
+// ---------------------------------------------------------------------------
+
+void Renderer::destroyUIFramebuffers(VkDevice device) {
+    for (auto fb : uiFramebuffers) vkDestroyFramebuffer(device, fb, nullptr);
+    uiFramebuffers.clear();
+}
+
+// ---------------------------------------------------------------------------
+// UI pipeline setup
+// ---------------------------------------------------------------------------
+
+void Renderer::createUIRenderPass(GpuDevice& gpu) {
+    uiRenderPass = std::make_unique<RenderPass>(
+        RenderPass::createUIPass(gpu.device(), swapchain->imageFormat()));
+}
+
+void Renderer::createUIFramebuffers(VkDevice device) {
+    const auto& views = swapchain->imageViews();
+    uiFramebuffers.resize(views.size());
+    for (size_t i = 0; i < views.size(); ++i) {
+        VkFramebufferCreateInfo fi{};
+        fi.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fi.renderPass      = uiRenderPass->get();
+        fi.attachmentCount = 1;
+        fi.pAttachments    = &views[i];   // color only — no depth for UI
+        fi.width           = swapchain->extent().width;
+        fi.height          = swapchain->extent().height;
+        fi.layers          = 1;
+        if (vkCreateFramebuffer(device, &fi, nullptr, &uiFramebuffers[i]) != VK_SUCCESS)
+            throw std::runtime_error("Failed to create UI framebuffer");
+    }
+}
+
+void Renderer::createUIPipeline(VkDevice device) {
+    ShaderModule vert(device, std::string(YOPE_SHADER_DIR) + "/ui.vert.spv");
+    ShaderModule frag(device, std::string(YOPE_SHADER_DIR) + "/ui.frag.spv");
+
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vert.get();
+    stages[0].pName  = "main";
+    stages[1].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = frag.get();
+    stages[1].pName  = "main";
+
+    // UIVertex layout: vec2 pos @ 0, vec2 uv @ 1, vec4 color @ 2
+    VkVertexInputBindingDescription binding{};
+    binding.binding   = 0;
+    binding.stride    = sizeof(UIVertex);
+    binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    VkVertexInputAttributeDescription attrs[3]{};
+    attrs[0] = { 0, 0, VK_FORMAT_R32G32_SFLOAT,       offsetof(UIVertex, x) };
+    attrs[1] = { 1, 0, VK_FORMAT_R32G32_SFLOAT,       offsetof(UIVertex, u) };
+    attrs[2] = { 2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(UIVertex, r) };
+
+    VkPipelineVertexInputStateCreateInfo vertexInput{};
+    vertexInput.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInput.vertexBindingDescriptionCount   = 1;
+    vertexInput.pVertexBindingDescriptions      = &binding;
+    vertexInput.vertexAttributeDescriptionCount = 3;
+    vertexInput.pVertexAttributeDescriptions    = attrs;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkDynamicState dynStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = 2;
+    dynamicState.pDynamicStates    = dynStates;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount  = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.cullMode    = VK_CULL_MODE_NONE;
+    rasterizer.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.lineWidth   = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    // Depth: disabled for UI (renders on top of 3D scene)
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable  = VK_FALSE;
+    depthStencil.depthWriteEnable = VK_FALSE;
+    depthStencil.stencilTestEnable= VK_FALSE;
+
+    // Alpha blending: src_alpha / one_minus_src_alpha
+    VkPipelineColorBlendAttachmentState blendAttachment{};
+    blendAttachment.blendEnable         = VK_TRUE;
+    blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;
+    blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    blendAttachment.alphaBlendOp        = VK_BLEND_OP_ADD;
+    blendAttachment.colorWriteMask      =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlend.attachmentCount = 1;
+    colorBlend.pAttachments    = &blendAttachment;
+
+    // Push constant: just int state (4 bytes), fragment stage only.
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushRange.offset     = 0;
+    pushRange.size       = 4;
+
+    // Set 0 = texture sampler (reuse the same layout as the 3D pipeline's set 1)
+    VkDescriptorSetLayout setLayouts[1] = { textureSetLayout->get() };
+    VkPipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount         = 1;
+    layoutInfo.pSetLayouts            = setLayouts;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges    = &pushRange;
+    if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &uiPipelineLayout) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create UI pipeline layout");
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount          = 2;
+    pipelineInfo.pStages             = stages;
+    pipelineInfo.pVertexInputState   = &vertexInput;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState      = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState   = &multisampling;
+    pipelineInfo.pColorBlendState    = &colorBlend;
+    pipelineInfo.pDepthStencilState  = &depthStencil;
+    pipelineInfo.pDynamicState       = &dynamicState;
+    pipelineInfo.layout              = uiPipelineLayout;
+    pipelineInfo.renderPass          = uiRenderPass->get();
+    pipelineInfo.subpass             = 0;
+
+    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &uiPipeline) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create UI graphics pipeline");
+}
+
+void Renderer::createUIBuffers(GpuDevice& gpu) {
+    for (auto& ub : uiBuffers) ub.init(gpu);
 }
 
 // ---------------------------------------------------------------------------
@@ -616,6 +839,13 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, c
 
     // Upload UBO with updated numLights.
     uniformBuffers[currentFrame].write(&uboData, sizeof(GlobalUBO));
+
+    // Build UI geometry for this frame before recording commands.
+    if (uiManager_) {
+        float sw = static_cast<float>(swapchain->extent().width);
+        float sh = static_cast<float>(swapchain->extent().height);
+        uiManager_->buildFrame(uiBuffers[currentFrame], sw, sh);
+    }
 
     vkResetCommandBuffer(cmdBuffers[currentFrame], 0);
     recordCommandBuffer(cmdBuffers[currentFrame], imageIndex, world, assets);

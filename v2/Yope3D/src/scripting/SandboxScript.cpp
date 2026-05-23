@@ -15,6 +15,10 @@
 #include "platform/Input.h"
 #include "platform/Window.h"
 #include "math/Math.h"
+#include "ui/UIManager.h"
+#include "ui/Background.h"
+#include "ui/TextBox.h"
+#include "ui/TextAtlas.h"
 #include <GLFW/glfw3.h>
 #include <string>
 #include <random>
@@ -109,6 +113,13 @@ private:
     int   fpsFrames_ = 0;
     int   fps_       = 0;
 
+    TextAtlas*   atlas_        = nullptr;
+    TextBox*     fpsLabel_    = nullptr;
+    Background*  debugPanel_  = nullptr;
+    TextBox*     debugLabel_  = nullptr;
+    bool         debugVisible_ = true;
+    bool         hWasDown      = false;
+
     void loadScene(int index);
     void loadPyramid(int baseN);
     void loadSpringCloth(int variant, int shapeType);
@@ -144,16 +155,44 @@ void SandboxScript::init(ScriptContext& ctx) {
     ambientEmitter_->play();
 
     loadScene(sceneIndex);
+
+    ctx.window->setTitle("Yope3D");
+
+    if (ctx.ui) {
+        atlas_ = ctx.ui->loadAtlas("fonts/monaco.ttf", 128);
+
+        auto* fpsPanel = ctx.ui->addBackground({0.01f, 0.001f}, {0.15f, 0.075f},
+                                               {0.05f, 0.05f, 0.05f, 0.0f}, 0);
+        fpsLabel_ = ctx.ui->addTextBox(fpsPanel, atlas_, "FPS: --", 1, 40);
+
+        debugPanel_ = ctx.ui->addBackground({0.72f, 0.005f}, {0.99f, 0.27f},
+                                            {0.04f, 0.04f, 0.04f, 0.70f}, 0);
+        debugLabel_ = ctx.ui->addTextBox(debugPanel_, atlas_, "", 1, 24);
+    }
 }
 
 // ---- update ----
 
 void SandboxScript::update(ScriptContext& ctx, float dt) {
-    // FPS counter.
+    // FPS counter + debug overlay text.
     fpsAccum_ += dt; ++fpsFrames_;
     if (fpsAccum_ >= 0.5f) {
         fps_ = static_cast<int>(fpsFrames_ / fpsAccum_ + 0.5f);
         fpsAccum_ = 0.0f; fpsFrames_ = 0;
+        if (fpsLabel_) fpsLabel_->setText("FPS: " + std::to_string(fps_));
+        if (debugLabel_ && debugVisible_) {
+            int objCount = static_cast<int>(ctx.world->getHulls().size()) - 1;
+            debugLabel_->setText(
+                std::string("Scene: ") + sceneName(sceneIndex) +
+                "  \nIslands: " + std::to_string(ctx.world->getIslandCount()) +
+                "  Threads: " + std::to_string(ctx.world->getThreadCount()) + "\n" +
+                "Objects: " + std::to_string(objCount) +
+                "  Spawn Type: " + typeName(spawnType) +
+                (ctx.world->debugPhysics ? "  [P: physics on]" : "  P: physics") +
+                (audioPaused_           ? "  [M: unmute]"     : "  M: mute") + "\n" +
+                "WASD: move  LMB: spawn  LEFT/RIGHT: scene  UP/DOWN: type  H: hide"
+            );
+        }
     }
 
     // Camera control.
@@ -201,6 +240,15 @@ void SandboxScript::update(ScriptContext& ctx, float dt) {
     }
     mWasDown = mNow;
 
+    // H: toggle debug overlay.
+    bool hNow = ctx.input->isKeyDown(GLFW_KEY_H);
+    if (hNow && !hWasDown) {
+        debugVisible_ = !debugVisible_;
+        if (debugPanel_)  debugPanel_->setVisible(debugVisible_);
+        if (debugLabel_)  debugLabel_->setVisible(debugVisible_);
+    }
+    hWasDown = hNow;
+
     // P: toggle physics debug overlay.
     bool pNow = ctx.input->isKeyDown(GLFW_KEY_P);
     if (pNow && !pWasDown) {
@@ -218,19 +266,6 @@ void SandboxScript::update(ScriptContext& ctx, float dt) {
         dopplerSource_->setVelocity(dopplerObj_->getHull()->getVelocity());
     }
 
-    // Window title bar.
-    int objCount = static_cast<int>(ctx.world->getHulls().size()) - 1;
-    ctx.window->setTitle(
-        std::to_string(fps_) + " fps | " +
-        std::to_string(ctx.world->getIslandCount()) +
-        " isl | " + std::to_string(ctx.world->getThreadCount()) + " thr" +
-        " | " + sceneName(sceneIndex) +
-        " | " + typeName(spawnType) +
-        " | Obj:" + std::to_string(objCount) +
-        " | LMB=spawn  UP/DOWN=type  LEFT/RIGHT=scene  WASD=move" +
-        (ctx.world->debugPhysics ? "  [P=debug]" : "  P=debug") +
-        (audioPaused_ ? "  [M=unmute]" : "  M=mute")
-    );
 }
 
 // ---- loadScene ----

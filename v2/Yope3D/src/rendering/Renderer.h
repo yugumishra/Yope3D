@@ -7,6 +7,7 @@
 #include "gpu/UniformBuffer.h"
 #include "gpu/StorageBuffer.h"
 #include "gpu/DepthBuffer.h"
+#include "gpu/UIBuffer.h"
 #include "Light.h"
 #include "../world/World.h"
 
@@ -18,6 +19,7 @@ class Swapchain;
 class RenderPass;
 class DescriptorSetLayout;
 class DescriptorPool;
+class UIManager;
 
 // ---------------------------------------------------------------------------
 // Renderer
@@ -42,6 +44,8 @@ public:
     void drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, const World& world,
                    class AssetManager& assets);
     void waitIdle(GpuDevice& gpu);
+
+    void setUIManager(UIManager* mgr) { uiManager_ = mgr; }
 
     VkCommandPool         getCommandPool()      const { return commandPool; }
     VkDescriptorSetLayout getTextureSetLayout() const;
@@ -68,6 +72,14 @@ private:
 
     std::vector<VkFramebuffer> framebuffers;
 
+    // UI pipeline (separate render pass after the 3D pass)
+    std::unique_ptr<RenderPass>       uiRenderPass;
+    std::vector<VkFramebuffer>        uiFramebuffers;
+    VkPipelineLayout                  uiPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline                        uiPipeline       = VK_NULL_HANDLE;
+    std::array<UIBuffer, MAX_FRAMES>  uiBuffers;
+    UIManager*                        uiManager_       = nullptr;
+
     VkCommandPool                           commandPool = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, MAX_FRAMES> cmdBuffers{};
 
@@ -91,6 +103,12 @@ private:
 
     void recreateSwapchain(GpuDevice& gpu, Window& window);
     void destroyFramebuffers(VkDevice device);
+    void destroyUIFramebuffers(VkDevice device);
+
+    void createUIRenderPass(GpuDevice& gpu);
+    void createUIFramebuffers(VkDevice device);
+    void createUIPipeline(VkDevice device);
+    void createUIBuffers(GpuDevice& gpu);
 
     void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, const World& world,
                             class AssetManager& assets);

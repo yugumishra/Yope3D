@@ -28,6 +28,8 @@ file(MAKE_DIRECTORY "${SHADER_COMPILED_DIR}")
 set(SHADER_SOURCES
     "${SHADER_SRC_DIR}/triangle.vert"
     "${SHADER_SRC_DIR}/triangle.frag"
+    "${SHADER_SRC_DIR}/ui.vert"
+    "${SHADER_SRC_DIR}/ui.frag"
 )
 
 set(COMPILED_SHADERS "")
@@ -148,6 +150,14 @@ add_executable(yope3d
     src/scripting/ScriptFactory.cpp
     src/scripting/Config.cpp
     src/scripting/SandboxScript.cpp
+    src/gpu/UIBuffer.cpp
+    src/ui/Background.cpp
+    src/ui/TexturedBackground.cpp
+    src/ui/AnimatedBackground.cpp
+    src/ui/CurvedBackground.cpp
+    src/ui/TextAtlas.cpp
+    src/ui/TextBox.cpp
+    src/ui/UIManager.cpp
     ${PHYSICS_SOURCES}
 )
 
