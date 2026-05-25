@@ -224,6 +224,19 @@ target_include_directories(yope_physics_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(yope_physics_tests PRIVATE Catch2::Catch2WithMain)
 
 # ---------------------------------------------------------------------------
+# ECS test executable — no Vulkan/GLFW/OpenAL dependency
+# ---------------------------------------------------------------------------
+
+add_executable(yope_ecs_tests
+    tests/ecs_tests.cpp
+    src/ecs/Registry.cpp
+    src/math/MathImpl.cpp
+)
+
+target_include_directories(yope_ecs_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(yope_ecs_tests PRIVATE Catch2::Catch2WithMain)
+
+# ---------------------------------------------------------------------------
 # Package version test — verifies external dependencies are linked correctly
 # ---------------------------------------------------------------------------
 
