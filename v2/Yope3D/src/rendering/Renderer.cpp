@@ -12,11 +12,49 @@
 #include "platform/Window.h"
 #include "assets/AssetManager.h"
 #include "ui/UIManager.h"
+#include "ecs/Components.h"
 #include <GLFW/glfw3.h>
 #include <stdexcept>
 #include <array>
 #include <vector>
 #include <cstring>
+
+// ---------------------------------------------------------------------------
+// packLightSource — packs ecs::LightSource into the same float stream as packLight().
+// ---------------------------------------------------------------------------
+
+static std::vector<float> packLightSource(const ecs::LightSource& ls) {
+    auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
+    std::vector<float> r;
+    r.push_back(static_cast<float>(ls.type));
+    float cr = clamp01(ls.color[0] * ls.intensity);
+    float cg = clamp01(ls.color[1] * ls.intensity);
+    float cb = clamp01(ls.color[2] * ls.intensity);
+    r.push_back(cr); r.push_back(cg); r.push_back(cb);
+    if (ls.type == 0) {                               // Point
+        r.push_back(ls.position[0]); r.push_back(ls.position[1]); r.push_back(ls.position[2]);
+        r.push_back(ls.constant); r.push_back(ls.linear); r.push_back(ls.quadratic);
+    } else if (ls.type == 1) {                        // Directional
+        float len = std::sqrt(ls.direction[0]*ls.direction[0] +
+                              ls.direction[1]*ls.direction[1] +
+                              ls.direction[2]*ls.direction[2]);
+        float inv = len > 1e-6f ? 1.f/len : 1.f;
+        r.push_back(ls.direction[0]*inv); r.push_back(ls.direction[1]*inv); r.push_back(ls.direction[2]*inv);
+    } else if (ls.type == 2) {                        // Spot
+        r.push_back(ls.position[0]); r.push_back(ls.position[1]); r.push_back(ls.position[2]);
+        float len = std::sqrt(ls.direction[0]*ls.direction[0] +
+                              ls.direction[1]*ls.direction[1] +
+                              ls.direction[2]*ls.direction[2]);
+        float inv = len > 1e-6f ? 1.f/len : 1.f;
+        r.push_back(ls.direction[0]*inv); r.push_back(ls.direction[1]*inv); r.push_back(ls.direction[2]*inv);
+        r.push_back(ls.constant); r.push_back(ls.linear); r.push_back(ls.quadratic);
+        r.push_back(std::cos(ls.innerConeAngle)); r.push_back(std::cos(ls.outerConeAngle));
+    } else {                                          // Flash (type == 3)
+        r.push_back(ls.constant); r.push_back(ls.linear); r.push_back(ls.quadratic);
+        r.push_back(std::cos(ls.innerConeAngle)); r.push_back(std::cos(ls.outerConeAngle));
+    }
+    return r;
+}
 
 // ---------------------------------------------------------------------------
 // GlobalUBO — must match the std140 layout in triangle.vert exactly.
@@ -509,7 +547,7 @@ void Renderer::recreateSwapchain(GpuDevice& gpu, Window& window) {
 // Command buffer recording
 // ---------------------------------------------------------------------------
 
-void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, const World& world,
+void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, World& world,
                                   AssetManager& assets) {
     VkCommandBufferBeginInfo bi{};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -579,30 +617,37 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
             0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-        if (!world.debugPhysics)
-        for (auto* mesh : world.getRenderMeshes()) {
-            if (!mesh->transformReady) continue;
-            Texture* textureToUse = mesh->texture ? mesh->texture : assets.getDefaultTexture();
-            VkDescriptorSet textureSet = textureToUse->getDescriptorSet();
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-                1, 1, &textureSet, 0, nullptr);
+        if (!world.debugPhysics) {
+            auto& reg = world.getRegistry();
+            for (auto [entity, tf, mr] : reg.view<Transform, ecs::MeshRenderer>()) {
+                if (!mr.mesh || !mr.mesh->transformReady) continue;
 
-            struct PushConstants {
-                math::Mat4 model;
-                float      color[3];
-                int32_t    state;
-            } push{};
-            push.model    = mesh->modelMatrix;
-            push.color[0] = mesh->color[0];
-            push.color[1] = mesh->color[1];
-            push.color[2] = mesh->color[2];
-            push.state    = mesh->state;
+                math::Mat4 model = useECSTransform
+                    ? tf.getModelMatrix()
+                    : mr.mesh->modelMatrix;
 
-            vkCmdPushConstants(cmd, pipelineLayout,
-                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                0, 80, &push);
+                Texture* textureToUse = mr.mesh->texture ? mr.mesh->texture : assets.getDefaultTexture();
+                VkDescriptorSet textureSet = textureToUse->getDescriptorSet();
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+                    1, 1, &textureSet, 0, nullptr);
 
-            mesh->draw(cmd);
+                struct PushConstants {
+                    math::Mat4 model;
+                    float      color[3];
+                    int32_t    state;
+                } push{};
+                push.model    = model;
+                push.color[0] = mr.mesh->color[0];
+                push.color[1] = mr.mesh->color[1];
+                push.color[2] = mr.mesh->color[2];
+                push.state    = mr.mesh->state;
+
+                vkCmdPushConstants(cmd, pipelineLayout,
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    0, 80, &push);
+
+                mr.mesh->draw(cmd);
+            }
         }
 
         if (world.debugPhysics) {
@@ -841,7 +886,7 @@ void Renderer::createUIBuffers(GpuDevice& gpu) {
 // drawFrame
 // ---------------------------------------------------------------------------
 
-void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, const World& world,
+void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, World& world,
                         AssetManager& assets) {
     vkWaitForFences(gpu.device(), 1, &inFlightFence[currentFrame], VK_TRUE, UINT64_MAX);
 
@@ -868,19 +913,16 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, c
     uboData.cameraPos[1] = pos.y;
     uboData.cameraPos[2] = pos.z;
 
-    // Pack and upload lights from the world.
-    const auto& worldLights = world.getLights();
-    uint32_t numLights = static_cast<uint32_t>(worldLights.size());
-    if (numLights > YOPE_MAX_LIGHTS) numLights = YOPE_MAX_LIGHTS;
-    uboData.numLights = static_cast<int>(numLights);
-
-    // Pack lights into variable-length float stream.
+    // Pack lights from ECS registry.
     std::vector<float> packedLights;
-    math::Vec3 camDir = camera.getForward();  // Camera forward direction
-    for (uint32_t i = 0; i < numLights; ++i) {
-        auto lightData = packLight(worldLights[i], pos, camDir);
+    int numLights = 0;
+    for (auto [entity, ls] : world.getRegistry().view<ecs::LightSource>()) {
+        if (numLights >= static_cast<int>(YOPE_MAX_LIGHTS)) break;
+        auto lightData = packLightSource(ls);
         packedLights.insert(packedLights.end(), lightData.begin(), lightData.end());
+        ++numLights;
     }
+    uboData.numLights = numLights;
 
     // Upload light data to the SSBO. Write only the actual packed size.
     if (!packedLights.empty()) {

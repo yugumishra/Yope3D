@@ -36,6 +36,26 @@ void Spring::syncProxies() const {
     }
 }
 
+Spring::SpringTransform Spring::computeSpringTransform() const {
+    math::Vec3 start = first->getPosition();
+    math::Vec3 fwd   = second->getPosition() - start;
+    float length = fwd.length();
+    math::Vec3 dir = length > 1e-6f ? fwd * (1.f / length) : math::Vec3{1, 0, 0};
+
+    math::Vec3 localX = {1, 0, 0};
+    float cosA = std::clamp(localX.dot(dir), -1.0f, 1.0f);
+    math::Quat rot;
+    if (cosA > 0.9999f) {
+        rot = {0, 0, 0, 1};
+    } else if (cosA < -0.9999f) {
+        rot = {0, 0, 1, 0};
+    } else {
+        math::Vec3 axis = localX.cross(dir).normalize();
+        rot = math::Quat::fromAxisAngle(axis, std::acos(cosA));
+    }
+    return {start, rot, {length, 1.0f, 1.0f}};
+}
+
 math::Mat4 Spring::computeModelMatrix() const {
     math::Vec3 start = first->getPosition();
     // Local X axis = vector from first to second (magnitude = spring length).

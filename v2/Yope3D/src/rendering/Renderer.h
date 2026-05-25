@@ -43,8 +43,10 @@ public:
     Renderer(GpuDevice& gpu, Window& window);
     ~Renderer();
 
-    void drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, const World& world,
+    void drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, World& world,
                    class AssetManager& assets);
+
+    bool useECSTransform = false;
     void waitIdle(GpuDevice& gpu);
 
     void setUIManager(UIManager* mgr) { uiManager_ = mgr; }
@@ -120,6 +122,6 @@ private:
 
     void createRaytracePass(GpuDevice& gpu);
 
-    void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, const World& world,
+    void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, World& world,
                             class AssetManager& assets);
 };

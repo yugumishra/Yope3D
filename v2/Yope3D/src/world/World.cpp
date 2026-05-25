@@ -49,14 +49,19 @@ int World::getThreadCount() const {
 // ---- Cache management ----
 
 void World::rebuildCaches() {
-    hullCache_.clear();
     meshCache_.clear();
     objectPtrs_.clear();
     for (auto& obj : objects_) {
         objectPtrs_.push_back(obj.get());
-        if (obj->hull) hullCache_.push_back(obj->hull.get());
         if (obj->mesh) meshCache_.push_back(obj->mesh.get());
     }
+}
+
+std::vector<physics::Hull*> World::getHulls() const {
+    std::vector<physics::Hull*> v;
+    v.reserve(hullToEntity_.size());
+    for (const auto& [h, e] : hullToEntity_) v.push_back(h);
+    return v;
 }
 
 ecs::Entity World::findEntityForHull(const physics::Hull* h) const {
@@ -87,6 +92,8 @@ SceneObject* World::addSphere(float mass, float radius, math::Vec3 pos) {
     registry_.add<Transform>(e, Transform{h->getPosition(), h->getRotation(), {radius, radius, radius}});
     registry_.add<ecs::Hull>(e, buildHullComp(h));
     registry_.add<ecs::SphereForm>(e, {radius});
+    registry_.add<ecs::LegacyHullRef>(e, {h});
+    hullToEntity_[h] = e;
     return obj;
 }
 
@@ -98,6 +105,8 @@ SceneObject* World::addOBB(math::Vec3 extent, float mass, math::Vec3 pos) {
     registry_.add<Transform>(e, Transform{h->getPosition(), h->getRotation(), extent});
     registry_.add<ecs::Hull>(e, buildHullComp(h));
     registry_.add<ecs::OBBForm>(e, {extent});
+    registry_.add<ecs::LegacyHullRef>(e, {h});
+    hullToEntity_[h] = e;
     return obj;
 }
 
@@ -109,6 +118,8 @@ SceneObject* World::addAABB(math::Vec3 extent, float mass, math::Vec3 pos) {
     registry_.add<Transform>(e, Transform{h->getPosition(), h->getRotation(), extent});
     registry_.add<ecs::Hull>(e, buildHullComp(h));
     registry_.add<ecs::AABBForm>(e, {extent});
+    registry_.add<ecs::LegacyHullRef>(e, {h});
+    hullToEntity_[h] = e;
     return obj;
 }
 
@@ -116,9 +127,12 @@ SceneObject* World::addStaticAABB(math::Vec3 pos, math::Vec3 extent) {
     auto* obj = makeHullObject<physics::CAABB>(pos, extent);
     ecs::Entity e = registry_.create();
     obj->entity = e;
+    auto* h = obj->getHull();
     registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, extent});
     registry_.add<ecs::AABBForm>(e, {extent});
     registry_.add<ecs::Fixed>(e);
+    registry_.add<ecs::LegacyHullRef>(e, {h});
+    hullToEntity_[h] = e;
     return obj;
 }
 
@@ -207,6 +221,7 @@ SceneObject* World::addRenderObject(const std::vector<Vertex>& vertices,
     raw->entity = e;
     registry_.add<Transform>(e);
     registry_.add<ecs::MeshRenderer>(e, {raw->getMesh()});
+    meshToEntity_[raw->getMesh()] = e;
     return raw;
 }
 
@@ -306,9 +321,6 @@ physics::Spring* World::addSpringWithMesh(physics::Hull* a, physics::Hull* b,
 // ---- Lights ----
 
 void World::addLight(const Light& light) {
-    lights_.push_back(light);
-    lightsDirty = true;
-
     ecs::LightSource ls;
     std::visit([&](const auto& l) {
         using T = std::decay_t<decltype(l)>;
@@ -346,18 +358,11 @@ void World::addLight(const Light& light) {
 }
 
 void World::removeLight(int index) {
-    if (index >= 0 && index < static_cast<int>(lights_.size())) {
-        if (index < static_cast<int>(lightEntities_.size())) {
-            registry_.destroy(lightEntities_[index]);
-            lightEntities_.erase(lightEntities_.begin() + index);
-        }
-        lights_.erase(lights_.begin() + index);
-        lightsDirty = true;
+    if (index >= 0 && index < static_cast<int>(lightEntities_.size())) {
+        registry_.destroy(lightEntities_[index]);
+        lightEntities_.erase(lightEntities_.begin() + index);
     }
 }
-
-void World::lightChanged() { lightsDirty = true; }
-const std::vector<Light>& World::getLights() const { return lights_; }
 
 // ---- removeObject ----
 
@@ -410,9 +415,12 @@ void World::removeObject(SceneObject* obj) {
         // 1c. Purge ContactCache entries keyed by this hull.
         std::erase_if(contactCache_,
             [h](const auto& kv) { return kv.first.a == h || kv.first.b == h; });
+
+        hullToEntity_.erase(h);
     }
 
     // 2. GPU teardown — sync device before freeing Vulkan buffers.
+    if (obj->mesh) meshToEntity_.erase(obj->mesh.get());
     gpu_->syncDevice();
     if (obj->mesh) { obj->mesh->destroy(gpu_->device()); obj->mesh.reset(); }
 
@@ -445,6 +453,8 @@ void World::resetPhysics() {
     springs_.clear();
     barriers_.clear();
     contactCache_.clear();
+    hullToEntity_.clear();
+    meshToEntity_.clear();
     rebuildCaches();
 
     registry_ = ecs::Registry{};
@@ -459,10 +469,11 @@ void World::cleanup() {
     for (auto& obj : objects_)
         if (obj->mesh) obj->mesh->destroy(gpu_->device());
     objects_.clear();
-    lights_.clear();
     springs_.clear();
     barriers_.clear();
     contactCache_.clear();
+    hullToEntity_.clear();
+    meshToEntity_.clear();
     rebuildCaches();
 
     registry_ = ecs::Registry{};
@@ -474,21 +485,17 @@ void World::cleanup() {
 void World::advance(float dt) {
     std::lock_guard lk(structureMtx_);
 
+    // Build hull list from ECS (replaces hullCache_).
+    std::vector<physics::Hull*> hulls;
+    for (auto [e, ref] : registry_.view<ecs::LegacyHullRef>())
+        if (ref.ptr) hulls.push_back(ref.ptr);
+
     // 0. Sync spring proxies.
     for (auto& s : springs_)
         s->syncProxies();
 
-    // 1. CCD barrier collision.
-    /*
-    for (auto* h : hullCache_) {
-        if (h->isFixed() || !h->isTangible() || h->isSleeping()) continue;
-        for (auto& bv : barriers_) {
-            std::visit([&](auto& b){ physics::ColliderCCD::collideBarrier(*h, b, dt, gravity); }, bv);
-        }
-    }*/
-
     // 2. SAP broadphase + island-partitioned PGS.
-    sap_.collectPairs(hullCache_, sapPairs_);
+    sap_.collectPairs(hulls, sapPairs_);
 
     std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
     for (auto& [ha, hb] : sapPairs_) {
@@ -517,38 +524,13 @@ void World::advance(float dt) {
         physics::IslandDetector::mergeCache(islands, contactCache_);
     }
 
-    // 2b. Barrier pseudo-position clamp.
-    /*
-    for (auto* h : hullCache_) {
-        if (!h->isTangible() || h->isFixed()) continue;
-        auto clampAgainstBarriers = [&](const auto& bv) {
-            std::visit([&](const auto& b) {
-                using T = std::decay_t<decltype(b)>;
-                if constexpr (std::is_same_v<T, physics::Barrier>) {
-                    math::Vec3 n   = b.normal;
-                    math::Vec3 ext = h->getBroadExtent();
-                    float r   = std::abs(n.x)*ext.x + std::abs(n.y)*ext.y + std::abs(n.z)*ext.z;
-                    float dist = (h->getPosition() - b.position).dot(n) - r;
-                    if (dist < physics::SPLIT_SLOP) {
-                        math::Vec3 pv  = h->getPseudoVel();
-                        float      pvn = pv.dot(n);
-                        if (pvn < 0.0f) h->addPseudoLinear(n * (-pvn));
-                        math::Vec3 pOmega = h->getPseudoOmega();
-                        if (pOmega.dot(pOmega) > 1e-10f) h->addPseudoAngular(-pOmega);
-                    }
-                }
-            }, bv);
-        };
-        for (auto& bv : barriers_) clampAgainstBarriers(bv);
-    }*/
-
     // 3. Integration.
-    for (auto* h : hullCache_) {
+    for (auto* h : hulls) {
         if (h->isTangible()) h->advance(dt, gravity);
     }
 
     // 4. Sleeping check.
-    for (auto* h : hullCache_) {
+    for (auto* h : hulls) {
         if (!h->isFixed() && h->isTangible() && !h->isSleeping()) {
             math::Vec3 v = h->getVelocity();
             math::Vec3 w = h->getOmega();
@@ -567,16 +549,31 @@ void World::advance(float dt) {
 
 void World::publishSnapshot() {
     // Called at end of advance(), still holding structureMtx_.
-    snapshotBack_.resize(hullCache_.size());
-    for (size_t i = 0; i < hullCache_.size(); ++i) {
-        auto* h = hullCache_[i];
-        snapshotBack_[i] = { h->getPosition(), h->getRotation(), h->getScale(), h->linkedMesh };
+    snapshotBack_.clear();
+    for (auto [e, ref] : registry_.view<ecs::LegacyHullRef>()) {
+        auto* h = ref.ptr;
+        if (!h) continue;
+        snapshotBack_.push_back({ h->getPosition(), h->getRotation(), h->getScale(), h->linkedMesh, e });
+
+        if (auto* hc = registry_.get<ecs::Hull>(e)) {
+            hc->velocity = h->getVelocity();
+            hc->omega    = h->getOmega();
+        }
+        bool sleeping = h->isSleeping();
+        if (sleeping && !registry_.has<ecs::Sleeping>(e))
+            registry_.add<ecs::Sleeping>(e);
+        else if (!sleeping && registry_.has<ecs::Sleeping>(e))
+            registry_.remove<ecs::Sleeping>(e);
     }
 
     springSnapshotBack_.clear();
-    for (auto& s : springs_)
-        if (s->visualMesh)
-            springSnapshotBack_.emplace_back(s->visualMesh, s->computeModelMatrix());
+    for (auto& s : springs_) {
+        if (!s->visualMesh) continue;
+        auto [pos, rot, scale] = s->computeSpringTransform();
+        auto it = meshToEntity_.find(s->visualMesh);
+        ecs::Entity se = (it != meshToEntity_.end()) ? it->second : ecs::NullEntity;
+        springSnapshotBack_.push_back({pos, rot, scale, s->visualMesh, se});
+    }
 
     if (debugPhysics)
         syncDebugMeshes();
@@ -592,14 +589,29 @@ void World::publishSnapshot() {
 void World::syncRenderMeshesFromFront() {
     // Called on the main thread after newSnapshotReady_ is observed; no lock needed
     // since snapshotFront_ is only swapped under snapshotMtx_ before this call.
-    for (auto& s : snapshotFront_)
+    for (auto& s : snapshotFront_) {
         if (s.mesh) {
-            s.mesh->modelMatrix     = Transform{s.pos, s.rot, s.scale}.getModelMatrix();
-            s.mesh->transformReady  = true;
+            s.mesh->modelMatrix    = Transform{s.pos, s.rot, s.scale}.getModelMatrix();
+            s.mesh->transformReady = true;
         }
-    for (auto& [mesh, mat] : springSnapshotFront_) {
-        mesh->modelMatrix    = mat;
-        mesh->transformReady = true;
+        if (registry_.valid(s.entity)) {
+            if (auto* t = registry_.get<Transform>(s.entity)) {
+                t->position = s.pos;
+                t->rotation = s.rot;
+                t->scale    = s.scale;
+            }
+        }
+    }
+    for (auto& ss : springSnapshotFront_) {
+        ss.mesh->modelMatrix    = Transform{ss.pos, ss.rot, ss.scale}.getModelMatrix();
+        ss.mesh->transformReady = true;
+        if (registry_.valid(ss.entity)) {
+            if (auto* t = registry_.get<Transform>(ss.entity)) {
+                t->position = ss.pos;
+                t->rotation = ss.rot;
+                t->scale    = ss.scale;
+            }
+        }
     }
 }
 
@@ -610,8 +622,9 @@ void World::rebuildDebugMeshes() {
     auto [boxV, boxI] = DebugShapes::makeBox();
     auto [sphV, sphI] = DebugShapes::makeSphere();
 
-    for (auto* h : hullCache_) {
-        if (!h->isTangible()) {
+    for (const auto& obj : objects_) {
+        auto* h = obj->hull.get();
+        if (!h || !h->isTangible()) {
             debugMeshes_.push_back(nullptr);
             continue;
         }
@@ -624,11 +637,14 @@ void World::rebuildDebugMeshes() {
 }
 
 void World::syncDebugMeshes() {
-    size_t n = std::min(hullCache_.size(), debugMeshes_.size());
-    for (size_t i = 0; i < n; ++i) {
-        if (!debugMeshes_[i]) continue;
-        auto* h  = hullCache_[i];
-        auto& dm = *debugMeshes_[i];
+    size_t dmIdx = 0;
+    for (const auto& obj : objects_) {
+        if (dmIdx >= debugMeshes_.size()) break;
+        if (!debugMeshes_[dmIdx]) { ++dmIdx; continue; }
+        auto* h  = obj->hull.get();
+        if (!h)  { ++dmIdx; continue; }
+        auto& dm = *debugMeshes_[dmIdx];
+        ++dmIdx;
 
         math::Vec3 ext = h->getBroadExtent();
         math::Mat4 T;

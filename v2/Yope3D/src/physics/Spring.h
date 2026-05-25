@@ -15,6 +15,11 @@ public:
     // Builds a model matrix that orients [0,1]-local-X from first to second.
     math::Mat4 computeModelMatrix() const;
 
+    // Returns {pos, rot, scale} equivalent for ECS Transform sync.
+    // rot aligns local X with the spring direction; scale.x = spring length.
+    struct SpringTransform { math::Vec3 pos; math::Quat rot; math::Vec3 scale; };
+    SpringTransform computeSpringTransform() const;
+
     // Move proxy spheres to their interpolated positions along the spring.
     // Called by World::advance before broadphase each frame.
     void syncProxies() const;
