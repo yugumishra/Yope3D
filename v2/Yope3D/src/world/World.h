@@ -4,6 +4,7 @@
 #include <variant>
 #include <atomic>
 #include <mutex>
+#include <unordered_map>
 #include "SceneObject.h"
 #include "RenderMesh.h"
 #include "../rendering/Light.h"
@@ -75,8 +76,9 @@ public:
     const std::vector<SceneObject*>& getObjects() const { return objectPtrs_; }
 
     // ---- Flat caches (non-owning, rebuilt on add/remove) ----
-    const std::vector<physics::Hull*>& getHulls()        const { return hullCache_; }
-    const std::vector<RenderMesh*>&    getRenderMeshes()  const { return meshCache_; }
+    // getHulls() builds dynamically from the hullToEntity_ map (no hullCache_ member).
+    std::vector<physics::Hull*>     getHulls()        const;
+    const std::vector<RenderMesh*>& getRenderMeshes() const { return meshCache_; }
 
     // Standalone barriers (added via addBarrier()). Hull-owned barriers live in BarrierHull::getBarriers().
     const std::vector<std::variant<physics::Barrier, physics::BoundedBarrier>>& getBarriers() const { return barriers_; }
@@ -97,10 +99,7 @@ public:
     // ---- Lights ----
     void addLight(const Light& light);
     void removeLight(int index);
-    void lightChanged();
-    const std::vector<Light>& getLights() const;
-    bool isLightsDirty()   const { return lightsDirty; }
-    void clearLightsDirty()      { lightsDirty = false; }
+    int  getLightCount() const { return static_cast<int>(lightEntities_.size()); }
 
     // ---- Simulation ----
     void advance(float dt);
@@ -139,6 +138,7 @@ private:
         math::Quat  rot;
         math::Vec3  scale;
         RenderMesh* mesh;
+        ecs::Entity entity;   // Phase C: for ECS Transform sync on main thread
     };
 
     GpuDevice*   gpu_  = nullptr;
@@ -146,9 +146,16 @@ private:
 
     // Double-buffered transform snapshots. Physics thread writes snapshotBack_,
     // main thread reads snapshotFront_. Swap is guarded by snapshotMtx_.
-    std::vector<TransformSnapshot>                 snapshotBack_, snapshotFront_;
-    // Spring visual mesh matrices (full Mat4 since computeModelMatrix() returns one directly).
-    std::vector<std::pair<RenderMesh*, math::Mat4>> springSnapshotBack_, springSnapshotFront_;
+    struct SpringSnapshot {
+        math::Vec3  pos;
+        math::Quat  rot;
+        math::Vec3  scale;
+        RenderMesh* mesh;
+        ecs::Entity entity;
+    };
+
+    std::vector<TransformSnapshot> snapshotBack_, snapshotFront_;
+    std::vector<SpringSnapshot>    springSnapshotBack_, springSnapshotFront_;
     std::mutex snapshotMtx_;
 
     // Guards hullCache_/meshCache_/springs_ against concurrent advance() and add/remove calls.
@@ -158,15 +165,14 @@ private:
     std::vector<std::unique_ptr<SceneObject>> objects_;
 
     // Non-owning flat caches — rebuilt eagerly after add/remove.
-    std::vector<physics::Hull*> hullCache_;
     std::vector<RenderMesh*>    meshCache_;
     std::vector<SceneObject*>   objectPtrs_;
 
     ecs::Registry                                                          registry_;
     std::vector<ecs::Entity>                                               lightEntities_;
+    std::unordered_map<physics::Hull*, ecs::Entity>                        hullToEntity_;
+    std::unordered_map<RenderMesh*, ecs::Entity>                           meshToEntity_;
 
-    std::vector<Light>                                                     lights_;
-    bool                                                                   lightsDirty = false;
     std::vector<std::variant<physics::Barrier, physics::BoundedBarrier>>   barriers_;
     std::vector<std::unique_ptr<physics::Spring>>                          springs_;
     physics::BroadphaseSAP                                                 sap_;

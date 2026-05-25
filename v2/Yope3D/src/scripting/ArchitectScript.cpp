@@ -209,7 +209,7 @@ void ArchitectScript::update(ScriptContext& ctx, float dt) {
             fl.linear    = 0.05f;
             fl.quadratic = 0.005f;
             ctx.world->addLight(fl);
-            flashlightIdx_ = static_cast<int>(ctx.world->getLights().size()) - 1;
+            flashlightIdx_ = ctx.world->getLightCount() - 1;
             if (clickOnSrc_) clickOnSrc_->play();
         } else {
             if (flashlightIdx_ >= 0) {
