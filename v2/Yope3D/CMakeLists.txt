@@ -116,6 +116,7 @@ set(PHYSICS_SOURCES
 
 add_executable(yope3d
     src/main.cpp
+    src/ecs/Registry.cpp
     src/platform/Window.cpp
     src/platform/Input.cpp
     src/Engine.cpp

@@ -3,6 +3,7 @@
 #include <string>
 #include "RenderMesh.h"
 #include "../physics/Hull.h"
+#include "../ecs/Entity.h"
 
 // SceneObject — owns one optional physics body + one optional visual mesh.
 // World::objects holds the authoritative vector of SceneObjects; World maintains
@@ -15,6 +16,7 @@ public:
     std::unique_ptr<physics::Hull> hull;
     std::unique_ptr<RenderMesh>    mesh;
     std::string                    name;
+    ecs::Entity                    entity = ecs::NullEntity;  // shadow ECS entity (Phase B)
 
     SceneObject() = default;
     SceneObject(SceneObject&&) = default;

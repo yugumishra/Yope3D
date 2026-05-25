@@ -180,22 +180,23 @@ The initial component set (added in this milestone, used by editor and python in
 | Component | Purpose | Migrated from |
 |-----------|---------|---------------|
 | `Transform` | position (Vec3), rotation (Quat), scale (Vec3) | already exists |
-| `RigidBody` | velocity, omega, mass, inverseMass, damping, materials, flags | currently embedded in Hull |
-| `SphereCollider` | radius | from CSphere |
-| `AABBCollider` | extent | from CAABB |
-| `OBBCollider` | extent | from COBB |
-| `BarrierCollider` | barrier set ref | from BarrierHull |
+| `Hull` | velocity, omega, mass, inverseMass, damping, materials, flags | currently embedded in physics::Hull |
+| `SphereForm` | radius | from CSphere |
+| `AABBForm` | extent | from CAABB |
+| `OBBForm` | extent | from COBB |
 | `MeshRenderer` | vertex buffer ref, index buffer ref, material ref, draw flag | from RenderMesh |
 | `LightSource` | type, color, intensity, range, etc. | from Light |
-| `AudioEmitter` | source handle, gain, pitch, looping, etc. | from Source |
-| `SpringJoint` | other entity, k, rest | from Spring |
-| `Sleeping` | tag component, presence = sleeping | from Hull::sleeping |
-| `Fixed` | tag, presence = static body | from Hull::fixed |
+| `AudioSource` | source handle, gain, pitch, looping, etc. | from Source |
+| `SpringConstraint` | other entity, k, rest | from Spring |
+| `Sleeping` | tag component, presence = sleeping | from physics::Hull::sleeping |
+| `Fixed` | tag, presence = static body | from physics::Hull::fixed |
 | `Name` | string (editor-only field, but stored uniformly) | new |
 | `EditorSelectable` | tag, presence = visible in hierarchy | new |
 | `EditorPickable` | tag, presence = ID buffer renders this entity | new |
 
-`Sleeping` and `Fixed` as tag components (zero-sized) is important: a system query `(Transform, RigidBody)` without `Sleeping` skips sleeping entities entirely at iteration time, instead of branching `if (hull->sleeping) continue;` inside the loop. This is one of the cleanest archetype wins.
+**Barriers are deprecated.** `BarrierHull`, `Barrier`, and `BoundedBarrier` are not migrated to ECS components. Static world boundaries will be expressed as `Fixed`-tagged entities with `AABBForm`/`OBBForm` colliders. All barrier-related files are deleted in Phase D.
+
+`Sleeping` and `Fixed` as tag components (zero-sized) is important: a system query `(Transform, Hull)` without `Sleeping` skips sleeping entities entirely at iteration time, instead of branching `if (hull->sleeping) continue;` inside the loop. This is one of the cleanest archetype wins.
 
 ### 5.4 The collision dispatch table
 
@@ -248,7 +249,7 @@ Phased to keep the engine runnable throughout:
 
 **Phase A: Build the registry.** New `src/ecs/` directory. Registry, Archetype, Entity, View. Unit tests. ~15 hours.
 
-**Phase B: Add components in parallel.** Add `Transform`, `RigidBody`, `SphereCollider` etc. as ECS components, but keep the existing `Hull`/`SceneObject` classes alive. Migrate one factory method at a time. `World::addSphere` creates both a `SceneObject` and an ECS entity until cutover. ~10 hours.
+**Phase B: Add components in parallel.** Add `Transform`, `Hull`, `SphereForm` etc. as ECS components, but keep the existing `physics::Hull`/`SceneObject` classes alive. Migrate one factory method at a time. `World::addSphere` creates both a `SceneObject` and an ECS entity until cutover. ~10 hours.
 
 **Phase C: Migrate systems.** PhysicsSystem (iterates ECS instead of `hullCache_`), RenderSystem (iterates ECS instead of `meshCache_`), etc. The legacy `World` becomes a thin wrapper that delegates to the Registry. ~25 hours.
 
@@ -256,7 +257,7 @@ Phased to keep the engine runnable throughout:
 
 **Phase E: Profile and optimize.** Stress test at 10–12k entities. Identify hot queries, possibly migrate specific components to SoA if a profile demands it. ~15 hours.
 
-The original Hull hierarchy and SceneObject classes are gone at the end. CSphere, CAABB, COBB, Hull.h, Hull.cpp, SceneObject.h all deleted.
+The original `physics::Hull` hierarchy and `SceneObject` classes are gone at the end. `CSphere`, `CAABB`, `COBB`, `Hull.h`, `Hull.cpp`, `SceneObject.h` all deleted. `BarrierHull`, `Barrier`, `BoundedBarrier`, and all barrier-related code are also deleted — barriers are deprecated, superseded by `Fixed`-tagged static-geometry entities.
 
 ### 5.8 What stays
 
@@ -569,7 +570,7 @@ src/editor/
         StatsPanel.{h,cpp}
     inspectors/
         TransformInspector.cpp     — drawComponent(Transform&)
-        RigidBodyInspector.cpp
+        HullInspector.cpp
         MeshRendererInspector.cpp
         ... (one per component type)
     serialization/

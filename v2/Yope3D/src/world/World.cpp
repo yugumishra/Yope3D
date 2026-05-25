@@ -14,6 +14,25 @@
 #include <algorithm>
 #include <mutex>
 #include "../physics/PhysicsConstants.h"
+#include "../ecs/Components.h"
+
+static ecs::Hull buildHullComp(const physics::Hull* h) {
+    ecs::Hull c;
+    c.velocity       = h->getVelocity();
+    c.omega          = h->getOmega();
+    c.mass           = h->getMass();
+    c.inverseMass    = h->getInverseMass();
+    c.friction       = h->friction;
+    c.restitution    = h->restitution;
+    c.linearDamping  = h->linearDamping;
+    c.angularDamping = h->angularDamping;
+    c.collisionLayer = h->collisionLayer;
+    c.collisionMask  = h->collisionMask;
+    c.gravity        = h->gravityEnabled();
+    c.tangible       = h->isTangible();
+    c.sleepingEnabled = h->isSleepingEnabled();
+    return c;
+}
 
 World::World()  = default;
 World::~World() = default;
@@ -40,6 +59,12 @@ void World::rebuildCaches() {
     }
 }
 
+ecs::Entity World::findEntityForHull(const physics::Hull* h) const {
+    for (const auto& obj : objects_)
+        if (obj->hull.get() == h) return obj->entity;
+    return ecs::NullEntity;
+}
+
 // ---- Hull factory helper ----
 
 template<class HullT, class... Args>
@@ -55,19 +80,46 @@ SceneObject* World::makeHullObject(Args&&... args) {
 // ---- Physics-only factory methods ----
 
 SceneObject* World::addSphere(float mass, float radius, math::Vec3 pos) {
-    return makeHullObject<physics::CSphere>(mass, radius, pos);
+    auto* obj = makeHullObject<physics::CSphere>(mass, radius, pos);
+    ecs::Entity e = registry_.create();
+    obj->entity = e;
+    auto* h = obj->getHull();
+    registry_.add<Transform>(e, Transform{h->getPosition(), h->getRotation(), {radius, radius, radius}});
+    registry_.add<ecs::Hull>(e, buildHullComp(h));
+    registry_.add<ecs::SphereForm>(e, {radius});
+    return obj;
 }
 
 SceneObject* World::addOBB(math::Vec3 extent, float mass, math::Vec3 pos) {
-    return makeHullObject<physics::COBB>(extent, mass, pos);
+    auto* obj = makeHullObject<physics::COBB>(extent, mass, pos);
+    ecs::Entity e = registry_.create();
+    obj->entity = e;
+    auto* h = obj->getHull();
+    registry_.add<Transform>(e, Transform{h->getPosition(), h->getRotation(), extent});
+    registry_.add<ecs::Hull>(e, buildHullComp(h));
+    registry_.add<ecs::OBBForm>(e, {extent});
+    return obj;
 }
 
 SceneObject* World::addAABB(math::Vec3 extent, float mass, math::Vec3 pos) {
-    return makeHullObject<physics::CAABB>(extent, mass, pos);
+    auto* obj = makeHullObject<physics::CAABB>(extent, mass, pos);
+    ecs::Entity e = registry_.create();
+    obj->entity = e;
+    auto* h = obj->getHull();
+    registry_.add<Transform>(e, Transform{h->getPosition(), h->getRotation(), extent});
+    registry_.add<ecs::Hull>(e, buildHullComp(h));
+    registry_.add<ecs::AABBForm>(e, {extent});
+    return obj;
 }
 
 SceneObject* World::addStaticAABB(math::Vec3 pos, math::Vec3 extent) {
-    return makeHullObject<physics::CAABB>(pos, extent);
+    auto* obj = makeHullObject<physics::CAABB>(pos, extent);
+    ecs::Entity e = registry_.create();
+    obj->entity = e;
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, extent});
+    registry_.add<ecs::AABBForm>(e, {extent});
+    registry_.add<ecs::Fixed>(e);
+    return obj;
 }
 
 SceneObject* World::addBarrierHull(math::Vec3 extent, math::Vec3 pos) {
@@ -150,7 +202,12 @@ SceneObject* World::addRenderObject(const std::vector<Vertex>& vertices,
     obj->mesh->transformReady = true;  // static mesh: transform is known at creation
     objects_.push_back(std::move(obj));
     rebuildCaches();
-    return objects_.back().get();
+    SceneObject* raw = objects_.back().get();
+    ecs::Entity e = registry_.create();
+    raw->entity = e;
+    registry_.add<Transform>(e);
+    registry_.add<ecs::MeshRenderer>(e, {raw->getMesh()});
+    return raw;
 }
 
 SceneObject* World::addRenderObject(const LoadedMesh& mesh) {
@@ -173,6 +230,8 @@ RenderMesh* World::attachMesh(SceneObject* obj,
         obj->mesh->transformReady = true;  // no hull: static visual, transform is already known
     }
     rebuildCaches();
+    if (registry_.valid(obj->entity))
+        registry_.add<ecs::MeshRenderer>(obj->entity, {obj->mesh.get()});
     return obj->mesh.get();
 }
 
@@ -187,6 +246,8 @@ RenderMesh* World::attachMesh(SceneObject* obj, const LoadedMesh& mesh) {
 physics::Spring* World::addSpring(physics::Hull* a, physics::Hull* b, float k, float rest) {
     std::lock_guard lk(structureMtx_);
     springs_.push_back(std::make_unique<physics::Spring>(a, b, k, rest));
+    ecs::Entity springEnt = registry_.create();
+    registry_.add<ecs::SpringConstraint>(springEnt, {findEntityForHull(b), k, rest});
     return springs_.back().get();
 }
 
@@ -203,8 +264,12 @@ physics::Spring* World::addSpringWithProxies(physics::Hull* a, physics::Hull* b,
         auto* proxy = proxyObj->hullAs<physics::CSphere>();
         proxy->fix();
         proxy->disableGravity();
+        if (registry_.valid(proxyObj->entity))
+            registry_.add<ecs::Fixed>(proxyObj->entity);
         s->proxies.push_back(proxy);
     }
+    ecs::Entity springEnt = registry_.create();
+    registry_.add<ecs::SpringConstraint>(springEnt, {findEntityForHull(b), k, rest});
     return s;
 }
 
@@ -228,17 +293,64 @@ physics::Spring* World::addSpringWithMesh(physics::Hull* a, physics::Hull* b,
         auto* proxy = proxyObj->hullAs<physics::CSphere>();
         proxy->fix();
         proxy->disableGravity();
+        if (registry_.valid(proxyObj->entity))
+            registry_.add<ecs::Fixed>(proxyObj->entity);
         s->proxies.push_back(proxy);
     }
+    ecs::Entity springEnt = registry_.create();
+    registry_.add<ecs::SpringConstraint>(springEnt, {findEntityForHull(b), k, rest});
+    registry_.add<ecs::MeshRenderer>(springEnt, {coilObj->getMesh()});
     return s;
 }
 
 // ---- Lights ----
 
-void World::addLight(const Light& light) { lights_.push_back(light); lightsDirty = true; }
+void World::addLight(const Light& light) {
+    lights_.push_back(light);
+    lightsDirty = true;
+
+    ecs::LightSource ls;
+    std::visit([&](const auto& l) {
+        using T = std::decay_t<decltype(l)>;
+        if constexpr (std::is_same_v<T, PointLight>) {
+            ls.type = 0;
+            std::copy(l.color, l.color + 3, ls.color);
+            ls.intensity = l.intensity;
+            std::copy(l.position, l.position + 3, ls.position);
+            ls.constant = l.constant; ls.linear = l.linear; ls.quadratic = l.quadratic;
+        } else if constexpr (std::is_same_v<T, DirectionalLight>) {
+            ls.type = 1;
+            std::copy(l.color, l.color + 3, ls.color);
+            ls.intensity = l.intensity;
+            std::copy(l.direction, l.direction + 3, ls.direction);
+        } else if constexpr (std::is_same_v<T, SpotLight>) {
+            ls.type = 2;
+            std::copy(l.color, l.color + 3, ls.color);
+            ls.intensity = l.intensity;
+            std::copy(l.position, l.position + 3, ls.position);
+            std::copy(l.direction, l.direction + 3, ls.direction);
+            ls.constant = l.constant; ls.linear = l.linear; ls.quadratic = l.quadratic;
+            ls.innerConeAngle = l.innerConeAngle; ls.outerConeAngle = l.outerConeAngle;
+        } else if constexpr (std::is_same_v<T, FlashLight>) {
+            ls.type = 3;
+            std::copy(l.color, l.color + 3, ls.color);
+            ls.intensity = l.intensity;
+            ls.constant = l.constant; ls.linear = l.linear; ls.quadratic = l.quadratic;
+            ls.innerConeAngle = l.innerConeAngle; ls.outerConeAngle = l.outerConeAngle;
+        }
+    }, light);
+
+    ecs::Entity e = registry_.create();
+    registry_.add<ecs::LightSource>(e, ls);
+    lightEntities_.push_back(e);
+}
 
 void World::removeLight(int index) {
     if (index >= 0 && index < static_cast<int>(lights_.size())) {
+        if (index < static_cast<int>(lightEntities_.size())) {
+            registry_.destroy(lightEntities_[index]);
+            lightEntities_.erase(lightEntities_.begin() + index);
+        }
         lights_.erase(lights_.begin() + index);
         lightsDirty = true;
     }
@@ -252,6 +364,8 @@ const std::vector<Light>& World::getLights() const { return lights_; }
 void World::removeObject(SceneObject* obj) {
     if (!obj) return;
     std::lock_guard lk(structureMtx_);
+    if (registry_.valid(obj->entity))
+        registry_.destroy(obj->entity);
     physics::Hull* h = obj->hull.get();
 
     if (h) {
@@ -332,6 +446,9 @@ void World::resetPhysics() {
     barriers_.clear();
     contactCache_.clear();
     rebuildCaches();
+
+    registry_ = ecs::Registry{};
+    lightEntities_.clear();
 }
 
 // ---- cleanup ----
@@ -347,6 +464,9 @@ void World::cleanup() {
     barriers_.clear();
     contactCache_.clear();
     rebuildCaches();
+
+    registry_ = ecs::Registry{};
+    lightEntities_.clear();
 }
 
 // ---- Simulation step ----

@@ -7,6 +7,7 @@
 #include "SceneObject.h"
 #include "RenderMesh.h"
 #include "../rendering/Light.h"
+#include "../ecs/Registry.h"
 #include "../assets/ObjLoader.h"
 #include "../math/Vec3.h"
 #include "../physics/Hull.h"
@@ -90,6 +91,9 @@ public:
                                        float coilRadius, float tubeRadius,
                                        int proxyCount, float proxyRadius);
 
+    // ---- ECS registry ----
+    ecs::Registry& getRegistry() { return registry_; }
+
     // ---- Lights ----
     void addLight(const Light& light);
     void removeLight(int index);
@@ -158,6 +162,9 @@ private:
     std::vector<RenderMesh*>    meshCache_;
     std::vector<SceneObject*>   objectPtrs_;
 
+    ecs::Registry                                                          registry_;
+    std::vector<ecs::Entity>                                               lightEntities_;
+
     std::vector<Light>                                                     lights_;
     bool                                                                   lightsDirty = false;
     std::vector<std::variant<physics::Barrier, physics::BoundedBarrier>>   barriers_;
@@ -171,6 +178,7 @@ private:
     std::vector<std::unique_ptr<RenderMesh>>                               debugMeshes_;
 
     void rebuildCaches();
+    ecs::Entity findEntityForHull(const physics::Hull* h) const;
 
     // Creates a new SceneObject with a hull, registers it, rebuilds caches. Returns raw ptr.
     template<class HullT, class... Args>
