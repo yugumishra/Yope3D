@@ -9,6 +9,7 @@
 #include "../src/physics/ColliderDiscrete.h"
 #include "../src/physics/ContactCache.h"
 #include "../src/physics/PhysicsConstants.h"
+#include "../src/ecs/Components.h"
 #include "../src/math/Vec3.h"
 #include "../src/math/Math.h"
 #include <limits>
@@ -39,7 +40,7 @@ TEST_CASE("Objects rest on large AABB floor far from centre", "[discrete][offcen
         CAABB floor({0,0,0}, {50.0f, 0.5f, 50.0f}); // (pos,ext) ctor => fixed
         ContactCache cache;
         for (int frame = 0; frame < 400; frame++) {
-            std::vector<ColliderDiscrete::ActiveContact> contacts;
+            std::vector<ColliderDiscrete::HullActiveContact> contacts;
             ColliderDiscrete::detect(floor, shape, contacts); // floor = a, shape = b
             ColliderDiscrete::solveAll(contacts, dt, cache);
             shape.advance(dt, g);
@@ -292,12 +293,18 @@ TEST_CASE("Spring pulls two spheres toward rest length", "[integration][spring]"
     a.disableGravity();
     b.disableGravity();
 
-    physics::Spring spring(&a, &b, 10.0f, 2.0f);
+    ecs::Registry reg;
+    ecs::Entity ea = reg.create();
+    ecs::Entity eb = reg.create();
+    reg.add<ecs::LegacyHullRef>(ea, {&a});
+    reg.add<ecs::LegacyHullRef>(eb, {&b});
+
+    physics::Spring spring(ea, eb, 10.0f, 2.0f);
 
     float dt = 1.0f / 60.0f;
     Vec3 g{0, 0, 0};
     for (int i = 0; i < 120; ++i) {
-        spring.update(dt);
+        spring.update(dt, reg);
         a.advance(dt, g);
         b.advance(dt, g);
     }

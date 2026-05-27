@@ -100,6 +100,7 @@ endif()
 # ---------------------------------------------------------------------------
 
 set(PHYSICS_SOURCES
+    src/ecs/Registry.cpp
     src/physics/Hull.cpp
     src/physics/CSphere.cpp
     src/physics/CAABB.cpp

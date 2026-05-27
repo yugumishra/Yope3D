@@ -3,6 +3,9 @@
 #include "CAABB.h"
 #include "COBB.h"
 #include "PhysicsConstants.h"
+#include "../ecs/Registry.h"
+#include "../ecs/Components.h"
+#include "../world/Transform.h"
 #include <cmath>
 #include <algorithm>
 #include <vector>
@@ -18,7 +21,7 @@ namespace physics::ColliderDiscrete {
 // Normal convention: from a toward b throughout.
 // ============================================================================
 
-void solveIsland(std::vector<ActiveContact>& contacts, float dt, ContactCache& cache) {
+void solveIsland(std::vector<HullActiveContact>& contacts, float dt, ContactCache& cache) {
     // ---- Precompute ----
     for (auto& c : contacts) {
         Hull& a = *c.a;
@@ -195,7 +198,7 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt, ContactCache& c
     }
 }
 
-void solveAll(std::vector<ActiveContact>& contacts, float dt, ContactCache& cache) {
+void solveAll(std::vector<HullActiveContact>& contacts, float dt, ContactCache& cache) {
     solveIsland(contacts, dt, cache);
 }
 
@@ -203,7 +206,7 @@ void solveAll(std::vector<ActiveContact>& contacts, float dt, ContactCache& cach
 // Sphere — Sphere   (Collider.java::detectSphereSphere / collideSphereSphere)
 // ============================================================================
 
-bool detectSphereSphere(const CSphere& a, const CSphere& b, ContactManifold& m) {
+bool detectSphereSphere(const SphereGeom& a, const SphereGeom& b, ContactManifold& m) {
     math::Vec3 diff   = b.getPosition() - a.getPosition();
     float      distSq = diff.dot(diff);
     float      rSum   = a.getRadius() + b.getRadius();
@@ -228,7 +231,7 @@ bool detectSphereSphere(const CSphere& a, const CSphere& b, ContactManifold& m) 
 // Normal convention: AABB → sphere (callers flip when sphere is 'a').
 // ============================================================================
 
-bool detectSphereAABB(const CSphere& sphere, const CAABB& aabb, ContactManifold& m) {
+bool detectSphereAABB(const SphereGeom& sphere, const AABBGeom& aabb, ContactManifold& m) {
     math::Vec3 sp = sphere.getPosition();
     math::Vec3 ap = aabb.getPosition();
     math::Vec3 ae = aabb.getScales();
@@ -295,7 +298,7 @@ bool detectSphereAABB(const CSphere& sphere, const CAABB& aabb, ContactManifold&
 // Normal convention: from a toward b (matching directCollisionResponse).
 // ============================================================================
 
-bool detectAABBAABB(const CAABB& a, const CAABB& b, ContactManifold& m) {
+bool detectAABBAABB(const AABBGeom& a, const AABBGeom& b, ContactManifold& m) {
     math::Vec3 posA = a.getPosition(), posB = b.getPosition();
     math::Vec3 eA   = a.getScales(),   eB   = b.getScales();
 
@@ -370,7 +373,7 @@ bool detectAABBAABB(const CAABB& a, const CAABB& b, ContactManifold& m) {
 // Normal convention: OBB → sphere (from b toward a when sphere=a). Dispatcher flips.
 // ============================================================================
 
-bool detectSphereOBB(const CSphere& sphere, const COBB& obb, ContactManifold& m) {
+bool detectSphereOBB(const SphereGeom& sphere, const OBBGeom& obb, ContactManifold& m) {
     math::Vec3 sp  = sphere.getPosition();
     math::Vec3 op  = obb.getPosition();
     math::Vec3 ext = obb.getScales();
@@ -424,7 +427,7 @@ bool detectSphereOBB(const CSphere& sphere, const COBB& obb, ContactManifold& m)
 // Normal convention: from AABB (a) toward OBB (b).
 // ============================================================================
 
-bool detectAABBOBB(const CAABB& a, const COBB& b, ContactManifold& m) {
+bool detectAABBOBB(const AABBGeom& a, const OBBGeom& b, ContactManifold& m) {
     math::Vec3 aPos = a.getPosition(), aExt = a.getScales();
     math::Vec3 bPos = b.getPosition(), bExt = b.getScales();
     auto       bAxes = b.getOBBAxes();
@@ -563,7 +566,7 @@ bool detectAABBOBB(const CAABB& a, const COBB& b, ContactManifold& m) {
 // Normal convention: from OBB a toward OBB b.
 // ============================================================================
 
-bool detectOBBOBB(const COBB& a, const COBB& b, ContactManifold& m) {
+bool detectOBBOBB(const OBBGeom& a, const OBBGeom& b, ContactManifold& m) {
     math::Vec3 aPos = a.getPosition(), aExt = a.getScales();
     math::Vec3 bPos = b.getPosition(), bExt = b.getScales();
     auto       aAxes = a.getOBBAxes();
@@ -692,7 +695,7 @@ bool detectOBBOBB(const COBB& a, const COBB& b, ContactManifold& m) {
 // detectSphereAABB returns AABB→sphere, so flip normal when sphere is 'a'.
 // ============================================================================
 
-void detect(Hull& a, Hull& b, std::vector<ActiveContact>& contacts) {
+void detect(Hull& a, Hull& b, std::vector<HullActiveContact>& contacts) {
     if (a.isFixed() && b.isFixed()) return;
     if (!(a.collisionLayer & b.collisionMask) || !(b.collisionLayer & a.collisionMask)) return;
 
@@ -703,17 +706,260 @@ void detect(Hull& a, Hull& b, std::vector<ActiveContact>& contacts) {
     auto* ca = dynamic_cast<COBB*>(&a);
     auto* cb = dynamic_cast<COBB*>(&b);
 
-    ContactManifold m;
+    auto mSph = [](Hull* h, float r) -> SphereGeom { return {h->getPosition(), r}; };
+    auto mAABB = [](Hull* h, math::Vec3 ext) -> AABBGeom { return {h->getPosition(), ext}; };
+    auto mOBB  = [](Hull* h, math::Vec3 ext) -> OBBGeom {
+        return {h->getPosition(), ext, math::Mat3::rotation(h->getRotation())};
+    };
 
-    if (sa && sb) { if (detectSphereSphere(*sa, *sb, m))   contacts.push_back({&a, &b, m}); return; }
-    if (sa && ab) { if (detectSphereAABB(*sa, *ab, m))   { m.normal = -m.normal; contacts.push_back({&a, &b, m}); } return; }
-    if (aa && sb) { if (detectSphereAABB(*sb, *aa, m))     contacts.push_back({&a, &b, m}); return; }
-    if (aa && ab) { if (detectAABBAABB(*aa, *ab, m))       contacts.push_back({&a, &b, m}); return; }
-    if (sa && cb) { if (detectSphereOBB(*sa, *cb, m))    { m.normal = -m.normal; contacts.push_back({&a, &b, m}); } return; }
-    if (ca && sb) { if (detectSphereOBB(*sb, *ca, m))      contacts.push_back({&a, &b, m}); return; }
-    if (aa && cb) { if (detectAABBOBB(*aa, *cb, m))        contacts.push_back({&a, &b, m}); return; }
-    if (ca && ab) { if (detectAABBOBB(*ab, *ca, m))      { m.normal = -m.normal; contacts.push_back({&a, &b, m}); } return; }
-    if (ca && cb) { if (detectOBBOBB(*ca, *cb, m))         contacts.push_back({&a, &b, m}); return; }
+    ContactManifold m;
+    auto push = [&](Hull* pa, Hull* pb, ContactManifold& cm) {
+        HullActiveContact c; c.a = pa; c.b = pb; c.manifold = cm;
+        contacts.push_back(c);
+    };
+
+    if (sa && sb) { if (detectSphereSphere(mSph(&a,sa->getRadius()),mSph(&b,sb->getRadius()),m))   push(&a,&b,m); return; }
+    if (sa && ab) { if (detectSphereAABB(mSph(&a,sa->getRadius()),mAABB(&b,ab->getScales()),m))  { m.normal=-m.normal; push(&a,&b,m); } return; }
+    if (aa && sb) { if (detectSphereAABB(mSph(&b,sb->getRadius()),mAABB(&a,aa->getScales()),m))    push(&a,&b,m); return; }
+    if (aa && ab) { if (detectAABBAABB(mAABB(&a,aa->getScales()),mAABB(&b,ab->getScales()),m))     push(&a,&b,m); return; }
+    if (sa && cb) { if (detectSphereOBB(mSph(&a,sa->getRadius()),mOBB(&b,cb->getScales()),m))   { m.normal=-m.normal; push(&a,&b,m); } return; }
+    if (ca && sb) { if (detectSphereOBB(mSph(&b,sb->getRadius()),mOBB(&a,ca->getScales()),m))     push(&a,&b,m); return; }
+    if (aa && cb) { if (detectAABBOBB(mAABB(&a,aa->getScales()),mOBB(&b,cb->getScales()),m))      push(&a,&b,m); return; }
+    if (ca && ab) { if (detectAABBOBB(mAABB(&b,ab->getScales()),mOBB(&a,ca->getScales()),m))    { m.normal=-m.normal; push(&a,&b,m); } return; }
+    if (ca && cb) { if (detectOBBOBB(mOBB(&a,ca->getScales()),mOBB(&b,cb->getScales()),m))        push(&a,&b,m); return; }
+}
+
+void detect(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg,
+            std::vector<ActiveContact>& contacts)
+{
+    auto* refA = reg.get<ecs::LegacyHullRef>(ea);
+    auto* refB = reg.get<ecs::LegacyHullRef>(eb);
+    if (!refA || !refB || !refA->ptr || !refB->ptr) return;
+    Hull& a = *refA->ptr;
+    Hull& b = *refB->ptr;
+
+    if (a.isFixed() && b.isFixed()) return;
+    if (!(a.collisionLayer & b.collisionMask) || !(b.collisionLayer & a.collisionMask)) return;
+
+    auto* tfa = reg.get<Transform>(ea);
+    auto* tfb = reg.get<Transform>(eb);
+    if (!tfa || !tfb) return;
+
+    auto* sa = reg.get<ecs::SphereForm>(ea);
+    auto* sb = reg.get<ecs::SphereForm>(eb);
+    auto* aa = reg.get<ecs::AABBForm>(ea);
+    auto* ab = reg.get<ecs::AABBForm>(eb);
+    auto* ca = reg.get<ecs::OBBForm>(ea);
+    auto* cb = reg.get<ecs::OBBForm>(eb);
+
+    // Use Hull*.getPosition() for position (authoritative on physics thread)
+    auto mSph = [&](Hull* h, float r) -> SphereGeom { return {h->getPosition(), r}; };
+    auto mAABB = [&](Hull* h, math::Vec3 ext) -> AABBGeom { return {h->getPosition(), ext}; };
+    auto mOBB  = [&](Hull* h, math::Vec3 ext) -> OBBGeom {
+        return {h->getPosition(), ext, math::Mat3::rotation(h->getRotation())};
+    };
+
+    ContactManifold m;
+    auto push = [&](ecs::Entity pa, ecs::Entity pb, ContactManifold& cm) {
+        ActiveContact c; c.a = pa; c.b = pb; c.manifold = cm;
+        contacts.push_back(c);
+    };
+
+    if (sa && sb) { if (detectSphereSphere(mSph(&a,sa->radius),mSph(&b,sb->radius),m))    push(ea,eb,m); return; }
+    if (sa && ab) { if (detectSphereAABB(mSph(&a,sa->radius),mAABB(&b,ab->extent),m))   { m.normal=-m.normal; push(ea,eb,m); } return; }
+    if (aa && sb) { if (detectSphereAABB(mSph(&b,sb->radius),mAABB(&a,aa->extent),m))     push(ea,eb,m); return; }
+    if (aa && ab) { if (detectAABBAABB(mAABB(&a,aa->extent),mAABB(&b,ab->extent),m))      push(ea,eb,m); return; }
+    if (sa && cb) { if (detectSphereOBB(mSph(&a,sa->radius),mOBB(&b,cb->extent),m))    { m.normal=-m.normal; push(ea,eb,m); } return; }
+    if (ca && sb) { if (detectSphereOBB(mSph(&b,sb->radius),mOBB(&a,ca->extent),m))      push(ea,eb,m); return; }
+    if (aa && cb) { if (detectAABBOBB(mAABB(&a,aa->extent),mOBB(&b,cb->extent),m))       push(ea,eb,m); return; }
+    if (ca && ab) { if (detectAABBOBB(mAABB(&b,ab->extent),mOBB(&a,ca->extent),m))     { m.normal=-m.normal; push(ea,eb,m); } return; }
+    if (ca && cb) { if (detectOBBOBB(mOBB(&a,ca->extent),mOBB(&b,cb->extent),m))         push(ea,eb,m); return; }
+}
+
+// ============================================================================
+// ECS-based solveIsland — Entity-keyed contacts; internally bridges via LegacyHullRef.
+// Same algorithm as the Hull*-based version above; cache uses Entity keys.
+// ============================================================================
+
+void solveIsland(std::vector<ActiveContact>& contacts, float dt,
+                 ecs::Registry& reg, EntityContactCache& cache)
+{
+    auto getH = [&](ecs::Entity e) -> Hull* {
+        auto* ref = reg.get<ecs::LegacyHullRef>(e);
+        return ref ? ref->ptr : nullptr;
+    };
+
+    // ---- Precompute ----
+    for (auto& c : contacts) {
+        Hull* ha = getH(c.a); Hull* hb = getH(c.b);
+        if (!ha || !hb) continue;
+        if (ha->isSleeping()) ha->wakeUp();
+        if (hb->isSleeping()) hb->wakeUp();
+
+        math::Vec3 n = c.manifold.normal;
+        c.T1 = (std::abs(n.x) < 0.9f)
+             ? n.cross({1.0f, 0.0f, 0.0f})
+             : n.cross({0.0f, 1.0f, 0.0f});
+        float t1len = std::sqrt(c.T1.dot(c.T1));
+        if (t1len > 1e-7f) c.T1 = c.T1 * (1.0f / t1len);
+        c.T2  = n.cross(c.T1);
+        c.mu  = std::sqrt(ha->friction * hb->friction);
+        c.e   = std::sqrt(ha->restitution * hb->restitution);
+        c.IinvA = ha->getInverseInertiaTensorWorld();
+        c.IinvB = hb->getInverseInertiaTensorWorld();
+
+        for (int i = 0; i < c.manifold.numContacts; i++) {
+            c.rA[i] = c.manifold.contactPoints[i] - ha->getPosition();
+            c.rB[i] = c.manifold.contactPoints[i] - hb->getPosition();
+
+            math::Vec3 angA = (c.IinvA * c.rA[i].cross(n)).cross(c.rA[i]);
+            math::Vec3 angB = (c.IinvB * c.rB[i].cross(n)).cross(c.rB[i]);
+            float effN = ha->getInverseMass() + hb->getInverseMass() + angA.dot(n) + angB.dot(n);
+            c.W[i] = (effN > 1e-6f) ? 1.0f / effN : 0.0f;
+
+            math::Vec3 angT1A = (c.IinvA * c.rA[i].cross(c.T1)).cross(c.rA[i]);
+            math::Vec3 angT1B = (c.IinvB * c.rB[i].cross(c.T1)).cross(c.rB[i]);
+            float effT1 = ha->getInverseMass() + hb->getInverseMass() + angT1A.dot(c.T1) + angT1B.dot(c.T1);
+            c.Wt1[i] = (effT1 > 1e-6f) ? 1.0f / effT1 : 0.0f;
+
+            math::Vec3 angT2A = (c.IinvA * c.rA[i].cross(c.T2)).cross(c.rA[i]);
+            math::Vec3 angT2B = (c.IinvB * c.rB[i].cross(c.T2)).cross(c.rB[i]);
+            float effT2 = ha->getInverseMass() + hb->getInverseMass() + angT2A.dot(c.T2) + angT2B.dot(c.T2);
+            c.Wt2[i] = (effT2 > 1e-6f) ? 1.0f / effT2 : 0.0f;
+
+            math::Vec3 relVel0 = hb->getVelocity() + hb->getOmega().cross(c.rB[i])
+                               - ha->getVelocity() - ha->getOmega().cross(c.rA[i]);
+            float vn0 = relVel0.dot(n);
+            c.neta[i] = (vn0 < -PGS_RESTITUTION_THRESHOLD) ? -c.e * vn0 : 0.0f;
+        }
+    }
+
+    // ---- Warm start ----
+    for (auto& c : contacts) {
+        Hull* ha = getH(c.a); Hull* hb = getH(c.b);
+        if (!ha || !hb) continue;
+        math::Vec3 n = c.manifold.normal;
+        for (int i = 0; i < c.manifold.numContacts; i++) {
+            if (c.W[i] == 0.0f) continue;
+            auto it = cache.find({c.a, c.b, i});
+            if (it == cache.end()) continue;
+
+            c.lambda[i]   = it->second.normal * 0.9f;
+            c.lambdaT1[i] = it->second.t1     * 0.5f;
+            c.lambdaT2[i] = it->second.t2     * 0.5f;
+            float cone = c.mu * c.lambda[i];
+            c.lambdaT1[i] = std::max(-cone, std::min(cone, c.lambdaT1[i]));
+            c.lambdaT2[i] = std::max(-cone, std::min(cone, c.lambdaT2[i]));
+
+            math::Vec3 imp = n * c.lambda[i] + c.T1 * c.lambdaT1[i] + c.T2 * c.lambdaT2[i];
+            if (!ha->isFixed()) { ha->addImpulse(-imp); ha->addAngularImpulse(c.rA[i].cross(-imp)); }
+            if (!hb->isFixed()) { hb->addImpulse( imp); hb->addAngularImpulse(c.rB[i].cross( imp)); }
+            ha->applyImpulses();
+            hb->applyImpulses();
+        }
+    }
+
+    // ---- Velocity iterations ----
+    for (int iter = 0; iter < PGS_VELOCITY_ITERATIONS; iter++) {
+        for (auto& c : contacts) {
+            Hull* ha = getH(c.a); Hull* hb = getH(c.b);
+            if (!ha || !hb) continue;
+            math::Vec3 n = c.manifold.normal;
+
+            for (int i = 0; i < c.manifold.numContacts; i++) {
+                if (c.W[i] == 0.0f) continue;
+
+                math::Vec3 relVel = hb->getVelocity() + hb->getOmega().cross(c.rB[i])
+                                  - ha->getVelocity() - ha->getOmega().cross(c.rA[i]);
+
+                float vn   = relVel.dot(n);
+                float dL   = c.W[i] * -(vn - c.neta[i]);
+                float oldL = c.lambda[i];
+                c.lambda[i] = std::max(0.0f, c.lambda[i] + dL);
+                float dl    = c.lambda[i] - oldL;
+                if (std::abs(dl) > 1e-10f) {
+                    math::Vec3 imp = n * dl;
+                    if (!ha->isFixed()) { ha->addImpulse(-imp); ha->addAngularImpulse(c.rA[i].cross(-imp)); }
+                    if (!hb->isFixed()) { hb->addImpulse( imp); hb->addAngularImpulse(c.rB[i].cross( imp)); }
+                    ha->applyImpulses();
+                    hb->applyImpulses();
+                    relVel = hb->getVelocity() + hb->getOmega().cross(c.rB[i])
+                           - ha->getVelocity() - ha->getOmega().cross(c.rA[i]);
+                }
+
+                if (c.mu > 0.0f && c.Wt1[i] > 0.0f) {
+                    float dLt1  = -c.Wt1[i] * relVel.dot(c.T1);
+                    float oldT1 = c.lambdaT1[i];
+                    float cone  = c.mu * c.lambda[i];
+                    c.lambdaT1[i] = std::max(-cone, std::min(cone, c.lambdaT1[i] + dLt1));
+                    float dT1 = c.lambdaT1[i] - oldT1;
+                    if (std::abs(dT1) > 1e-10f) {
+                        math::Vec3 fImp = c.T1 * dT1;
+                        if (!ha->isFixed()) { ha->addImpulse(-fImp); ha->addAngularImpulse(c.rA[i].cross(-fImp)); }
+                        if (!hb->isFixed()) { hb->addImpulse( fImp); hb->addAngularImpulse(c.rB[i].cross( fImp)); }
+                        ha->applyImpulses();
+                        hb->applyImpulses();
+                        relVel = hb->getVelocity() + hb->getOmega().cross(c.rB[i])
+                               - ha->getVelocity() - ha->getOmega().cross(c.rA[i]);
+                    }
+                }
+
+                if (c.mu > 0.0f && c.Wt2[i] > 0.0f) {
+                    float dLt2  = -c.Wt2[i] * relVel.dot(c.T2);
+                    float oldT2 = c.lambdaT2[i];
+                    float cone  = c.mu * c.lambda[i];
+                    c.lambdaT2[i] = std::max(-cone, std::min(cone, c.lambdaT2[i] + dLt2));
+                    float dT2 = c.lambdaT2[i] - oldT2;
+                    if (std::abs(dT2) > 1e-10f) {
+                        math::Vec3 fImp = c.T2 * dT2;
+                        if (!ha->isFixed()) { ha->addImpulse(-fImp); ha->addAngularImpulse(c.rA[i].cross(-fImp)); }
+                        if (!hb->isFixed()) { hb->addImpulse( fImp); hb->addAngularImpulse(c.rB[i].cross( fImp)); }
+                        ha->applyImpulses();
+                        hb->applyImpulses();
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- Cache write-back (Entity keys) ----
+    for (auto& c : contacts) {
+        for (int i = 0; i < c.manifold.numContacts; i++) {
+            if (c.W[i] == 0.0f) continue;
+            cache[{c.a, c.b, i}] = {c.lambda[i], c.lambdaT1[i], c.lambdaT2[i]};
+        }
+    }
+
+    // ---- Position iterations (split impulse) ----
+    for (int iter = 0; iter < PGS_POSITION_ITERATIONS; iter++) {
+        for (auto& c : contacts) {
+            Hull* ha = getH(c.a); Hull* hb = getH(c.b);
+            if (!ha || !hb) continue;
+            math::Vec3 n = c.manifold.normal;
+            for (int i = 0; i < c.manifold.numContacts; i++) {
+                if (c.W[i] == 0.0f) continue;
+
+                float cStarN = (hb->getPseudoVel() + hb->getPseudoOmega().cross(c.rB[i])
+                              - ha->getPseudoVel() - ha->getPseudoOmega().cross(c.rA[i])).dot(n);
+                float pseudoBias = (SPLIT_BETA / dt) * std::max(0.0f, c.manifold.depths[i] - SPLIT_SLOP);
+                float dLp  = -c.W[i] * (cStarN - pseudoBias);
+                float oldLp = c.lambdaP[i];
+                c.lambdaP[i] = std::max(0.0f, c.lambdaP[i] + dLp);
+                float dL = c.lambdaP[i] - oldLp;
+                if (std::abs(dL) < 1e-10f) continue;
+
+                math::Vec3 pImp = n * dL;
+                if (!ha->isFixed()) {
+                    ha->addPseudoLinear (-pImp * ha->getInverseMass());
+                    ha->addPseudoAngular(c.IinvA * c.rA[i].cross(-pImp));
+                }
+                if (!hb->isFixed()) {
+                    hb->addPseudoLinear ( pImp * hb->getInverseMass());
+                    hb->addPseudoAngular(c.IinvB * c.rB[i].cross( pImp));
+                }
+            }
+        }
+    }
 }
 
 } // namespace physics::ColliderDiscrete

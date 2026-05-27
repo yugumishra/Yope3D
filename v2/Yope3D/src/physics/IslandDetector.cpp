@@ -1,4 +1,7 @@
 #include "IslandDetector.h"
+#include "Hull.h"
+#include "../ecs/Registry.h"
+#include "../ecs/Components.h"
 #include <unordered_map>
 #include <unordered_set>
 #include <numeric>
@@ -8,25 +11,39 @@ namespace physics {
 
 void IslandDetector::build(
     const std::vector<ColliderDiscrete::ActiveContact>& allContacts,
-    const ContactCache& globalCache,
-    std::vector<Island>& islands)
+    const EntityContactCache& globalCache,
+    std::vector<Island>& islands,
+    ecs::Registry& reg)
 {
     islands.clear();
     if (allContacts.empty()) return;
 
-    // 1. Assign IDs only to dynamic (non-fixed) hulls.
-    //    Fixed bodies (floor, walls) are NOT union-find nodes — they don't
-    //    propagate island membership. Without this, every object touching the
-    //    floor merges into one giant island through the shared static body.
-    std::unordered_map<Hull*, int> id;
+    auto isFixed = [&](ecs::Entity e) -> bool { return reg.has<ecs::Fixed>(e); };
+    auto isSleeping = [&](ecs::Entity e) -> bool { return reg.has<ecs::Sleeping>(e); };
+    auto wakeUp = [&](ecs::Entity e) {
+        if (reg.has<ecs::Sleeping>(e)) {
+            reg.remove<ecs::Sleeping>(e);
+            // Also wake the Legacy Hull so Hull::advance() sees the wake
+            if (auto* ref = reg.get<ecs::LegacyHullRef>(e))
+                if (ref->ptr) ref->ptr->wakeUp();
+        }
+    };
+
+    // 1. Assign union-find IDs to dynamic (non-fixed) entities only.
+    struct EntityHash {
+        size_t operator()(ecs::Entity e) const {
+            return std::hash<uint32_t>{}(e.id) ^ (std::hash<uint32_t>{}(e.generation) * 2654435761u);
+        }
+    };
+    std::unordered_map<ecs::Entity, int, EntityHash> id;
     id.reserve(allContacts.size() * 2);
     int nextId = 0;
     for (const auto& c : allContacts) {
-        if (!c.a->isFixed() && !id.count(c.a)) id[c.a] = nextId++;
-        if (!c.b->isFixed() && !id.count(c.b)) id[c.b] = nextId++;
+        if (!isFixed(c.a) && !id.count(c.a)) id[c.a] = nextId++;
+        if (!isFixed(c.b) && !id.count(c.b)) id[c.b] = nextId++;
     }
 
-    // 2. Union-find with path compression — only union dynamic pairs.
+    // 2. Union-find with path compression.
     std::vector<int> parent(nextId);
     std::iota(parent.begin(), parent.end(), 0);
 
@@ -36,21 +53,20 @@ void IslandDetector::build(
     };
 
     for (const auto& c : allContacts) {
-        if (c.a->isFixed() || c.b->isFixed()) continue;
+        if (isFixed(c.a) || isFixed(c.b)) continue;
         int ra = find(id[c.a]);
         int rb = find(id[c.b]);
         if (ra != rb) parent[ra] = rb;
     }
 
-    // 3. Map each root to an island index, partition contacts.
-    //    Contacts with a fixed body belong to the island of the dynamic body.
+    // 3. Partition contacts by island root.
     std::unordered_map<int, int> rootToIsland;
     rootToIsland.reserve(nextId / 2 + 1);
     for (const auto& c : allContacts) {
         int root;
-        if (!c.a->isFixed() && !c.b->isFixed())
+        if (!isFixed(c.a) && !isFixed(c.b))
             root = find(id[c.a]);
-        else if (!c.a->isFixed())
+        else if (!isFixed(c.a))
             root = find(id[c.a]);
         else
             root = find(id[c.b]);
@@ -60,14 +76,14 @@ void IslandDetector::build(
         islands[it->second].contacts.push_back(c);
     }
 
-    // 4. Per island: collect unique hulls + extract warm-start cache snapshot.
+    // 4. Per island: collect unique entities + warm-start cache snapshot.
     for (auto& [root, idx] : rootToIsland) {
         Island& isl = islands[idx];
-        std::unordered_set<Hull*> seen;
+        std::unordered_set<ecs::Entity, EntityHash> seen;
         seen.reserve(isl.contacts.size() * 2);
         for (const auto& c : isl.contacts) {
-            if (seen.insert(c.a).second) isl.hulls.push_back(c.a);
-            if (seen.insert(c.b).second) isl.hulls.push_back(c.b);
+            if (seen.insert(c.a).second) isl.entities.push_back(c.a);
+            if (seen.insert(c.b).second) isl.entities.push_back(c.b);
             for (int i = 0; i < c.manifold.numContacts; ++i) {
                 auto it = globalCache.find({c.a, c.b, i});
                 if (it != globalCache.end())
@@ -76,18 +92,18 @@ void IslandDetector::build(
         }
     }
 
-    // 5. Wake propagation: one awake hull wakes the entire island.
+    // 5. Wake propagation: one awake entity wakes the entire island.
     for (auto& isl : islands) {
         bool anyAwake = false;
-        for (Hull* h : isl.hulls)
-            if (!h->isSleeping()) { anyAwake = true; break; }
+        for (ecs::Entity e : isl.entities)
+            if (!isSleeping(e)) { anyAwake = true; break; }
         if (anyAwake)
-            for (Hull* h : isl.hulls)
-                if (h->isSleeping()) h->wakeUp();
+            for (ecs::Entity e : isl.entities)
+                if (isSleeping(e)) wakeUp(e);
     }
 }
 
-void IslandDetector::mergeCache(std::vector<Island>& islands, ContactCache& globalCache) {
+void IslandDetector::mergeCache(std::vector<Island>& islands, EntityContactCache& globalCache) {
     for (auto& isl : islands)
         for (auto& [key, val] : isl.localCache)
             globalCache[key] = val;

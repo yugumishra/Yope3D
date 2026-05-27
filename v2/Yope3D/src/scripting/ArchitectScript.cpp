@@ -4,8 +4,6 @@
 #include "rendering/Camera.h"
 #include "rendering/Light.h"
 #include "world/World.h"
-#include "world/SceneObject.h"
-#include "physics/CSphere.h"
 #include "assets/Primitives.h"
 #include "assets/AssetManager.h"
 #include "audio/AudioSystem.h"
@@ -16,6 +14,7 @@
 #include "ui/Background.h"
 #include "ui/TextBox.h"
 #include "ui/TextAtlas.h"
+#include "ecs/Components.h"
 #include <GLFW/glfw3.h>
 #include <cmath>
 #include <string>
@@ -41,8 +40,8 @@ public:
     void update(ScriptContext& ctx, float dt) override;
 
 private:
-    SceneObject* playerSphere_  = nullptr;
-    SceneObject* trackerSphere_ = nullptr;
+    ecs::Entity playerEnt_  = ecs::NullEntity;
+    ecs::Entity trackerEnt_ = ecs::NullEntity;
 
     Source* jumpSrc_     = nullptr;
     Source* growlSrc_    = nullptr;
@@ -66,11 +65,10 @@ private:
 void ArchitectScript::init(ScriptContext& ctx) {
     // Floor (StaticAABB, top at y=0)
     ctx.world->addStaticAABB({0.0f, -0.5f, 0.0f}, {ARENA_HALF, 0.5f, ARENA_HALF});
-    
 
     // Textured brick floor (visual)
-    auto* floorObj = ctx.world->addRenderObject(Primitives::plane(ARENA_HALF));
-    if (auto* m = floorObj->getMesh()) {
+    ecs::Entity floorEnt = ctx.world->addRenderObject(Primitives::plane(ARENA_HALF));
+    if (auto* m = ctx.world->getMesh(floorEnt)) {
         m->texture     = ctx.assets->loadTexture("textures/brick.jpg");
         m->state       = 1;
         m->modelMatrix = math::Mat4{};
@@ -80,21 +78,21 @@ void ArchitectScript::init(ScriptContext& ctx) {
     // No ambient lights — flashlight is the only illumination
 
     // Player sphere — physics-driven, sleeping disabled, low friction
-    playerSphere_ = ctx.world->addSphere(1.0f, ARCH_PLAYER_R, {0.0f, 2.0f, 25.0f});
+    playerEnt_ = ctx.world->addSphere(1.0f, ARCH_PLAYER_R, {0.0f, 2.0f, 25.0f});
     {
-        auto* h = playerSphere_->getHull();
+        auto* h = ctx.world->getHull(playerEnt_);
         h->disableSleeping();
         h->friction      = ARCH_PLAYER_FRICTION;
         h->linearDamping = 0.0f;
     }
 
     // Tracker sphere (horror enemy)
-    trackerSphere_ = ctx.world->addSphere(2.0f, 0.8f, {0.0f, 2.0f, -40.0f});
+    trackerEnt_ = ctx.world->addSphere(2.0f, 0.8f, {0.0f, 2.0f, -40.0f});
     {
-        auto* h = trackerSphere_->getHull();
+        auto* h = ctx.world->getHull(trackerEnt_);
         h->disableSleeping();   // tracker also driven by script — same problem applies
     }
-    auto* tm = ctx.world->attachMesh(trackerSphere_, Primitives::icosphere(0.8f));
+    auto* tm = ctx.world->attachMesh(trackerEnt_, Primitives::icosphere(0.8f));
     if (tm) { tm->color[0] = 0.6f; tm->color[1] = 0.05f; tm->color[2] = 0.05f; }
 
     // Camera
@@ -132,7 +130,6 @@ void ArchitectScript::init(ScriptContext& ctx) {
     }
 
     if (ctx.ui) {
-        
         atlas_ = ctx.ui->loadAtlas("fonts/monaco.ttf", 128);
         auto* bg = ctx.ui->addBackground({0.01f,0.95f},{0.17f,0.995f},{0,0,0,0.5f},0);
         hintLabel_ = ctx.ui->addTextBox(bg, atlas_,
@@ -143,7 +140,7 @@ void ArchitectScript::init(ScriptContext& ctx) {
 void ArchitectScript::update(ScriptContext& ctx, float dt) {
     ++frameCounter_;
 
-    auto* hull = playerSphere_->getHull();
+    auto* hull = ctx.world->getHull(playerEnt_);
     math::Vec3 spherePos = hull->getPosition();
 
     // ---- Mouselook ----
@@ -223,8 +220,8 @@ void ArchitectScript::update(ScriptContext& ctx, float dt) {
     lmbWasDown_ = lmbNow;
 
     // ---- Tracker behaviour ----
-    if (trackerSphere_) {
-        auto* th = trackerSphere_->getHull();
+    if (trackerEnt_ != ecs::NullEntity) {
+        auto* th = ctx.world->getHull(trackerEnt_);
         math::Vec3 tPos = th->getPosition();
         math::Vec3 tVel = th->getVelocity();
         math::Vec3 diff = spherePos - tPos;

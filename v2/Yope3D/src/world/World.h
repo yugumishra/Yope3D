@@ -46,32 +46,37 @@ public:
 
     // ---- Scene objects ----
     // Physics-only bodies (hull-only SceneObject, no visual).
-    SceneObject* addSphere    (float mass, float radius, math::Vec3 pos = {});
-    SceneObject* addOBB       (math::Vec3 extent, float mass, math::Vec3 pos = {});
-    SceneObject* addAABB      (math::Vec3 extent, float mass, math::Vec3 pos = {});
-    SceneObject* addStaticAABB(math::Vec3 pos, math::Vec3 extent);
-    SceneObject* addBarrierHull(math::Vec3 extent, math::Vec3 pos);
-    SceneObject* addOBBFromMesh(const LoadedMesh& mesh, float mass);
+    ecs::Entity addSphere    (float mass, float radius, math::Vec3 pos = {});
+    ecs::Entity addOBB       (math::Vec3 extent, float mass, math::Vec3 pos = {});
+    ecs::Entity addAABB      (math::Vec3 extent, float mass, math::Vec3 pos = {});
+    ecs::Entity addStaticAABB(math::Vec3 pos, math::Vec3 extent);
+    SceneObject* addBarrierHull(math::Vec3 extent, math::Vec3 pos);   // deprecated — removed in Step 5
+    ecs::Entity addOBBFromMesh(const LoadedMesh& mesh, float mass);
 
     // Bare-barrier registration (static planes, no hull).
     void addBarrier(physics::Barrier b);
     void addBarrier(physics::BoundedBarrier b);
 
-    // Visual-only SceneObject (mesh, no physics body).
-    SceneObject* addRenderObject(const std::vector<Vertex>&   vertices,
-                                 const std::vector<uint32_t>& indices);
-    SceneObject* addRenderObject(const LoadedMesh& mesh);
+    // Visual-only entity (mesh, no physics body).
+    ecs::Entity addRenderObject(const std::vector<Vertex>&   vertices,
+                                const std::vector<uint32_t>& indices);
+    ecs::Entity addRenderObject(const LoadedMesh& mesh);
 
-    // Attach a mesh to an existing SceneObject (creates mesh, sets hull->linkedMesh).
+    // Attach a mesh to an existing entity (creates mesh, sets hull->linkedMesh).
     // Returns the new RenderMesh* for immediate property configuration.
-    RenderMesh* attachMesh(SceneObject* obj,
+    RenderMesh* attachMesh(ecs::Entity obj,
                            const std::vector<Vertex>&   vertices,
                            const std::vector<uint32_t>& indices);
-    RenderMesh* attachMesh(SceneObject* obj, const LoadedMesh& mesh);
+    RenderMesh* attachMesh(ecs::Entity obj, const LoadedMesh& mesh);
 
-    // Remove a SceneObject: purges springs/cache referencing its hull, frees GPU mesh,
-    // erases from objects, rebuilds caches. Call only between frames (not during advance).
+    // Remove entity and associated SceneObject (springs, mesh, hull) between frames.
+    void removeEntity(ecs::Entity e);
+    // Legacy removal — kept for internal use; removed in Step 4.
     void removeObject(SceneObject* obj);
+
+    // Convenience accessors: Phase D bridge until Hull* deleted in Step 5.
+    physics::Hull* getHull(ecs::Entity e);
+    RenderMesh*    getMesh(ecs::Entity e);
 
     const std::vector<SceneObject*>& getObjects() const { return objectPtrs_; }
 
@@ -84,11 +89,11 @@ public:
     const std::vector<std::variant<physics::Barrier, physics::BoundedBarrier>>& getBarriers() const { return barriers_; }
 
     // ---- Springs ----
-    physics::Spring* addSpring(physics::Hull* a, physics::Hull* b, float k, float rest);
-    physics::Spring* addSpringWithProxies(physics::Hull* a, physics::Hull* b,
+    physics::Spring* addSpring(ecs::Entity a, ecs::Entity b, float k, float rest);
+    physics::Spring* addSpringWithProxies(ecs::Entity a, ecs::Entity b,
                                           float k, float rest,
                                           int proxyCount, float proxyRadius);
-    physics::Spring* addSpringWithMesh(physics::Hull* a, physics::Hull* b,
+    physics::Spring* addSpringWithMesh(ecs::Entity a, ecs::Entity b,
                                        float k, float rest, int coils,
                                        float coilRadius, float tubeRadius,
                                        int proxyCount, float proxyRadius);
@@ -176,8 +181,8 @@ private:
     std::vector<std::variant<physics::Barrier, physics::BoundedBarrier>>   barriers_;
     std::vector<std::unique_ptr<physics::Spring>>                          springs_;
     physics::BroadphaseSAP                                                 sap_;
-    std::vector<std::pair<physics::Hull*, physics::Hull*>>                 sapPairs_;
-    physics::ContactCache                                                  contactCache_;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>>                       sapPairs_;
+    physics::EntityContactCache                                            contactCache_;
     physics::IslandDetector                                                islandDetector_;
     std::unique_ptr<ThreadPool>                                            threadPool_;
     int                                                                    lastIslandCount_ = 0;

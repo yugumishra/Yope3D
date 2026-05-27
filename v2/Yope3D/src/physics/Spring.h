@@ -1,6 +1,6 @@
 #pragma once
-#include "Hull.h"
-#include "CSphere.h"
+#include "../ecs/Entity.h"
+#include "../ecs/Registry.h"
 #include "../world/RenderMesh.h"
 #include <vector>
 #include <utility>
@@ -9,46 +9,25 @@ namespace physics {
 
 class Spring {
 public:
-    Spring(Hull* first, Hull* second, float k, float restLength);
-    void update(float dt);
+    Spring(ecs::Entity first, ecs::Entity second, float k, float restLength);
+    void update(float dt, ecs::Registry& reg);
 
-    // Builds a model matrix that orients [0,1]-local-X from first to second.
-    math::Mat4 computeModelMatrix() const;
-
-    // Returns {pos, rot, scale} equivalent for ECS Transform sync.
-    // rot aligns local X with the spring direction; scale.x = spring length.
     struct SpringTransform { math::Vec3 pos; math::Quat rot; math::Vec3 scale; };
-    SpringTransform computeSpringTransform() const;
+    SpringTransform computeSpringTransform(const ecs::Registry& reg) const;
 
     // Move proxy spheres to their interpolated positions along the spring.
-    // Called by World::advance before broadphase each frame.
-    void syncProxies() const;
+    // Also writes Transform directly so broadphase sees current positions in the same frame.
+    void syncProxies(ecs::Registry& reg) const;
 
-    // Procedural helix tube mesh in local spring space (X in [0,1]).
-    // coilRadius  — radius of the helix from the spring axis (world units)
-    // tubeRadius  — wire thickness (world units)
-    // slices      — segments around the tube cross-section
-    // stacksPerCoil — segments per coil along the length
     static std::pair<std::vector<Vertex>, std::vector<uint32_t>>
         generateCoilMesh(int coils, float coilRadius, float tubeRadius,
                          int slices = 10, int stacksPerCoil = 16);
 
-    // Non-owning link to a visual helix mesh; updated each frame by World::advance.
-    RenderMesh* visualMesh = nullptr;
+    ecs::Entity visualMeshEntity_ = ecs::NullEntity;
+    std::vector<ecs::Entity> proxies_;
 
-    // Non-owning pointers to kinematic proxy spheres owned by World.
-    // Set up by World::addSpringWithMesh; configure collisionLayer/collisionMask
-    // on each proxy and on the endpoint hulls to prevent unwanted self-interaction.
-    std::vector<CSphere*> proxies;
-
-    Hull* getFirst()  const { return first;  }
-    Hull* getSecond() const { return second; }
-
-private:
-    Hull*  first;
-    Hull*  second;
-    float  k;
-    float  restLength;
+    ecs::Entity first_, second_;
+    float k, restLength;
 };
 
 } // namespace physics

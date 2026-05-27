@@ -4,8 +4,6 @@
 #include "rendering/Camera.h"
 #include "rendering/Light.h"
 #include "world/World.h"
-#include "world/SceneObject.h"
-#include "physics/CSphere.h"
 #include "physics/CAABB.h"
 #include "physics/Raycast.h"
 #include "assets/Primitives.h"
@@ -17,6 +15,7 @@
 #include "ui/Background.h"
 #include "ui/TextBox.h"
 #include "ui/TextAtlas.h"
+#include "ecs/Components.h"
 #include <GLFW/glfw3.h>
 #include <filesystem>
 #include <cmath>
@@ -77,7 +76,7 @@ public:
     void update(ScriptContext& ctx, float dt) override;
 
 private:
-    SceneObject* playerSphere_ = nullptr;
+    ecs::Entity playerEnt_ = ecs::NullEntity;
 
     RenderMesh* starMesh_ = nullptr;
     math::Vec3  starPos_  = {STAR_PLAT_X, STAR_PLAT_Y + STAR_Y_OFFSET, STAR_PLAT_Z};
@@ -112,8 +111,8 @@ void PlatformerScript::init(ScriptContext& ctx) {
     // Floor (StaticAABB, top at y=0)
     ctx.world->addStaticAABB({0.0f, -0.5f, 0.0f}, {50.0f, 0.5f, 50.0f});
 
-    auto* floorObj = ctx.world->addRenderObject(Primitives::plane(50.0f));
-    if (auto* m = floorObj->getMesh()) {
+    ecs::Entity floorEnt = ctx.world->addRenderObject(Primitives::plane(50.0f));
+    if (auto* m = ctx.world->getMesh(floorEnt)) {
         m->color[0] = 0.2f; m->color[1] = 0.8f; m->color[2] = 0.9f;
         m->modelMatrix = math::Mat4{};
         m->transformReady = true;
@@ -128,7 +127,7 @@ void PlatformerScript::init(ScriptContext& ctx) {
         float y = PLAT_HALF_Y + HEIGHT_STEP * i;
         radius += RADIUS_GROW;
 
-        auto* obj = ctx.world->addStaticAABB({x, y, z}, {PLAT_HALF_XZ, PLAT_HALF_Y, PLAT_HALF_XZ});
+        ecs::Entity obj = ctx.world->addStaticAABB({x, y, z}, {PLAT_HALF_XZ, PLAT_HALF_Y, PLAT_HALF_XZ});
         auto* m = ctx.world->attachMesh(obj, Primitives::rect({PLAT_HALF_XZ, PLAT_HALF_Y, PLAT_HALF_XZ}));
         if (m) {
             m->color[0] = platRandF(0.3f, 1.0f);
@@ -139,7 +138,7 @@ void PlatformerScript::init(ScriptContext& ctx) {
 
     // Star side-platform (requires a dash to reach)
     {
-        auto* obj = ctx.world->addStaticAABB(
+        ecs::Entity obj = ctx.world->addStaticAABB(
             {STAR_PLAT_X, STAR_PLAT_Y, STAR_PLAT_Z},
             {PLAT_HALF_XZ * 2.0f, PLAT_HALF_Y, PLAT_HALF_XZ * 2.0f});
         auto* m = ctx.world->attachMesh(
@@ -150,8 +149,8 @@ void PlatformerScript::init(ScriptContext& ctx) {
     // Star OBJ
     auto starLoaded = ObjLoader::load(
         (std::filesystem::path(YOPE_ASSETS_DIR) / "models/star.obj").string());
-    auto* starObj = ctx.world->addRenderObject(starLoaded);
-    starMesh_ = starObj ? starObj->getMesh() : nullptr;
+    ecs::Entity starEnt = ctx.world->addRenderObject(starLoaded);
+    starMesh_ = ctx.world->getMesh(starEnt);
     if (starMesh_) {
         starMesh_->color[0] = 1.0f; starMesh_->color[1] = 0.813f; starMesh_->color[2] = 0.0f;
         starMesh_->modelMatrix = math::Mat4::translate(starPos_);
@@ -160,9 +159,9 @@ void PlatformerScript::init(ScriptContext& ctx) {
 
     // Player sphere — physics-driven character.
     // Spawn above platform 0 so it lands on it.
-    playerSphere_ = ctx.world->addSphere(1.0f, PLAYER_R, {INITIAL_RADIUS, 125.0f, 0.0f});
+    playerEnt_ = ctx.world->addSphere(1.0f, PLAYER_R, {INITIAL_RADIUS, 125.0f, 0.0f});
     {
-        auto* h = playerSphere_->getHull();
+        auto* h = ctx.world->getHull(playerEnt_);
         h->disableSleeping();          // critical — setVelocity is silently dropped on sleeping hulls
         h->friction      = PLAYER_FRICTION;  // contact friction must not fight WASD
         h->linearDamping = 0.0f;             // only the script-side HORIZ_DAMP damps the player
@@ -188,7 +187,7 @@ void PlatformerScript::update(ScriptContext& ctx, float dt) {
     totalTime_ += dt;
     if (!won_) gameTime_ += dt;
 
-    auto* hull = playerSphere_->getHull();
+    auto* hull = ctx.world->getHull(playerEnt_);
     math::Vec3 spherePos = hull->getPosition();
 
     if (!won_) {
@@ -287,8 +286,8 @@ void PlatformerScript::update(ScriptContext& ctx, float dt) {
             for (int i = 0; i < PARTICLE_COUNT; ++i) {
                 auto pLoaded = ObjLoader::load(
                     (std::filesystem::path(YOPE_ASSETS_DIR) / "models/star.obj").string());
-                auto* pObj = ctx.world->addRenderObject(pLoaded);
-                if (auto* pm = pObj ? pObj->getMesh() : nullptr) {
+                ecs::Entity pEnt = ctx.world->addRenderObject(pLoaded);
+                if (auto* pm = ctx.world->getMesh(pEnt)) {
                     pm->color[0] = 1.0f; pm->color[1] = 0.813f; pm->color[2] = 0.0f;
                     pm->transformReady = true;
                     math::Vec3 sp = starPos_ + randUnitVec3() * 0.5f;
