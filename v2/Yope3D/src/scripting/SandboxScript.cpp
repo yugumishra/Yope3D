@@ -144,7 +144,7 @@ void SandboxScript::init(ScriptContext& ctx) {
     dir.direction[0] = -0.4f; dir.direction[1] = -1.0f; dir.direction[2] = -0.6f;
     dir.color[0] = 0.95f; dir.color[1] = 0.95f; dir.color[2] = 1.0f;
     dir.intensity = 0.9f;
-    ctx_->world->addLight(dir);
+    ctx.world->addLight(dir);
 
     // Persistent looping ambient emitter at {0,2,0}.
     AudioSystem::SoundBuffer* sb = ctx_->audio->loadSound("audios/test.ogg");
