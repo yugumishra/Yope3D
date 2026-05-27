@@ -24,6 +24,10 @@ void TextBox::buildMesh(UIBuffer& buf, float screenW, float screenH) {
 
     int   natSize = atlas_->pixelSize();
     float scale   = (displayPx_ > 0) ? static_cast<float>(displayPx_) / natSize : 1.0f;
+    // Auto-fit: if the ascender would overflow areaH, scale down so text is
+    // visible rather than silently clipped (happens on low-DPI / small windows).
+    if (atlas_->ascender() > 0 && atlas_->ascender() * scale > areaH)
+        scale = areaH / static_cast<float>(atlas_->ascender());
     float lineH   = atlas_->lineHeight() * scale;
     float asc     = atlas_->ascender()   * scale;
 

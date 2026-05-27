@@ -84,56 +84,77 @@ SceneObject* World::makeHullObject(Args&&... args) {
 
 // ---- Physics-only factory methods ----
 
-SceneObject* World::addSphere(float mass, float radius, math::Vec3 pos) {
+ecs::Entity World::addSphere(float mass, float radius, math::Vec3 pos) {
     auto* obj = makeHullObject<physics::CSphere>(mass, radius, pos);
     ecs::Entity e = registry_.create();
     obj->entity = e;
     auto* h = obj->getHull();
     registry_.add<Transform>(e, Transform{h->getPosition(), h->getRotation(), {radius, radius, radius}});
     registry_.add<ecs::Hull>(e, buildHullComp(h));
+    if (auto* hc = registry_.get<ecs::Hull>(e)) {
+        float invI = (mass > 0.0f && radius > 0.0f) ? 1.0f / (0.4f * mass * radius * radius) : 0.0f;
+        hc->inverseInertia = math::Mat3::scale({invI, invI, invI});
+    }
     registry_.add<ecs::SphereForm>(e, {radius});
     registry_.add<ecs::LegacyHullRef>(e, {h});
     hullToEntity_[h] = e;
-    return obj;
+    return e;
 }
 
-SceneObject* World::addOBB(math::Vec3 extent, float mass, math::Vec3 pos) {
+ecs::Entity World::addOBB(math::Vec3 extent, float mass, math::Vec3 pos) {
     auto* obj = makeHullObject<physics::COBB>(extent, mass, pos);
     ecs::Entity e = registry_.create();
     obj->entity = e;
     auto* h = obj->getHull();
     registry_.add<Transform>(e, Transform{h->getPosition(), h->getRotation(), extent});
     registry_.add<ecs::Hull>(e, buildHullComp(h));
+    if (auto* hc = registry_.get<ecs::Hull>(e); hc && mass > 0.0f) {
+        float ex = extent.x, ey = extent.y, ez = extent.z;
+        hc->inverseInertia = math::Mat3::scale({
+            12.0f / (mass * (ey*ey + ez*ez)),
+            12.0f / (mass * (ex*ex + ez*ez)),
+            12.0f / (mass * (ex*ex + ey*ey))
+        });
+    }
     registry_.add<ecs::OBBForm>(e, {extent});
     registry_.add<ecs::LegacyHullRef>(e, {h});
     hullToEntity_[h] = e;
-    return obj;
+    return e;
 }
 
-SceneObject* World::addAABB(math::Vec3 extent, float mass, math::Vec3 pos) {
+ecs::Entity World::addAABB(math::Vec3 extent, float mass, math::Vec3 pos) {
     auto* obj = makeHullObject<physics::CAABB>(extent, mass, pos);
     ecs::Entity e = registry_.create();
     obj->entity = e;
     auto* h = obj->getHull();
     registry_.add<Transform>(e, Transform{h->getPosition(), h->getRotation(), extent});
     registry_.add<ecs::Hull>(e, buildHullComp(h));
+    if (auto* hc = registry_.get<ecs::Hull>(e); hc && mass > 0.0f) {
+        float ex = extent.x, ey = extent.y, ez = extent.z;
+        hc->inverseInertia = math::Mat3::scale({
+            12.0f / (mass * (ey*ey + ez*ez)),
+            12.0f / (mass * (ex*ex + ez*ez)),
+            12.0f / (mass * (ex*ex + ey*ey))
+        });
+    }
     registry_.add<ecs::AABBForm>(e, {extent});
     registry_.add<ecs::LegacyHullRef>(e, {h});
     hullToEntity_[h] = e;
-    return obj;
+    return e;
 }
 
-SceneObject* World::addStaticAABB(math::Vec3 pos, math::Vec3 extent) {
+ecs::Entity World::addStaticAABB(math::Vec3 pos, math::Vec3 extent) {
     auto* obj = makeHullObject<physics::CAABB>(pos, extent);
     ecs::Entity e = registry_.create();
     obj->entity = e;
     auto* h = obj->getHull();
     registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, extent});
+    registry_.add<ecs::Hull>(e, buildHullComp(h));
     registry_.add<ecs::AABBForm>(e, {extent});
     registry_.add<ecs::Fixed>(e);
     registry_.add<ecs::LegacyHullRef>(e, {h});
     hullToEntity_[h] = e;
-    return obj;
+    return e;
 }
 
 SceneObject* World::addBarrierHull(math::Vec3 extent, math::Vec3 pos) {
@@ -142,7 +163,7 @@ SceneObject* World::addBarrierHull(math::Vec3 extent, math::Vec3 pos) {
     );
 }
 
-SceneObject* World::addOBBFromMesh(const LoadedMesh& loadedMesh, float mass) {
+ecs::Entity World::addOBBFromMesh(const LoadedMesh& loadedMesh, float mass) {
     math::Vec3 mn = { FLT_MAX,  FLT_MAX,  FLT_MAX };
     math::Vec3 mx = {-FLT_MAX, -FLT_MAX, -FLT_MAX };
     for (const auto& v : loadedMesh.vertices) {
@@ -208,8 +229,8 @@ static void setPrimitiveInfo(RenderMesh* rm, const LoadedMesh& mesh) {
 
 // ---- Visual-only factory methods ----
 
-SceneObject* World::addRenderObject(const std::vector<Vertex>& vertices,
-                                     const std::vector<uint32_t>& indices) {
+ecs::Entity World::addRenderObject(const std::vector<Vertex>& vertices,
+                                    const std::vector<uint32_t>& indices) {
     std::lock_guard lk(structureMtx_);
     auto obj = std::make_unique<SceneObject>();
     obj->mesh = std::make_unique<RenderMesh>(*gpu_, pool_, vertices, indices);
@@ -222,73 +243,101 @@ SceneObject* World::addRenderObject(const std::vector<Vertex>& vertices,
     registry_.add<Transform>(e);
     registry_.add<ecs::MeshRenderer>(e, {raw->getMesh()});
     meshToEntity_[raw->getMesh()] = e;
-    return raw;
+    return e;
 }
 
-SceneObject* World::addRenderObject(const LoadedMesh& mesh) {
-    SceneObject* obj = addRenderObject(mesh.vertices, mesh.indices);
-    setPrimitiveInfo(obj->mesh.get(), mesh);
-    return obj;
+ecs::Entity World::addRenderObject(const LoadedMesh& mesh) {
+    ecs::Entity e = addRenderObject(mesh.vertices, mesh.indices);
+    // find the SceneObject we just created to set primitive info
+    for (auto& obj : objects_) {
+        if (obj->entity == e && obj->mesh) {
+            setPrimitiveInfo(obj->mesh.get(), mesh);
+            break;
+        }
+    }
+    return e;
 }
 
-// ---- Attach mesh to existing object ----
+// ---- Attach mesh to existing entity ----
 
-RenderMesh* World::attachMesh(SceneObject* obj,
+RenderMesh* World::attachMesh(ecs::Entity e,
                                const std::vector<Vertex>& vertices,
                                const std::vector<uint32_t>& indices) {
     std::lock_guard lk(structureMtx_);
+    SceneObject* obj = nullptr;
+    for (auto& o : objects_)
+        if (o->entity == e) { obj = o.get(); break; }
+    if (!obj) return nullptr;
     obj->mesh = std::make_unique<RenderMesh>(*gpu_, pool_, vertices, indices);
     if (obj->hull) {
         obj->hull->linkedMesh = obj->mesh.get();
-        // transformReady will be set by the snapshot cycle
     } else {
-        obj->mesh->transformReady = true;  // no hull: static visual, transform is already known
+        obj->mesh->transformReady = true;
     }
     rebuildCaches();
-    if (registry_.valid(obj->entity))
-        registry_.add<ecs::MeshRenderer>(obj->entity, {obj->mesh.get()});
+    registry_.add<ecs::MeshRenderer>(e, {obj->mesh.get()});
     return obj->mesh.get();
 }
 
-RenderMesh* World::attachMesh(SceneObject* obj, const LoadedMesh& mesh) {
-    RenderMesh* rm = attachMesh(obj, mesh.vertices, mesh.indices);
-    setPrimitiveInfo(rm, mesh);
+RenderMesh* World::attachMesh(ecs::Entity e, const LoadedMesh& mesh) {
+    RenderMesh* rm = attachMesh(e, mesh.vertices, mesh.indices);
+    if (rm) setPrimitiveInfo(rm, mesh);
     return rm;
+}
+
+// ---- Entity/mesh accessors ----
+
+physics::Hull* World::getHull(ecs::Entity e) {
+    auto* ref = registry_.get<ecs::LegacyHullRef>(e);
+    return ref ? ref->ptr : nullptr;
+}
+
+RenderMesh* World::getMesh(ecs::Entity e) {
+    auto* mr = registry_.get<ecs::MeshRenderer>(e);
+    return mr ? mr->mesh : nullptr;
+}
+
+void World::removeEntity(ecs::Entity e) {
+    for (const auto& obj : objects_) {
+        if (obj->entity == e) { removeObject(obj.get()); return; }
+    }
+    if (registry_.valid(e)) registry_.destroy(e);
 }
 
 // ---- Springs ----
 
-physics::Spring* World::addSpring(physics::Hull* a, physics::Hull* b, float k, float rest) {
+physics::Spring* World::addSpring(ecs::Entity a, ecs::Entity b, float k, float rest) {
     std::lock_guard lk(structureMtx_);
     springs_.push_back(std::make_unique<physics::Spring>(a, b, k, rest));
     ecs::Entity springEnt = registry_.create();
-    registry_.add<ecs::SpringConstraint>(springEnt, {findEntityForHull(b), k, rest});
+    registry_.add<ecs::SpringConstraint>(springEnt, {b, k, rest});
     return springs_.back().get();
 }
 
-physics::Spring* World::addSpringWithProxies(physics::Hull* a, physics::Hull* b,
+physics::Spring* World::addSpringWithProxies(ecs::Entity a, ecs::Entity b,
                                               float k, float rest,
                                               int proxyCount, float proxyRadius) {
     std::lock_guard lk(structureMtx_);
     springs_.push_back(std::make_unique<physics::Spring>(a, b, k, rest));
     physics::Spring* s = springs_.back().get();
+    math::Vec3 posA{}, posB{};
+    if (auto* ha = getHull(a)) posA = ha->getPosition();
+    if (auto* hb = getHull(b)) posB = hb->getPosition();
     for (int i = 0; i < proxyCount; ++i) {
         float t = (float)(i + 1) / (float)(proxyCount + 1);
-        math::Vec3 pos = a->getPosition() + (b->getPosition() - a->getPosition()) * t;
-        auto* proxyObj = addSphere(1.0f, proxyRadius, pos);
-        auto* proxy = proxyObj->hullAs<physics::CSphere>();
-        proxy->fix();
-        proxy->disableGravity();
-        if (registry_.valid(proxyObj->entity))
-            registry_.add<ecs::Fixed>(proxyObj->entity);
-        s->proxies.push_back(proxy);
+        ecs::Entity proxyEnt = addSphere(1.0f, proxyRadius, posA + (posB - posA) * t);
+        if (auto* proxy = dynamic_cast<physics::CSphere*>(getHull(proxyEnt))) {
+            proxy->fix(); proxy->disableGravity();
+        }
+        if (!registry_.has<ecs::Fixed>(proxyEnt)) registry_.add<ecs::Fixed>(proxyEnt);
+        s->proxies_.push_back(proxyEnt);
     }
     ecs::Entity springEnt = registry_.create();
-    registry_.add<ecs::SpringConstraint>(springEnt, {findEntityForHull(b), k, rest});
+    registry_.add<ecs::SpringConstraint>(springEnt, {b, k, rest});
     return s;
 }
 
-physics::Spring* World::addSpringWithMesh(physics::Hull* a, physics::Hull* b,
+physics::Spring* World::addSpringWithMesh(ecs::Entity a, ecs::Entity b,
                                           float k, float rest, int coils,
                                           float coilRadius, float tubeRadius,
                                           int proxyCount, float proxyRadius) {
@@ -297,24 +346,27 @@ physics::Spring* World::addSpringWithMesh(physics::Hull* a, physics::Hull* b,
     physics::Spring* s = springs_.back().get();
 
     auto [verts, inds] = physics::Spring::generateCoilMesh(coils, coilRadius, tubeRadius);
-    auto* coilObj = addRenderObject(verts, inds);
-    s->visualMesh = coilObj->getMesh();
-    s->visualMesh->modelMatrix = s->computeModelMatrix();
+    ecs::Entity coilEnt = addRenderObject(verts, inds);
+    s->visualMeshEntity_ = coilEnt;
+    auto [spos, srot, sscale] = s->computeSpringTransform(registry_);
+    if (auto* m = getMesh(coilEnt))
+        m->modelMatrix = Transform{spos, srot, sscale}.getModelMatrix();
 
+    math::Vec3 posA{}, posB{};
+    if (auto* ha = getHull(a)) posA = ha->getPosition();
+    if (auto* hb = getHull(b)) posB = hb->getPosition();
     for (int i = 0; i < proxyCount; ++i) {
         float t = (float)(i + 1) / (float)(proxyCount + 1);
-        math::Vec3 pos = a->getPosition() + (b->getPosition() - a->getPosition()) * t;
-        auto* proxyObj = addSphere(1.0f, proxyRadius, pos);
-        auto* proxy = proxyObj->hullAs<physics::CSphere>();
-        proxy->fix();
-        proxy->disableGravity();
-        if (registry_.valid(proxyObj->entity))
-            registry_.add<ecs::Fixed>(proxyObj->entity);
-        s->proxies.push_back(proxy);
+        ecs::Entity proxyEnt = addSphere(1.0f, proxyRadius, posA + (posB - posA) * t);
+        if (auto* proxy = dynamic_cast<physics::CSphere*>(getHull(proxyEnt))) {
+            proxy->fix(); proxy->disableGravity();
+        }
+        if (!registry_.has<ecs::Fixed>(proxyEnt)) registry_.add<ecs::Fixed>(proxyEnt);
+        s->proxies_.push_back(proxyEnt);
     }
     ecs::Entity springEnt = registry_.create();
-    registry_.add<ecs::SpringConstraint>(springEnt, {findEntityForHull(b), k, rest});
-    registry_.add<ecs::MeshRenderer>(springEnt, {coilObj->getMesh()});
+    registry_.add<ecs::SpringConstraint>(springEnt, {b, k, rest});
+    if (auto* m = getMesh(coilEnt)) registry_.add<ecs::MeshRenderer>(springEnt, {m});
     return s;
 }
 
@@ -369,27 +421,26 @@ void World::removeLight(int index) {
 void World::removeObject(SceneObject* obj) {
     if (!obj) return;
     std::lock_guard lk(structureMtx_);
-    if (registry_.valid(obj->entity))
-        registry_.destroy(obj->entity);
+    ecs::Entity removedEnt = obj->entity;
+    if (registry_.valid(removedEnt))
+        registry_.destroy(removedEnt);
     physics::Hull* h = obj->hull.get();
 
     if (h) {
-        // 1a. Remove springs that reference this hull; also collect coil/proxy SceneObjects to remove.
+        // 1a. Remove springs that reference this entity; collect coil/proxy SceneObjects.
         std::vector<SceneObject*> toRemove;
         springs_.erase(std::remove_if(springs_.begin(), springs_.end(),
             [&](const std::unique_ptr<physics::Spring>& s) {
-                if (s->getFirst() == h || s->getSecond() == h) {
-                    // Collect the coil visual SceneObject.
-                    if (s->visualMesh) {
-                        for (auto& o : objects_) {
-                            if (o.get() != obj && o->mesh.get() == s->visualMesh)
-                                toRemove.push_back(o.get());
-                        }
+                if (s->first_ == removedEnt || s->second_ == removedEnt) {
+                    // Collect the coil visual SceneObject by entity.
+                    for (auto& o : objects_) {
+                        if (o.get() != obj && o->entity == s->visualMeshEntity_)
+                            toRemove.push_back(o.get());
                     }
-                    // Collect proxy SceneObjects.
-                    for (auto* proxy : s->proxies) {
+                    // Collect proxy SceneObjects by entity.
+                    for (ecs::Entity proxyEnt : s->proxies_) {
                         for (auto& o : objects_) {
-                            if (o.get() != obj && o->hull.get() == proxy)
+                            if (o.get() != obj && o->entity == proxyEnt)
                                 toRemove.push_back(o.get());
                         }
                     }
@@ -408,13 +459,15 @@ void World::removeObject(SceneObject* obj) {
 
         // 1b. Remove proxy back-references in surviving springs.
         for (auto& s : springs_) {
-            s->proxies.erase(std::remove(s->proxies.begin(), s->proxies.end(),
-                static_cast<physics::CSphere*>(h)), s->proxies.end());
+            s->proxies_.erase(std::remove(s->proxies_.begin(), s->proxies_.end(), removedEnt),
+                              s->proxies_.end());
         }
 
-        // 1c. Purge ContactCache entries keyed by this hull.
+        // 1c. Purge EntityContactCache entries keyed by this entity.
         std::erase_if(contactCache_,
-            [h](const auto& kv) { return kv.first.a == h || kv.first.b == h; });
+            [removedEnt](const auto& kv) {
+                return kv.first.a == removedEnt || kv.first.b == removedEnt;
+            });
 
         hullToEntity_.erase(h);
     }
@@ -485,27 +538,38 @@ void World::cleanup() {
 void World::advance(float dt) {
     std::lock_guard lk(structureMtx_);
 
-    // Build hull list from ECS (replaces hullCache_).
+    // Build entity and hull lists from ECS.
+    std::vector<ecs::Entity>    entities;
     std::vector<physics::Hull*> hulls;
-    for (auto [e, ref] : registry_.view<ecs::LegacyHullRef>())
-        if (ref.ptr) hulls.push_back(ref.ptr);
+    for (auto [e, ref] : registry_.view<ecs::LegacyHullRef>()) {
+        if (ref.ptr) {
+            entities.push_back(e);
+            hulls.push_back(ref.ptr);
+        }
+    }
 
     // 0. Sync spring proxies.
     for (auto& s : springs_)
-        s->syncProxies();
+        s->syncProxies(registry_);
 
-    // 2. SAP broadphase + island-partitioned PGS.
-    sap_.collectPairs(hulls, sapPairs_);
+    // 1. SAP broadphase — Entity-keyed pairs.
+    sap_.collectPairs(entities, registry_, sapPairs_);
 
+    // 2. Narrow-phase detection.
     std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
-    for (auto& [ha, hb] : sapPairs_) {
-        if (ha->isFixed() && hb->isFixed()) continue;
-        if (ha->isSleeping() && hb->isSleeping()) continue;
-        if (ha->isSleeping() && hb->isFixed()) continue;
-        if (ha->isFixed() && hb->isSleeping()) continue;
-        physics::ColliderDiscrete::detect(*ha, *hb, contacts);
+    for (auto& [ea, eb] : sapPairs_) {
+        bool aFixed = registry_.has<ecs::Fixed>(ea);
+        bool bFixed = registry_.has<ecs::Fixed>(eb);
+        bool aSleep = registry_.has<ecs::Sleeping>(ea);
+        bool bSleep = registry_.has<ecs::Sleeping>(eb);
+        if (aFixed && bFixed) continue;
+        if (aSleep && bSleep) continue;
+        if (aSleep && bFixed) continue;
+        if (aFixed && bSleep) continue;
+        physics::ColliderDiscrete::detect(ea, eb, registry_, contacts);
     }
 
+    // 3. Island-partitioned PGS solve.
     lastIslandCount_ = 0;
     if (!contacts.empty()) {
         if (!threadPool_) {
@@ -513,23 +577,23 @@ void World::advance(float dt) {
             threadPool_ = std::make_unique<ThreadPool>(n);
         }
         std::vector<physics::Island> islands;
-        islandDetector_.build(contacts, contactCache_, islands);
+        islandDetector_.build(contacts, contactCache_, islands, registry_);
         lastIslandCount_ = static_cast<int>(islands.size());
         for (auto& island : islands) {
-            threadPool_->enqueue([&island, dt] {
-                physics::ColliderDiscrete::solveIsland(island.contacts, dt, island.localCache);
+            threadPool_->enqueue([&island, dt, &reg = registry_]() mutable {
+                physics::ColliderDiscrete::solveIsland(island.contacts, dt, reg, island.localCache);
             });
         }
         threadPool_->wait();
         physics::IslandDetector::mergeCache(islands, contactCache_);
     }
 
-    // 3. Integration.
+    // 4. Integration (Hull*-based; Hull deleted in Step 5).
     for (auto* h : hulls) {
         if (h->isTangible()) h->advance(dt, gravity);
     }
 
-    // 4. Sleeping check.
+    // 5. Sleeping check.
     for (auto* h : hulls) {
         if (!h->isFixed() && h->isTangible() && !h->isSleeping()) {
             math::Vec3 v = h->getVelocity();
@@ -538,9 +602,9 @@ void World::advance(float dt) {
         }
     }
 
-    // 5. Springs.
+    // 6. Springs.
     for (auto& s : springs_)
-        s->update(dt);
+        s->update(dt, registry_);
 
     publishSnapshot();
 }
@@ -556,8 +620,9 @@ void World::publishSnapshot() {
         snapshotBack_.push_back({ h->getPosition(), h->getRotation(), h->getScale(), h->linkedMesh, e });
 
         if (auto* hc = registry_.get<ecs::Hull>(e)) {
-            hc->velocity = h->getVelocity();
-            hc->omega    = h->getOmega();
+            hc->velocity           = h->getVelocity();
+            hc->omega              = h->getOmega();
+            hc->inertiaTensorWorld = h->getInverseInertiaTensorWorld();
         }
         bool sleeping = h->isSleeping();
         if (sleeping && !registry_.has<ecs::Sleeping>(e))
@@ -568,11 +633,11 @@ void World::publishSnapshot() {
 
     springSnapshotBack_.clear();
     for (auto& s : springs_) {
-        if (!s->visualMesh) continue;
-        auto [pos, rot, scale] = s->computeSpringTransform();
-        auto it = meshToEntity_.find(s->visualMesh);
-        ecs::Entity se = (it != meshToEntity_.end()) ? it->second : ecs::NullEntity;
-        springSnapshotBack_.push_back({pos, rot, scale, s->visualMesh, se});
+        if (!registry_.valid(s->visualMeshEntity_)) continue;
+        auto* mr = registry_.get<ecs::MeshRenderer>(s->visualMeshEntity_);
+        if (!mr || !mr->mesh) continue;
+        auto [pos, rot, scale] = s->computeSpringTransform(registry_);
+        springSnapshotBack_.push_back({pos, rot, scale, mr->mesh, s->visualMeshEntity_});
     }
 
     if (debugPhysics)
@@ -669,6 +734,10 @@ void World::destroyDebugMeshes() {
 
 void World::toggleProxies(bool enabled) {
     for (auto& s : springs_)
-        for (auto* p : s->proxies)
-            p->setTangible(enabled);
+        for (ecs::Entity proxyEnt : s->proxies_) {
+            if (auto* hc = registry_.get<ecs::Hull>(proxyEnt))
+                hc->tangible = enabled;
+            if (auto* ref = registry_.get<ecs::LegacyHullRef>(proxyEnt))
+                if (ref->ptr) ref->ptr->setTangible(enabled);
+        }
 }

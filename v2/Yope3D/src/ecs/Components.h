@@ -1,6 +1,7 @@
 #pragma once
 #include "Entity.h"
 #include "../math/Vec3.h"
+#include "../math/Mat3.h"
 #include "../physics/PhysicsConstants.h"
 #include <cstdint>
 
@@ -25,6 +26,15 @@ struct Hull {
     bool       gravity        = true;
     bool       tangible       = true;
     bool       sleepingEnabled = true;
+
+    // Phase D fields: solve accumulators + cached tensors (populated by factory methods / publishSnapshot)
+    math::Vec3 pseudoVel          {};
+    math::Vec3 pseudoOmega        {};
+    math::Vec3 linearImpulse      {};
+    math::Vec3 angularImpulse     {};
+    math::Mat3 inverseInertia     {};    // body-space inverse inertia tensor (set at factory time)
+    math::Mat3 inertiaTensorWorld {};    // world-space, synced in publishSnapshot after integration
+    int        sleepFrames        = 0;
 };
 
 // ---- Collider shapes ----

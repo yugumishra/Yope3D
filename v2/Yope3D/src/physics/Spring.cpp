@@ -1,16 +1,25 @@
 #include "Spring.h"
+#include "Hull.h"
 #include "PhysicsConstants.h"
+#include "../ecs/Components.h"
+#include "../world/Transform.h"
 #include <cmath>
 
 namespace physics {
 
 static constexpr float PI = 3.14159265359f;
 
-Spring::Spring(Hull* a, Hull* b, float k, float rest)
-    : first(a), second(b), k(k), restLength(rest) {}
+Spring::Spring(ecs::Entity first, ecs::Entity second, float k, float rest)
+    : first_(first), second_(second), k(k), restLength(rest) {}
 
-void Spring::update(float dt) {
-    math::Vec3 delta = first->getPosition() - second->getPosition();
+void Spring::update(float dt, ecs::Registry& reg) {
+    auto* rA = reg.get<ecs::LegacyHullRef>(first_);
+    auto* rB = reg.get<ecs::LegacyHullRef>(second_);
+    if (!rA || !rB || !rA->ptr || !rB->ptr) return;
+    Hull* a = rA->ptr;
+    Hull* b = rB->ptr;
+
+    math::Vec3 delta = a->getPosition() - b->getPosition();
     float length = delta.length();
     if (length < 1e-7f) return;
 
@@ -18,27 +27,41 @@ void Spring::update(float dt) {
     delta = delta * ((1.0f / length) * displacement * k);
     delta *= (1 - SPRING_DAMPING_COEFF);
 
-    math::Vec3  firstVel = first->getVelocity() + (delta * (-dt / first->getMass()));
-    math::Vec3 secondVel =second->getVelocity() + (delta * ( dt /second->getMass()));
+    math::Vec3 aVel = a->getVelocity() + (delta * (-dt / a->getMass()));
+    math::Vec3 bVel = b->getVelocity() + (delta * ( dt / b->getMass()));
 
-    first->setVelocity(firstVel);
-    second->setVelocity(secondVel);
+    a->setVelocity(aVel);
+    b->setVelocity(bVel);
 }
 
-void Spring::syncProxies() const {
-    if (proxies.empty()) return;
-    math::Vec3 a = first->getPosition();
-    math::Vec3 b = second->getPosition();
-    int n = (int)proxies.size();
+void Spring::syncProxies(ecs::Registry& reg) const {
+    if (proxies_.empty()) return;
+    auto* rA = reg.get<ecs::LegacyHullRef>(first_);
+    auto* rB = reg.get<ecs::LegacyHullRef>(second_);
+    if (!rA || !rB || !rA->ptr || !rB->ptr) return;
+    math::Vec3 a = rA->ptr->getPosition();
+    math::Vec3 b = rB->ptr->getPosition();
+    int n = static_cast<int>(proxies_.size());
     for (int i = 0; i < n; ++i) {
-        float t = (float)(i + 1) / (float)(n + 1); // evenly spaced, never at endpoints
-        proxies[i]->setPosition(a + (b - a) * t);
+        float t = static_cast<float>(i + 1) / static_cast<float>(n + 1);
+        math::Vec3 pos = a + (b - a) * t;
+        // Update legacy Hull position so broadphase and integration stay consistent.
+        if (auto* ref = reg.get<ecs::LegacyHullRef>(proxies_[i]))
+            if (ref->ptr) ref->ptr->setPosition(pos);
+        // Update ECS Transform so the Entity-based BroadphaseSAP sees current positions.
+        if (auto* tf = reg.get<Transform>(proxies_[i]))
+            tf->position = pos;
     }
 }
 
-Spring::SpringTransform Spring::computeSpringTransform() const {
-    math::Vec3 start = first->getPosition();
-    math::Vec3 fwd   = second->getPosition() - start;
+Spring::SpringTransform Spring::computeSpringTransform(const ecs::Registry& reg) const {
+    auto* rA = reg.get<ecs::LegacyHullRef>(first_);
+    auto* rB = reg.get<ecs::LegacyHullRef>(second_);
+    math::Vec3 start{}, end{1, 0, 0};
+    if (rA && rA->ptr) start = rA->ptr->getPosition();
+    if (rB && rB->ptr) end   = rB->ptr->getPosition();
+
+    math::Vec3 fwd = end - start;
     float length = fwd.length();
     math::Vec3 dir = length > 1e-6f ? fwd * (1.f / length) : math::Vec3{1, 0, 0};
 
@@ -56,29 +79,6 @@ Spring::SpringTransform Spring::computeSpringTransform() const {
     return {start, rot, {length, 1.0f, 1.0f}};
 }
 
-math::Mat4 Spring::computeModelMatrix() const {
-    math::Vec3 start = first->getPosition();
-    // Local X axis = vector from first to second (magnitude = spring length).
-    math::Vec3 fwd   = second->getPosition() - start;
-
-    math::Vec3 ref = {0.0f, 1.0f, 0.0f};
-    if (std::abs(fwd.normalize().dot(ref)) > 0.99f) ref = {1.0f, 0.0f, 0.0f};
-
-    math::Vec3 right = fwd.cross(ref).normalize();
-    math::Vec3 up    = fwd.cross(right).normalize();
-
-    math::Mat4 mat;
-    // Column 0: local X (spring direction, scaled by length)
-    mat.m[0] = fwd.x;   mat.m[1] = fwd.y;   mat.m[2] = fwd.z;   mat.m[3]  = 0.0f;
-    // Column 1: local Y
-    mat.m[4] = right.x; mat.m[5] = right.y; mat.m[6] = right.z; mat.m[7]  = 0.0f;
-    // Column 2: local Z
-    mat.m[8] = up.x;    mat.m[9] = up.y;    mat.m[10] = up.z;   mat.m[11] = 0.0f;
-    // Column 3: translation = first body position
-    mat.m[12] = start.x; mat.m[13] = start.y; mat.m[14] = start.z; mat.m[15] = 1.0f;
-    return mat;
-}
-
 std::pair<std::vector<Vertex>, std::vector<uint32_t>>
 Spring::generateCoilMesh(int coils, float coilRadius, float tubeRadius, int slices, int stacksPerCoil) {
     int totalStacks = stacksPerCoil * coils;
@@ -93,14 +93,10 @@ Spring::generateCoilMesh(int coils, float coilRadius, float tubeRadius, int slic
         float theta = t * omega;
         float ct = std::cos(theta), st = std::sin(theta);
 
-        // Helix center in local spring space (X in [0,1])
         math::Vec3 center = { t, coilRadius * st, coilRadius * ct };
 
-        // Helix tangent (unnormalized): d(center)/dtheta scaled
         math::Vec3 T = math::Vec3{ 1.0f, coilRadius * omega * ct, -coilRadius * omega * st }.normalize();
-        // Inward normal toward helix axis
         math::Vec3 N = math::Vec3{ 0.0f, -st, -ct };
-        // Binormal, then re-orthogonalise N for a clean frame
         math::Vec3 B = T.cross(N).normalize();
         N = B.cross(T).normalize();
 
