@@ -510,8 +510,20 @@ void World::resetPhysics() {
     meshToEntity_.clear();
     rebuildCaches();
 
+    // Preserve lights across physics resets — they're rendering state, not simulation state.
+    std::vector<ecs::LightSource> savedLights;
+    savedLights.reserve(lightEntities_.size());
+    for (auto e : lightEntities_)
+        if (auto* ls = registry_.get<ecs::LightSource>(e)) savedLights.push_back(*ls);
+
     registry_ = ecs::Registry{};
     lightEntities_.clear();
+
+    for (auto& ls : savedLights) {
+        ecs::Entity e = registry_.create();
+        registry_.add<ecs::LightSource>(e, ls);
+        lightEntities_.push_back(e);
+    }
 }
 
 // ---- cleanup ----
