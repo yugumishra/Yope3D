@@ -342,7 +342,7 @@ static void fixPlayerSphere(ecs::Entity e, World* world) {
     auto& reg = world->getRegistry();
     if (auto* hc = reg.get<ecs::Hull>(e)) {
         hc->inverseMass    = 0.0f;
-        hc->inverseInertia = math::Mat3::scale({0,0,0});
+        hc->inverseInertia = math::Mat3::zero();
         hc->velocity       = {};
         hc->omega          = {};
         hc->gravity        = false;
@@ -449,7 +449,7 @@ void SandboxScript::loadSpringCloth(int variant, int shapeType) {
             if (fix && e != ecs::NullEntity) {
                 auto& reg = ctx_->world->getRegistry();
                 if (auto* hc = reg.get<ecs::Hull>(e)) {
-                    hc->inverseMass = 0.0f; hc->inverseInertia = math::Mat3::scale({0,0,0});
+                    hc->inverseMass = 0.0f; hc->inverseInertia = math::Mat3::zero();
                     hc->velocity = {}; hc->omega = {};
                 }
                 if (!reg.has<ecs::Fixed>(e)) reg.add<ecs::Fixed>(e);

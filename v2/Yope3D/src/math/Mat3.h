@@ -8,6 +8,9 @@ namespace math {
     struct Mat3 {
         float m[9] = {1,0,0, 0,1,0, 0,0,1}; // Identity
 
+        // Zero matrix (all elements 0 — NOT the default, which is identity)
+        static Mat3 zero();
+
         // Basic scale
         static Mat3 scale(const Vec3& v);
 
@@ -38,6 +41,12 @@ namespace math {
 //COLUMN MAJOR MATRICES
 #ifdef YOPE_MATH_IMPL
 namespace math {
+    Mat3 Mat3::zero() {
+        Mat3 res;
+        res.m[0] = res.m[4] = res.m[8] = 0.0f;
+        return res;
+    }
+
     // Basic scale
     Mat3 Mat3::scale(const Vec3& v) {
         Mat3 res;
