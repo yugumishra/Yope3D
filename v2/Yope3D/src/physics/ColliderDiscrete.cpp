@@ -3,11 +3,85 @@
 #include "../ecs/Registry.h"
 #include "../ecs/Components.h"
 #include "../world/Transform.h"
+#include "../debug/Profiler.h"
 #include <cmath>
 #include <algorithm>
 #include <vector>
+#include <chrono>
 
 namespace physics::ColliderDiscrete {
+
+// ============================================================================
+// Per-shape-pair narrowphase timing (A4).
+// Each detect() call falls into one of 6 buckets (sph_sph, sph_aabb, sph_obb,
+// aabb_aabb, aabb_obb, obb_obb). NPHASE_TIME(bucket) creates a thread-local
+// RAII timer in debug builds; in release it expands to nothing.
+// emitNarrowphaseProfile() pushes 6 records (even at count==0) so the CSV
+// has a stable 6-row footprint per step for easy pandas pivot.
+// ============================================================================
+namespace {
+
+enum PairBucket {
+    NP_SPH_SPH   = 0,
+    NP_SPH_AABB  = 1,
+    NP_SPH_OBB   = 2,
+    NP_AABB_AABB = 3,
+    NP_AABB_OBB  = 4,
+    NP_OBB_OBB   = 5,
+    NP_BUCKETS   = 6,
+};
+
+constexpr const char* kBucketStage[NP_BUCKETS] = {
+    "nphase_sph_sph",
+    "nphase_sph_aabb",
+    "nphase_sph_obb",
+    "nphase_aabb_aabb",
+    "nphase_aabb_obb",
+    "nphase_obb_obb",
+};
+
+#ifndef NDEBUG
+struct NarrowphaseTiming {
+    double us[NP_BUCKETS] = {};
+    int    n [NP_BUCKETS] = {};
+};
+
+thread_local NarrowphaseTiming g_npTiming;
+
+struct PairTimer {
+    PairBucket bucket;
+    std::chrono::high_resolution_clock::time_point start;
+    explicit PairTimer(PairBucket b)
+        : bucket(b), start(std::chrono::high_resolution_clock::now()) {}
+    ~PairTimer() {
+        auto end = std::chrono::high_resolution_clock::now();
+        g_npTiming.us[bucket] +=
+            std::chrono::duration<double, std::micro>(end - start).count();
+        g_npTiming.n [bucket] += 1;
+    }
+};
+#endif
+
+} // anonymous
+
+#ifndef NDEBUG
+  #define NPHASE_TIME(bucket) PairTimer _np_timer_{bucket}
+#else
+  #define NPHASE_TIME(bucket) ((void)0)
+#endif
+
+void resetNarrowphaseTiming() {
+#ifndef NDEBUG
+    g_npTiming = {};
+#endif
+}
+
+void emitNarrowphaseProfile() {
+#ifndef NDEBUG
+    for (int i = 0; i < NP_BUCKETS; ++i)
+        YOPE_PROF_EMIT(kBucketStage[i], "physics", g_npTiming.us[i], g_npTiming.n[i]);
+#endif
+}
 
 // ============================================================================
 // Global PGS (Projected Gauss-Seidel) solver — two-phase detect / solve.
@@ -719,15 +793,15 @@ void detect(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg,
         contacts.push_back(c);
     };
 
-    if (sa && sb) { if (detectSphereSphere(mSph(ea,sa->radius), mSph(eb,sb->radius), m))    push(ea,eb,m); return; }
-    if (sa && ab) { if (detectSphereAABB(mSph(ea,sa->radius), mAABB(eb,ab->extent), m))   { m.normal=-m.normal; push(ea,eb,m); } return; }
-    if (aa && sb) { if (detectSphereAABB(mSph(eb,sb->radius), mAABB(ea,aa->extent), m))     push(ea,eb,m); return; }
-    if (aa && ab) { if (detectAABBAABB(mAABB(ea,aa->extent), mAABB(eb,ab->extent), m))      push(ea,eb,m); return; }
-    if (sa && cb) { if (detectSphereOBB(mSph(ea,sa->radius), mOBB(eb,cb->extent), m))    { m.normal=-m.normal; push(ea,eb,m); } return; }
-    if (ca && sb) { if (detectSphereOBB(mSph(eb,sb->radius), mOBB(ea,ca->extent), m))      push(ea,eb,m); return; }
-    if (aa && cb) { if (detectAABBOBB(mAABB(ea,aa->extent), mOBB(eb,cb->extent), m))       push(ea,eb,m); return; }
-    if (ca && ab) { if (detectAABBOBB(mAABB(eb,ab->extent), mOBB(ea,ca->extent), m))     { m.normal=-m.normal; push(ea,eb,m); } return; }
-    if (ca && cb) { if (detectOBBOBB(mOBB(ea,ca->extent), mOBB(eb,cb->extent), m))         push(ea,eb,m); return; }
+    if (sa && sb) { NPHASE_TIME(NP_SPH_SPH);   if (detectSphereSphere(mSph(ea,sa->radius), mSph(eb,sb->radius), m))    push(ea,eb,m); return; }
+    if (sa && ab) { NPHASE_TIME(NP_SPH_AABB);  if (detectSphereAABB(mSph(ea,sa->radius), mAABB(eb,ab->extent), m))   { m.normal=-m.normal; push(ea,eb,m); } return; }
+    if (aa && sb) { NPHASE_TIME(NP_SPH_AABB);  if (detectSphereAABB(mSph(eb,sb->radius), mAABB(ea,aa->extent), m))     push(ea,eb,m); return; }
+    if (aa && ab) { NPHASE_TIME(NP_AABB_AABB); if (detectAABBAABB(mAABB(ea,aa->extent), mAABB(eb,ab->extent), m))      push(ea,eb,m); return; }
+    if (sa && cb) { NPHASE_TIME(NP_SPH_OBB);   if (detectSphereOBB(mSph(ea,sa->radius), mOBB(eb,cb->extent), m))    { m.normal=-m.normal; push(ea,eb,m); } return; }
+    if (ca && sb) { NPHASE_TIME(NP_SPH_OBB);   if (detectSphereOBB(mSph(eb,sb->radius), mOBB(ea,ca->extent), m))      push(ea,eb,m); return; }
+    if (aa && cb) { NPHASE_TIME(NP_AABB_OBB);  if (detectAABBOBB(mAABB(ea,aa->extent), mOBB(eb,cb->extent), m))       push(ea,eb,m); return; }
+    if (ca && ab) { NPHASE_TIME(NP_AABB_OBB);  if (detectAABBOBB(mAABB(eb,ab->extent), mOBB(ea,ca->extent), m))     { m.normal=-m.normal; push(ea,eb,m); } return; }
+    if (ca && cb) { NPHASE_TIME(NP_OBB_OBB);   if (detectOBBOBB(mOBB(ea,ca->extent), mOBB(eb,cb->extent), m))         push(ea,eb,m); return; }
 }
 
 } // namespace physics::ColliderDiscrete

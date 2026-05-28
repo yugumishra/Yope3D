@@ -8,6 +8,10 @@ scripts/buildsystems/vcpkg.cmake
 #ignore claude specific stuff
 claude.md
 
+
+#ignore all profile csvs (huge files)
+yope_profile_*.csv
+
 #ignore old source directory (already tracked)
 old_src_java/
 

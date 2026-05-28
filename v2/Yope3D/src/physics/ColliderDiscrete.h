@@ -103,5 +103,13 @@ namespace ColliderDiscrete {
     void solveIsland(std::vector<ActiveContact>& contacts, float dt,
                      ecs::Registry& reg, EntityContactCache& cache);
 
+    // Per-shape-pair narrowphase timing (Phase E profiler — A4).
+    // Call reset() before the narrowphase loop and emit() after; detect()
+    // accumulates per-pair-type µs/counts in between. Each emit() pushes 6
+    // records (nphase_<a>_<b>) into the profiler stream with scope_n = pair
+    // count for that bucket. No-ops in NDEBUG.
+    void resetNarrowphaseTiming();
+    void emitNarrowphaseProfile();
+
 } // namespace ColliderDiscrete
 } // namespace physics

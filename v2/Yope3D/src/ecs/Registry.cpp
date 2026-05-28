@@ -78,6 +78,7 @@ uint32_t Registry::getOrCreateArchetype(const ArchetypeKey& key) {
 // exist in the entity's current archetype (used by remove<T>).
 void Registry::migrateEntity(Entity e, const ArchetypeKey& newKey,
                               TypeId newColType, const void* newColData) {
+    ++migrationCount_;
     uint32_t oldArchIdx = records_[e.id].archetype;
     uint32_t oldRow     = records_[e.id].row;
 

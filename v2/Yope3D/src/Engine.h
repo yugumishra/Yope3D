@@ -36,6 +36,11 @@ struct Engine {
 
     double lastTime  = 0.0;
 
+    // Phase E sweep harness. If YOPE_PROFILE_DURATION env var is > 0, the
+    // window auto-closes after that many wall-clock seconds. profileEndTime_
+    // is set in init() to (start + duration); update() checks each frame.
+    double profileEndTime_ = 0.0;
+
     float fpsAccum   = 0.0f;
     int   fpsFrames  = 0;
     int   displayFps = 0;

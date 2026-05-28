@@ -42,7 +42,9 @@ public:
     template<typename... Ts>
     View<Ts...> view();
 
-    size_t entityCount() const;
+    size_t   entityCount()             const;
+    size_t   archetypeCount()          const { return archetypes_.size(); }
+    uint64_t archetypeMigrationCount() const { return migrationCount_; }
 
 private:
     // Indexed by entity id. Generation field detects stale handles.
@@ -55,6 +57,10 @@ private:
 
     // Element size per TypeId (populated by add<T> on first use of each type).
     std::vector<size_t> elementSizes_;
+
+    // Monotonic counter of archetype migrations (bumped in migrateEntity).
+    // Single-threaded during physics step; non-atomic is fine.
+    uint64_t migrationCount_ = 0;
 
     // Non-template helpers — implemented in Registry.cpp
     uint32_t getOrCreateArchetype(const ArchetypeKey& key);
