@@ -25,10 +25,10 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
     auto isFixed = [&](ecs::Entity e) -> bool        { return reg.has<ecs::Fixed>(e); };
 
     // Apply accumulated impulses to velocity/omega; zero accumulators.
-    auto applyImpulses = [&](ecs::Entity e) {
-        auto* hc = getH(e);
+    // Takes the already-fetched Hull pointer to avoid a redundant registry lookup.
+    auto applyImpulses = [](ecs::Hull* hc) {
         if (!hc) return;
-        if (!isFixed(e)) {
+        if (hc->inverseMass > 0.0f) {
             hc->velocity += hc->linearImpulse  * hc->inverseMass;
             hc->omega    += hc->inertiaTensorWorld * hc->angularImpulse;
         }
@@ -98,10 +98,10 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
             c.lambdaT2[i] = std::max(-cone, std::min(cone, c.lambdaT2[i]));
 
             math::Vec3 imp = n * c.lambda[i] + c.T1 * c.lambdaT1[i] + c.T2 * c.lambdaT2[i];
-            if (!isFixed(c.a)) { ha->linearImpulse += -imp; ha->angularImpulse += c.rA[i].cross(-imp); }
-            if (!isFixed(c.b)) { hb->linearImpulse +=  imp; hb->angularImpulse += c.rB[i].cross( imp); }
-            applyImpulses(c.a);
-            applyImpulses(c.b);
+            if (ha->inverseMass > 0.0f) { ha->linearImpulse += -imp; ha->angularImpulse += c.rA[i].cross(-imp); }
+            if (hb->inverseMass > 0.0f) { hb->linearImpulse +=  imp; hb->angularImpulse += c.rB[i].cross( imp); }
+            applyImpulses(ha);
+            applyImpulses(hb);
         }
     }
 
@@ -126,10 +126,10 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
                 float dl    = c.lambda[i] - oldL;
                 if (std::abs(dl) > 1e-10f) {
                     math::Vec3 imp = n * dl;
-                    if (!isFixed(c.a)) { ha->linearImpulse += -imp; ha->angularImpulse += c.rA[i].cross(-imp); }
-                    if (!isFixed(c.b)) { hb->linearImpulse +=  imp; hb->angularImpulse += c.rB[i].cross( imp); }
-                    applyImpulses(c.a);
-                    applyImpulses(c.b);
+                    if (ha->inverseMass > 0.0f) { ha->linearImpulse += -imp; ha->angularImpulse += c.rA[i].cross(-imp); }
+                    if (hb->inverseMass > 0.0f) { hb->linearImpulse +=  imp; hb->angularImpulse += c.rB[i].cross( imp); }
+                    applyImpulses(ha);
+                    applyImpulses(hb);
                     relVel = hb->velocity + hb->omega.cross(c.rB[i])
                            - ha->velocity - ha->omega.cross(c.rA[i]);
                 }
@@ -143,10 +143,10 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
                     float dT1 = c.lambdaT1[i] - oldT1;
                     if (std::abs(dT1) > 1e-10f) {
                         math::Vec3 fImp = c.T1 * dT1;
-                        if (!isFixed(c.a)) { ha->linearImpulse += -fImp; ha->angularImpulse += c.rA[i].cross(-fImp); }
-                        if (!isFixed(c.b)) { hb->linearImpulse +=  fImp; hb->angularImpulse += c.rB[i].cross( fImp); }
-                        applyImpulses(c.a);
-                        applyImpulses(c.b);
+                        if (ha->inverseMass > 0.0f) { ha->linearImpulse += -fImp; ha->angularImpulse += c.rA[i].cross(-fImp); }
+                        if (hb->inverseMass > 0.0f) { hb->linearImpulse +=  fImp; hb->angularImpulse += c.rB[i].cross( fImp); }
+                        applyImpulses(ha);
+                        applyImpulses(hb);
                         relVel = hb->velocity + hb->omega.cross(c.rB[i])
                                - ha->velocity - ha->omega.cross(c.rA[i]);
                     }
@@ -161,10 +161,10 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
                     float dT2 = c.lambdaT2[i] - oldT2;
                     if (std::abs(dT2) > 1e-10f) {
                         math::Vec3 fImp = c.T2 * dT2;
-                        if (!isFixed(c.a)) { ha->linearImpulse += -fImp; ha->angularImpulse += c.rA[i].cross(-fImp); }
-                        if (!isFixed(c.b)) { hb->linearImpulse +=  fImp; hb->angularImpulse += c.rB[i].cross( fImp); }
-                        applyImpulses(c.a);
-                        applyImpulses(c.b);
+                        if (ha->inverseMass > 0.0f) { ha->linearImpulse += -fImp; ha->angularImpulse += c.rA[i].cross(-fImp); }
+                        if (hb->inverseMass > 0.0f) { hb->linearImpulse +=  fImp; hb->angularImpulse += c.rB[i].cross( fImp); }
+                        applyImpulses(ha);
+                        applyImpulses(hb);
                     }
                 }
             }

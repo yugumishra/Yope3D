@@ -44,7 +44,7 @@ public:
     void onResize(GpuDevice& gpu, uint32_t newWidth, uint32_t newHeight, VkCommandPool cmdPool);
 
     // Pack world geometry into this frame's SSBO. Call before dispatch().
-    void prepareFrame(uint32_t frameIndex, const World& world);
+    void prepareFrame(uint32_t frameIndex, World& world);
 
     // Record compute dispatch + barriers into cmd (outside any render pass).
     void dispatch(VkCommandBuffer cmd, uint32_t frameIndex);
@@ -92,5 +92,5 @@ private:
     void destroyFramebuffers(VkDevice device);
     void writeComputeDescriptors(VkDevice device, uint32_t frameIndex);
     void writeBlitDescriptors(VkDevice device, uint32_t frameIndex);
-    void packGeometry(const World& world, std::vector<float>& out);
+    void packGeometry(World& world, std::vector<float>& out);
 };

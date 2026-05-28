@@ -622,9 +622,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
             for (auto [entity, tf, mr] : reg.view<Transform, ecs::MeshRenderer>()) {
                 if (!mr.mesh || !mr.mesh->transformReady) continue;
 
-                math::Mat4 model = useECSTransform
-                    ? tf.getModelMatrix()
-                    : mr.mesh->modelMatrix;
+                math::Mat4 model = mr.mesh->modelMatrix;
 
                 Texture* textureToUse = mr.mesh->texture ? mr.mesh->texture : assets.getDefaultTexture();
                 VkDescriptorSet textureSet = textureToUse->getDescriptorSet();

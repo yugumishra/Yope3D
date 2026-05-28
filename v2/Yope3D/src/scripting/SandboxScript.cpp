@@ -1,5 +1,6 @@
 #include "Script.h"
 #include "ScriptFactory.h"
+#include "debug/Profiler.h"
 #include "ScriptContext.h"
 #include "rendering/CameraController.h"
 #include "world/World.h"
@@ -302,6 +303,7 @@ void SandboxScript::loadScene(int index) {
         ambientEmitter_->play();
 
     ctx_->world->resetPhysics();
+    YOPE_PROF_SET_SCENE(sceneName(index));
 
     switch (index) {
     case 0: loadPyramid(4);  break;

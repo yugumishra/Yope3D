@@ -1,5 +1,6 @@
 #include "Script.h"
 #include "ScriptFactory.h"
+#include "debug/Profiler.h"
 #include "ScriptContext.h"
 #include "rendering/Camera.h"
 #include "rendering/Light.h"
@@ -102,6 +103,7 @@ private:
 };
 
 void PlatformerScript::init(ScriptContext& ctx) {
+    YOPE_PROF_SET_SCENE("Platformer");
     DirectionalLight dir{};
     dir.direction[0] = -0.4f; dir.direction[1] = -1.0f; dir.direction[2] = -0.6f;
     dir.color[0] = 0.95f; dir.color[1] = 0.95f; dir.color[2] = 1.0f;
