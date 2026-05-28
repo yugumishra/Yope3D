@@ -3,12 +3,6 @@
 #include "gpu/Swapchain.h"
 #include "gpu/ShaderModule.h"
 #include "world/World.h"
-#include "physics/CSphere.h"
-#include "physics/CAABB.h"
-#include "physics/COBB.h"
-#include "physics/BarrierHull.h"
-#include "physics/Barrier.h"
-#include "physics/BoundedBarrier.h"
 #include "world/RenderMesh.h"
 #include <stdexcept>
 #include <array>
@@ -559,57 +553,6 @@ void Raytracer::packGeometry(const World& world, std::vector<float>& out) {
                 }
                 break;
             }
-        }
-    }
-
-    // ---- Tier 2: mesh-less hull walk (static floors, walls, barrier hulls) -
-    for (const auto* hull : world.getHulls()) {
-        if (!hull) continue;
-        if (hull->linkedMesh) continue;  // already handled by Tier 1
-        if (out.size() + 84 > MAX_GEOMETRY_FLOATS) break;
-
-        if (dynamic_cast<const physics::CSphere*>(hull)) {
-            continue;  // physics-proxy sphere — no visual
-        }
-
-        if (const auto* box = dynamic_cast<const physics::CAABB*>(hull)) {
-            const math::Vec3 p  = box->getPosition();
-            const math::Vec3 e  = box->getScales();
-            pushBox(p, {1,0,0}, {0,1,0}, {0,0,1}, e, 0.0f, 0.7f, 0.7f, 0.7f);
-
-        } else if (const auto* obb = dynamic_cast<const physics::COBB*>(hull)) {
-            const math::Vec3 p  = obb->getPosition();
-            const math::Vec3 e  = obb->getScales();
-            const auto axes     = obb->getOBBAxes();
-            pushBox(p, axes[0], axes[1], axes[2], e, 0.0f, 0.7f, 0.7f, 0.7f);
-
-        } else if (const auto* bh = dynamic_cast<const physics::BarrierHull*>(hull)) {
-            for (const auto& bv : bh->getBarriers()) {
-                if (const auto* bb = std::get_if<physics::BoundedBarrier>(&bv)) {
-                    if (out.size() + 20 > MAX_GEOMETRY_FLOATS) break;
-                    math::Vec3 e1     = bb->orientation * (2.0f * bb->xScale);
-                    math::Vec3 e2     = bb->getSecondOrientation() * (2.0f * bb->yScale);
-                    math::Vec3 origin = bb->position
-                                      - bb->orientation * bb->xScale
-                                      - bb->getSecondOrientation() * bb->yScale;
-                    pushQuad(out, origin, e1, e2, 0.0f, 0.7f, 0.7f, 0.7f);
-                    ++count;
-                }
-            }
-        }
-    }
-
-    // ---- Tier 3: standalone barriers (World::addBarrier) ------------------
-    for (const auto& bv : world.getBarriers()) {
-        if (out.size() + 20 > MAX_GEOMETRY_FLOATS) break;
-        if (const auto* bb = std::get_if<physics::BoundedBarrier>(&bv)) {
-            math::Vec3 e1     = bb->orientation * (2.0f * bb->xScale);
-            math::Vec3 e2     = bb->getSecondOrientation() * (2.0f * bb->yScale);
-            math::Vec3 origin = bb->position
-                              - bb->orientation * bb->xScale
-                              - bb->getSecondOrientation() * bb->yScale;
-            pushQuad(out, origin, e1, e2, 0.0f, 0.7f, 0.7f, 0.7f);
-            ++count;
         }
     }
 

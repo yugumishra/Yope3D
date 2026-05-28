@@ -1,5 +1,4 @@
 #include "IslandDetector.h"
-#include "Hull.h"
 #include "../ecs/Registry.h"
 #include "../ecs/Components.h"
 #include <unordered_map>
@@ -23,9 +22,8 @@ void IslandDetector::build(
     auto wakeUp = [&](ecs::Entity e) {
         if (reg.has<ecs::Sleeping>(e)) {
             reg.remove<ecs::Sleeping>(e);
-            // Also wake the Legacy Hull so Hull::advance() sees the wake
-            if (auto* ref = reg.get<ecs::LegacyHullRef>(e))
-                if (ref->ptr) ref->ptr->wakeUp();
+            if (auto* hc = reg.get<ecs::Hull>(e))
+                hc->sleepFrames = 0;
         }
     };
 

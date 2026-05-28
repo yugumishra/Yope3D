@@ -7,7 +7,6 @@
 
 class RenderMesh;
 class Source;
-namespace physics { class Hull; }
 
 namespace ecs {
 
@@ -87,11 +86,6 @@ struct SpringConstraint {
 // ---- Identity / debug ----
 struct Name {
     char value[64] = {};    // fixed buffer — satisfies trivially-relocatable mandate
-};
-
-// ---- Phase C bridge — removed in Phase D when physics::Hull is deleted ----
-struct LegacyHullRef {
-    physics::Hull* ptr = nullptr;
 };
 
 // ---- Tag components (zero-content; presence encodes the condition) ----

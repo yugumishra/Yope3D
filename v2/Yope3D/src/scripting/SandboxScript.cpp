@@ -3,10 +3,9 @@
 #include "ScriptContext.h"
 #include "rendering/CameraController.h"
 #include "world/World.h"
-#include "physics/CSphere.h"
-#include "physics/CAABB.h"
-#include "physics/COBB.h"
 #include "physics/CollisionLayers.h"
+#include "ecs/Components.h"
+#include "world/Transform.h"
 #include "audio/AudioSystem.h"
 #include "audio/Source.h"
 #include "audio/Listener.h"
@@ -181,7 +180,7 @@ void SandboxScript::update(ScriptContext& ctx, float dt) {
         fpsAccum_ = 0.0f; fpsFrames_ = 0;
         if (fpsLabel_) fpsLabel_->setText("FPS: " + std::to_string(fps_));
         if (debugLabel_ && debugVisible_) {
-            int objCount = static_cast<int>(ctx.world->getHulls().size()) - 1;
+            int objCount = ctx.world->getHullCount() - 1;
             bool isRT = ctx.renderMode && (*ctx.renderMode == RenderMode::RAYTRACE);
             debugLabel_->setText(
                 std::string("Scene: ") + sceneName(sceneIndex) +
@@ -202,8 +201,11 @@ void SandboxScript::update(ScriptContext& ctx, float dt) {
 
     // Player sphere follows camera (gives camera a collision presence in physics).
     if (playerEnt_ != ecs::NullEntity) {
-        ctx.world->getHull(playerEnt_)->fixPosition(ctx.camera->getPosition());
-        ctx.world->getHull(playerEnt_)->setVelocity({});
+        auto& reg = ctx.world->getRegistry();
+        if (auto* tf = reg.get<Transform>(playerEnt_))
+            tf->position = ctx.camera->getPosition();
+        if (auto* hc = reg.get<ecs::Hull>(playerEnt_))
+            hc->velocity = {};
     }
 
     // LEFT / RIGHT: switch scene.
@@ -273,10 +275,12 @@ void SandboxScript::update(ScriptContext& ctx, float dt) {
 
     // Sync Doppler source position/velocity each visual frame.
     if (dopplerSource_ && dopplerEnt_ != ecs::NullEntity) {
-        auto* dh = ctx.world->getHull(dopplerEnt_);
-        if (dh) {
-            dopplerSource_->setPosition(dh->getPosition());
-            dopplerSource_->setVelocity(dh->getVelocity());
+        auto& reg = ctx.world->getRegistry();
+        auto* dtf = reg.get<Transform>(dopplerEnt_);
+        auto* dhc = reg.get<ecs::Hull>(dopplerEnt_);
+        if (dtf && dhc) {
+            dopplerSource_->setPosition(dtf->position);
+            dopplerSource_->setVelocity(dhc->velocity);
         }
     }
 }
@@ -334,11 +338,23 @@ void SandboxScript::addFloorMesh(float halfW, float halfD) {
 
 // ---- loadPyramid ----
 
+static void fixPlayerSphere(ecs::Entity e, World* world) {
+    auto& reg = world->getRegistry();
+    if (auto* hc = reg.get<ecs::Hull>(e)) {
+        hc->inverseMass    = 0.0f;
+        hc->inverseInertia = math::Mat3::scale({0,0,0});
+        hc->velocity       = {};
+        hc->omega          = {};
+        hc->gravity        = false;
+        hc->tangible       = false;
+    }
+    if (!reg.has<ecs::Fixed>(e))
+        reg.add<ecs::Fixed>(e);
+}
+
 void SandboxScript::loadPyramid(int baseN) {
     playerEnt_ = ctx_->world->addSphere(1.0f, 0.5f, ctx_->camera->getPosition());
-    ctx_->world->getHull(playerEnt_)->fix();
-    ctx_->world->getHull(playerEnt_)->disableGravity();
-    ctx_->world->getHull(playerEnt_)->setTangible(false);
+    fixPlayerSphere(playerEnt_, ctx_->world);
 
     float halfFloor = (baseN + 15) * 1.0f;
     ctx_->world->addStaticAABB({0.0f, -0.5f, 0.0f}, {halfFloor, 0.5f, 15.0f});
@@ -373,9 +389,7 @@ void SandboxScript::loadPyramid(int baseN) {
 
 void SandboxScript::loadSpringCloth(int variant, int shapeType) {
     playerEnt_ = ctx_->world->addSphere(1.0f, 0.5f, ctx_->camera->getPosition());
-    ctx_->world->getHull(playerEnt_)->fix();
-    ctx_->world->getHull(playerEnt_)->disableGravity();
-    ctx_->world->getHull(playerEnt_)->setTangible(false);
+    fixPlayerSphere(playerEnt_, ctx_->world);
 
     float fh = (GRID_N + 1) * GRID_STEP * 2.0f;
     ctx_->world->addStaticAABB({0.0f, -5.0f, 0.0f}, {fh, 5.0f, fh});
@@ -432,7 +446,14 @@ void SandboxScript::loadSpringCloth(int variant, int shapeType) {
             if (variant == 0)      fix = (j == 0);
             else if (variant == 1) fix = ((i == 0 || i == GRID_N-1) && (j == 0 || j == GRID_N-1));
             else if (variant == 2) fix = (j == 0 && (i == 0 || i == GRID_N-1));
-            if (fix && e != ecs::NullEntity) ctx_->world->getHull(e)->fix();
+            if (fix && e != ecs::NullEntity) {
+                auto& reg = ctx_->world->getRegistry();
+                if (auto* hc = reg.get<ecs::Hull>(e)) {
+                    hc->inverseMass = 0.0f; hc->inverseInertia = math::Mat3::scale({0,0,0});
+                    hc->velocity = {}; hc->omega = {};
+                }
+                if (!reg.has<ecs::Fixed>(e)) reg.add<ecs::Fixed>(e);
+            }
         }
     }
 
@@ -458,9 +479,7 @@ void SandboxScript::loadSpringCloth(int variant, int shapeType) {
 
 void SandboxScript::loadStressTest() {
     playerEnt_ = ctx_->world->addSphere(1.0f, 0.5f, ctx_->camera->getPosition());
-    ctx_->world->getHull(playerEnt_)->fix();
-    ctx_->world->getHull(playerEnt_)->disableGravity();
-    ctx_->world->getHull(playerEnt_)->setTangible(false);
+    fixPlayerSphere(playerEnt_, ctx_->world);
 
     ctx_->world->addStaticAABB({0.0f, -0.5f, 0.0f}, {STRESS_HALF, 0.5f, STRESS_HALF});
     addFloorMesh(STRESS_HALF, STRESS_HALF);
@@ -498,7 +517,8 @@ void SandboxScript::loadDopplerTest() {
     ctx_->world->addStaticAABB({0.0f, -100.5f, 0.0f}, {50.0f, 0.5f, 50.0f});
 
     ecs::Entity e = ctx_->world->addSphere(1.0f, 0.5f, {0.0f, 30.0f, 0.0f});
-    ctx_->world->getHull(e)->setVelocity({0.0f, -40.0f, 0.0f});
+    if (auto* hc = ctx_->world->getRegistry().get<ecs::Hull>(e))
+        hc->velocity = {0.0f, -40.0f, 0.0f};
     ctx_->world->attachMesh(e, Primitives::icosphere(0.5f));
     if (auto* m = ctx_->world->getMesh(e)) {
         m->color[0] = 1.0f; m->color[1] = 0.35f; m->color[2] = 0.1f; m->state = 0;
@@ -507,8 +527,11 @@ void SandboxScript::loadDopplerTest() {
 
     AudioSystem::SoundBuffer* sb = ctx_->audio->loadSound("audios/test.ogg");
     dopplerSource_ = ctx_->audio->createSource(sb);
-    dopplerSource_->setPosition(ctx_->world->getHull(e)->getPosition());
-    dopplerSource_->setVelocity(ctx_->world->getHull(e)->getVelocity());
+    {
+        auto& reg = ctx_->world->getRegistry();
+        if (auto* tf = reg.get<Transform>(e)) dopplerSource_->setPosition(tf->position);
+        if (auto* hc = reg.get<ecs::Hull>(e)) dopplerSource_->setVelocity(hc->velocity);
+    }
     dopplerSource_->enableLooping(true);
     dopplerSource_->play();
 
@@ -525,10 +548,11 @@ void SandboxScript::spawnObject() {
     math::Quat rot     = math::Quat::fromAxisAngle(randomUnitVec(), randF(0, math::PI * 2.0f));
     float s = 0.65f;
 
+    auto& reg = ctx_->world->getRegistry();
     switch (spawnType) {
     case 0: {
         ecs::Entity e = ctx_->world->addSphere(1.0f, s, origin);
-        ctx_->world->getHull(e)->setVelocity(vel);
+        if (auto* hc = reg.get<ecs::Hull>(e)) hc->velocity = vel;
         ctx_->world->attachMesh(e, Primitives::icosphere(s));
         if (auto* m = ctx_->world->getMesh(e)) {
             m->color[0] = 0.2f; m->color[1] = 0.5f; m->color[2] = 1.0f; m->state = 0;
@@ -537,7 +561,7 @@ void SandboxScript::spawnObject() {
     }
     case 1: {
         ecs::Entity e = ctx_->world->addAABB({s, s, s}, 1.0f, origin);
-        ctx_->world->getHull(e)->setVelocity(vel);
+        if (auto* hc = reg.get<ecs::Hull>(e)) hc->velocity = vel;
         ctx_->world->attachMesh(e, Primitives::rect({s, s, s}));
         if (auto* m = ctx_->world->getMesh(e)) {
             m->color[0] = 0.3f; m->color[1] = 0.85f; m->color[2] = 0.4f; m->state = 0;
@@ -547,9 +571,8 @@ void SandboxScript::spawnObject() {
     case 2: {
         float sy = s * randF(0.5f, 1.8f);
         ecs::Entity e = ctx_->world->addOBB({s, sy, s}, 1.0f, origin);
-        ctx_->world->getHull(e)->setVelocity(vel);
-        if (auto* cobb = dynamic_cast<physics::COBB*>(ctx_->world->getHull(e)))
-            cobb->setRotation(rot);
+        if (auto* hc = reg.get<ecs::Hull>(e)) hc->velocity = vel;
+        if (auto* tf = reg.get<Transform>(e)) tf->rotation = rot;
         ctx_->world->attachMesh(e, Primitives::rect({s, sy, s}));
         if (auto* m = ctx_->world->getMesh(e)) {
             m->color[0] = 1.0f; m->color[1] = 0.5f; m->color[2] = 0.1f; m->state = 0;
