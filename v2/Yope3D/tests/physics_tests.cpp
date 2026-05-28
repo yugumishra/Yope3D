@@ -93,7 +93,7 @@ TEST_CASE("Fixed ECS entity has zero inertiaTensorWorld", "[ecs][hull][fixed]") 
 
     // Fixed entities should have zero inertiaTensorWorld (set by advance pre-compute)
     if (auto* h = reg.get<ecs::Hull>(e)) {
-        h->inertiaTensorWorld = math::Mat3::scale({0,0,0});  // advance() zeros this for Fixed entities
+        h->inertiaTensorWorld = math::Mat3::zero();  // advance() zeros this for Fixed entities
         for (int i = 0; i < 9; ++i)
             CHECK(h->inertiaTensorWorld.m[i] == 0.0f);
     }
@@ -110,7 +110,7 @@ TEST_CASE("AABB entity has zero inverseInertia", "[ecs][hull][aabb]") {
     ecs::Hull hc;
     hc.mass = 2.0f;
     hc.inverseMass = 0.5f;
-    hc.inverseInertia = math::Mat3::scale({0,0,0});  // AABB: no angular dynamics
+    hc.inverseInertia = math::Mat3::zero();  // AABB: no angular dynamics
     reg.add<ecs::Hull>(e, hc);
     reg.add<ecs::AABBForm>(e, {{1,1,1}});
 

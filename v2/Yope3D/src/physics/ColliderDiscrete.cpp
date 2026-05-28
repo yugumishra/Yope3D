@@ -41,8 +41,6 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
         auto* ha = getH(c.a);  auto* hb = getH(c.b);
         auto* tfa = getTf(c.a); auto* tfb = getTf(c.b);
         if (!ha || !hb || !tfa || !tfb) continue;
-        ha->sleepFrames = 0;
-        hb->sleepFrames = 0;
 
         math::Vec3 n = c.manifold.normal;
         c.T1 = (std::abs(n.x) < 0.9f)

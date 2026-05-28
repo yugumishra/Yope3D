@@ -125,10 +125,11 @@ ecs::Entity World::addOBB(math::Vec3 extent, float mass, math::Vec3 pos) {
     hc.inverseMass = (mass > 0.0f) ? 1.0f / mass : 0.0f;
     if (mass > 0.0f) {
         float ex = extent.x, ey = extent.y, ez = extent.z;
+        // extent is half-extents, so I_x = (1/3)*m*(b²+c²), inverse = 3/(m*(b²+c²))
         hc.inverseInertia = math::Mat3::scale({
-            12.0f / (mass * (ey*ey + ez*ez)),
-            12.0f / (mass * (ex*ex + ez*ez)),
-            12.0f / (mass * (ex*ex + ey*ey))
+            3.0f / (mass * (ey*ey + ez*ez)),
+            3.0f / (mass * (ex*ex + ez*ez)),
+            3.0f / (mass * (ex*ex + ey*ey))
         });
     }
     registry_.add<ecs::Hull>(e, hc);
@@ -143,7 +144,7 @@ ecs::Entity World::addAABB(math::Vec3 extent, float mass, math::Vec3 pos) {
     ecs::Hull hc;
     hc.mass           = mass;
     hc.inverseMass    = (mass > 0.0f) ? 1.0f / mass : 0.0f;
-    hc.inverseInertia = math::Mat3::scale({0,0,0});  // AABB has no angular dynamics
+    hc.inverseInertia = math::Mat3::zero();  // AABB has no angular dynamics
     registry_.add<ecs::Hull>(e, hc);
     registry_.add<ecs::AABBForm>(e, {extent});
     return e;
@@ -156,7 +157,7 @@ ecs::Entity World::addStaticAABB(math::Vec3 pos, math::Vec3 extent) {
     ecs::Hull hc;
     hc.mass           = 0.0f;
     hc.inverseMass    = 0.0f;
-    hc.inverseInertia = math::Mat3::scale({0,0,0});
+    hc.inverseInertia = math::Mat3::zero();
     hc.gravity        = false;
     registry_.add<ecs::Hull>(e, hc);
     registry_.add<ecs::AABBForm>(e, {extent});
@@ -323,7 +324,7 @@ physics::Spring* World::addSpringWithProxies(ecs::Entity a, ecs::Entity b,
         ecs::Entity proxyEnt = addSphere(1.0f, proxyRadius, posA + (posB - posA) * t);
         if (auto* phc = registry_.get<ecs::Hull>(proxyEnt)) {
             phc->inverseMass    = 0.0f;
-            phc->inverseInertia = math::Mat3::scale({0,0,0});
+            phc->inverseInertia = math::Mat3::zero();
             phc->velocity       = {};
             phc->omega          = {};
             phc->gravity        = false;
@@ -361,7 +362,7 @@ physics::Spring* World::addSpringWithMesh(ecs::Entity a, ecs::Entity b,
         ecs::Entity proxyEnt = addSphere(1.0f, proxyRadius, posA + (posB - posA) * t);
         if (auto* phc = registry_.get<ecs::Hull>(proxyEnt)) {
             phc->inverseMass    = 0.0f;
-            phc->inverseInertia = math::Mat3::scale({0,0,0});
+            phc->inverseInertia = math::Mat3::zero();
             phc->velocity       = {};
             phc->omega          = {};
             phc->gravity        = false;
@@ -490,7 +491,7 @@ void World::advance(float dt) {
         entities.push_back(e);
         auto* tf = registry_.get<Transform>(e);
         if (!tf || registry_.has<ecs::Fixed>(e)) {
-            hc.inertiaTensorWorld = {};
+            hc.inertiaTensorWorld = math::Mat3::zero();
             continue;
         }
         math::Mat3 R = quatToMat3(tf->rotation);
@@ -550,41 +551,38 @@ void World::advance(float dt) {
             continue;
         }
 
-        // Gravity
+        // Gravity (applied once per full step, same as Hull::advance isFirst guard)
         if (hc->gravity)
             hc->velocity += gravity * dt;
 
-        // Damping
+        // Damping — skip if decay would flip sign (matches Hull::advance: if linDecay > 0)
         float linDecay = 1.0f - hc->linearDamping  * dt;
         float angDecay = 1.0f - hc->angularDamping * dt;
-        if (linDecay < 0.0f) linDecay = 0.0f;
-        if (angDecay < 0.0f) angDecay = 0.0f;
-        hc->velocity *= linDecay;
-        hc->omega    *= angDecay;
+        if (linDecay > 0.0f) hc->velocity = hc->velocity * linDecay;
+        if (angDecay > 0.0f) hc->omega    = hc->omega    * angDecay;
 
         // Integrate position
         tf->position += hc->velocity * dt;
 
-        // Integrate rotation via angular velocity
-        if (hc->omega.dot(hc->omega) > 1e-12f) {
-            math::Quat omegaQ{hc->omega.x, hc->omega.y, hc->omega.z, 0.0f};
-            math::Quat dq = omegaQ * tf->rotation;
-            tf->rotation.x += 0.5f * dt * dq.x;
-            tf->rotation.y += 0.5f * dt * dq.y;
-            tf->rotation.z += 0.5f * dt * dq.z;
-            tf->rotation.w += 0.5f * dt * dq.w;
+        // Integrate rotation — exact axis-angle left-multiply (matches Hull::advance)
+        float omegaLen = hc->omega.length();
+        if (omegaLen > 1e-7f) {
+            float angle = omegaLen * dt;
+            math::Quat dq = math::Quat::fromAxisAngle(hc->omega * (1.0f / omegaLen), angle);
+            tf->rotation = dq * tf->rotation;
             tf->rotation = normalizeQuat(tf->rotation);
         }
 
-        // Split-impulse pseudo-velocity position correction
+        // Split-impulse pseudo-velocity correction (matches Hull::advance)
         tf->position += hc->pseudoVel * dt;
-        if (hc->pseudoOmega.dot(hc->pseudoOmega) > 1e-12f) {
-            math::Quat pOmegaQ{hc->pseudoOmega.x, hc->pseudoOmega.y, hc->pseudoOmega.z, 0.0f};
-            math::Quat pdq = pOmegaQ * tf->rotation;
-            tf->rotation.x += 0.5f * dt * pdq.x;
-            tf->rotation.y += 0.5f * dt * pdq.y;
-            tf->rotation.z += 0.5f * dt * pdq.z;
-            tf->rotation.w += 0.5f * dt * pdq.w;
+        constexpr float MAX_PSEUDO_OMEGA = 2.0f;
+        float pOmLen = std::sqrt(hc->pseudoOmega.dot(hc->pseudoOmega));
+        if (pOmLen > MAX_PSEUDO_OMEGA)
+            hc->pseudoOmega = hc->pseudoOmega * (MAX_PSEUDO_OMEGA / pOmLen);
+        if (pOmLen > 1e-7f) {
+            float angle = pOmLen * dt;
+            math::Quat dq = math::Quat::fromAxisAngle(hc->pseudoOmega * (1.0f / pOmLen), angle);
+            tf->rotation = dq * tf->rotation;
             tf->rotation = normalizeQuat(tf->rotation);
         }
         hc->pseudoVel   = {};
@@ -628,7 +626,7 @@ void World::publishSnapshot() {
         if (!tf) continue;
         RenderMesh* mesh = nullptr;
         if (auto* mr = registry_.get<ecs::MeshRenderer>(e)) mesh = mr->mesh;
-        snapshotBack_.push_back({ tf->position, tf->rotation, tf->scale, mesh, e });
+        snapshotBack_.push_back({ tf->position, tf->rotation, {1,1,1}, mesh, e });
     }
 
     springSnapshotBack_.clear();
