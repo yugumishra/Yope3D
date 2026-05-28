@@ -15,7 +15,7 @@ PROJECT_SUBPATH="v2/Yope3D"          # location of CMakeLists/CMakePresets relat
 PRESET="mac-release"                 # cmake configure preset
 BUILD_SUBDIR="build/mac-release"     # build tree relative to PROJECT_SUBPATH
 BINARY_NAME="yope3d"                 # release executable to capture
-RELEASES_DIR_NAME="releases"
+RELEASES_DIR_NAME="Yope3D Project Demos"
 # -----------------------------------
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
@@ -27,7 +27,7 @@ cd "$REPO_ROOT"
 
 PROJECT_DIR="$REPO_ROOT/$PROJECT_SUBPATH"
 RELEASES_DIR="$REPO_ROOT/$RELEASES_DIR_NAME"
-LOG_DIR="$RELEASES_DIR/_build_logs"
+LOG_DIR="/tmp/yope3d_build_logs"
 
 mkdir -p "$RELEASES_DIR" "$LOG_DIR"
 
@@ -43,6 +43,7 @@ if [ -n "$(git status --porcelain)" ]; then
     else
         echo "error: failed to stash local changes; aborting" >&2
         exit 1
+
     fi
 fi
 
@@ -57,7 +58,10 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Collect 2026 commits on the current branch, oldest first.
-mapfile -t COMMITS < <(git log --reverse --format=%H --after="2025-12-31" "$ORIGINAL_REF")
+COMMITS=()
+while IFS= read -r hash; do
+    COMMITS+=("$hash")
+done < <(git log --reverse --format=%H --after="2025-12-31" "$ORIGINAL_REF")
 TOTAL="${#COMMITS[@]}"
 echo ">> Found $TOTAL commits on '$ORIGINAL_REF' (2026 only)"
 
@@ -70,8 +74,8 @@ for hash in "${COMMITS[@]}"; do
 
     # Filesystem-safe slug from the subject.
     slug="$(printf '%s' "$subject" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '_' | sed 's/__*/_/g; s/^_//; s/_$//')"
-    slug="${slug:0:60}"
-    base_name="$(printf '%03d_%s_%s_%s' "$idx" "$date_iso" "$short" "$slug")"
+    slug="${slug:0:20}"
+    base_name="$(printf '%s' "$short")"
 
     echo ""
     echo "=== [$idx/$TOTAL] $short  $date_iso  $subject ==="
