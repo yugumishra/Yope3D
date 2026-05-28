@@ -1,198 +1,42 @@
 #include "World.h"
 #include "../gpu/GpuDevice.h"
-#include <cmath>
-#include "../physics/ColliderCCD.h"
 #include "../physics/ColliderDiscrete.h"
 #include "../physics/IslandDetector.h"
 #include "../physics/ThreadPool.h"
-#include "../physics/CSphere.h"
-#include "../physics/CAABB.h"
-#include "../physics/COBB.h"
-#include <variant>
+#include "../physics/PhysicsConstants.h"
+#include "../ecs/Components.h"
+#include <cmath>
 #include <cfloat>
 #include <thread>
 #include <algorithm>
 #include <mutex>
-#include "../physics/PhysicsConstants.h"
-#include "../ecs/Components.h"
+#include <variant>
 
-static ecs::Hull buildHullComp(const physics::Hull* h) {
-    ecs::Hull c;
-    c.velocity       = h->getVelocity();
-    c.omega          = h->getOmega();
-    c.mass           = h->getMass();
-    c.inverseMass    = h->getInverseMass();
-    c.friction       = h->friction;
-    c.restitution    = h->restitution;
-    c.linearDamping  = h->linearDamping;
-    c.angularDamping = h->angularDamping;
-    c.collisionLayer = h->collisionLayer;
-    c.collisionMask  = h->collisionMask;
-    c.gravity        = h->gravityEnabled();
-    c.tangible       = h->isTangible();
-    c.sleepingEnabled = h->isSleepingEnabled();
-    return c;
+// ---- Local math helpers ----
+
+static math::Mat3 quatToMat3(const math::Quat& q) {
+    float xx = q.x*q.x, yy = q.y*q.y, zz = q.z*q.z;
+    float xy = q.x*q.y, xz = q.x*q.z, yz = q.y*q.z;
+    float wx = q.w*q.x, wy = q.w*q.y, wz = q.w*q.z;
+    math::Mat3 m;
+    // column-major: m[col*3 + row]
+    m.m[0] = 1-2*(yy+zz); m.m[1] = 2*(xy+wz);   m.m[2] = 2*(xz-wy);
+    m.m[3] = 2*(xy-wz);   m.m[4] = 1-2*(xx+zz); m.m[5] = 2*(yz+wx);
+    m.m[6] = 2*(xz+wy);   m.m[7] = 2*(yz-wx);   m.m[8] = 1-2*(xx+yy);
+    return m;
 }
 
-World::World()  = default;
-World::~World() = default;
-
-void World::init(GpuDevice& gpu, VkCommandPool pool) {
-    gpu_  = &gpu;
-    pool_ = pool;
-}
-
-int World::getThreadCount() const {
-    return threadPool_ ? static_cast<int>(threadPool_->size()) : 0;
-}
-
-// ---- Cache management ----
-
-void World::rebuildCaches() {
-    meshCache_.clear();
-    objectPtrs_.clear();
-    for (auto& obj : objects_) {
-        objectPtrs_.push_back(obj.get());
-        if (obj->mesh) meshCache_.push_back(obj->mesh.get());
+static math::Quat normalizeQuat(math::Quat q) {
+    float lenSq = q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w;
+    if (lenSq > 1e-12f) {
+        float inv = 1.0f / std::sqrt(lenSq);
+        q.x *= inv; q.y *= inv; q.z *= inv; q.w *= inv;
     }
+    return q;
 }
 
-std::vector<physics::Hull*> World::getHulls() const {
-    std::vector<physics::Hull*> v;
-    v.reserve(hullToEntity_.size());
-    for (const auto& [h, e] : hullToEntity_) v.push_back(h);
-    return v;
-}
+// ---- Primitive type detection (for raytracer parametric intersection) ----
 
-ecs::Entity World::findEntityForHull(const physics::Hull* h) const {
-    for (const auto& obj : objects_)
-        if (obj->hull.get() == h) return obj->entity;
-    return ecs::NullEntity;
-}
-
-// ---- Hull factory helper ----
-
-template<class HullT, class... Args>
-SceneObject* World::makeHullObject(Args&&... args) {
-    std::lock_guard lk(structureMtx_);
-    auto obj = std::make_unique<SceneObject>();
-    obj->hull = std::make_unique<HullT>(std::forward<Args>(args)...);
-    objects_.push_back(std::move(obj));
-    rebuildCaches();
-    return objects_.back().get();
-}
-
-// ---- Physics-only factory methods ----
-
-ecs::Entity World::addSphere(float mass, float radius, math::Vec3 pos) {
-    auto* obj = makeHullObject<physics::CSphere>(mass, radius, pos);
-    ecs::Entity e = registry_.create();
-    obj->entity = e;
-    auto* h = obj->getHull();
-    registry_.add<Transform>(e, Transform{h->getPosition(), h->getRotation(), {radius, radius, radius}});
-    registry_.add<ecs::Hull>(e, buildHullComp(h));
-    if (auto* hc = registry_.get<ecs::Hull>(e)) {
-        float invI = (mass > 0.0f && radius > 0.0f) ? 1.0f / (0.4f * mass * radius * radius) : 0.0f;
-        hc->inverseInertia = math::Mat3::scale({invI, invI, invI});
-    }
-    registry_.add<ecs::SphereForm>(e, {radius});
-    registry_.add<ecs::LegacyHullRef>(e, {h});
-    hullToEntity_[h] = e;
-    return e;
-}
-
-ecs::Entity World::addOBB(math::Vec3 extent, float mass, math::Vec3 pos) {
-    auto* obj = makeHullObject<physics::COBB>(extent, mass, pos);
-    ecs::Entity e = registry_.create();
-    obj->entity = e;
-    auto* h = obj->getHull();
-    registry_.add<Transform>(e, Transform{h->getPosition(), h->getRotation(), extent});
-    registry_.add<ecs::Hull>(e, buildHullComp(h));
-    if (auto* hc = registry_.get<ecs::Hull>(e); hc && mass > 0.0f) {
-        float ex = extent.x, ey = extent.y, ez = extent.z;
-        hc->inverseInertia = math::Mat3::scale({
-            12.0f / (mass * (ey*ey + ez*ez)),
-            12.0f / (mass * (ex*ex + ez*ez)),
-            12.0f / (mass * (ex*ex + ey*ey))
-        });
-    }
-    registry_.add<ecs::OBBForm>(e, {extent});
-    registry_.add<ecs::LegacyHullRef>(e, {h});
-    hullToEntity_[h] = e;
-    return e;
-}
-
-ecs::Entity World::addAABB(math::Vec3 extent, float mass, math::Vec3 pos) {
-    auto* obj = makeHullObject<physics::CAABB>(extent, mass, pos);
-    ecs::Entity e = registry_.create();
-    obj->entity = e;
-    auto* h = obj->getHull();
-    registry_.add<Transform>(e, Transform{h->getPosition(), h->getRotation(), extent});
-    registry_.add<ecs::Hull>(e, buildHullComp(h));
-    if (auto* hc = registry_.get<ecs::Hull>(e); hc && mass > 0.0f) {
-        float ex = extent.x, ey = extent.y, ez = extent.z;
-        hc->inverseInertia = math::Mat3::scale({
-            12.0f / (mass * (ey*ey + ez*ez)),
-            12.0f / (mass * (ex*ex + ez*ez)),
-            12.0f / (mass * (ex*ex + ey*ey))
-        });
-    }
-    registry_.add<ecs::AABBForm>(e, {extent});
-    registry_.add<ecs::LegacyHullRef>(e, {h});
-    hullToEntity_[h] = e;
-    return e;
-}
-
-ecs::Entity World::addStaticAABB(math::Vec3 pos, math::Vec3 extent) {
-    auto* obj = makeHullObject<physics::CAABB>(pos, extent);
-    ecs::Entity e = registry_.create();
-    obj->entity = e;
-    auto* h = obj->getHull();
-    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, extent});
-    registry_.add<ecs::Hull>(e, buildHullComp(h));
-    registry_.add<ecs::AABBForm>(e, {extent});
-    registry_.add<ecs::Fixed>(e);
-    registry_.add<ecs::LegacyHullRef>(e, {h});
-    hullToEntity_[h] = e;
-    return e;
-}
-
-SceneObject* World::addBarrierHull(math::Vec3 extent, math::Vec3 pos) {
-    return makeHullObject<physics::BarrierHull>(
-        physics::BarrierHull::genRectangularBarriers(extent, pos)
-    );
-}
-
-ecs::Entity World::addOBBFromMesh(const LoadedMesh& loadedMesh, float mass) {
-    math::Vec3 mn = { FLT_MAX,  FLT_MAX,  FLT_MAX };
-    math::Vec3 mx = {-FLT_MAX, -FLT_MAX, -FLT_MAX };
-    for (const auto& v : loadedMesh.vertices) {
-        mn.x = std::min(mn.x, v.position[0]);
-        mn.y = std::min(mn.y, v.position[1]);
-        mn.z = std::min(mn.z, v.position[2]);
-        mx.x = std::max(mx.x, v.position[0]);
-        mx.y = std::max(mx.y, v.position[1]);
-        mx.z = std::max(mx.z, v.position[2]);
-    }
-    math::Vec3 center     = (mn + mx) * 0.5f;
-    math::Vec3 halfExtent = (mx - mn) * 0.5f;
-    return addOBB(halfExtent, mass, center);
-}
-
-// ---- Bare barriers ----
-
-void World::addBarrier(physics::Barrier b) {
-    std::lock_guard lk(structureMtx_);
-    barriers_.emplace_back(std::move(b));
-}
-void World::addBarrier(physics::BoundedBarrier b) {
-    std::lock_guard lk(structureMtx_);
-    barriers_.emplace_back(std::move(b));
-}
-
-// ---- Primitive-type detection ----
-// Called after constructing a RenderMesh from a named Primitive to let the
-// raytracer choose parametric intersection instead of triangle soup.
 static void setPrimitiveInfo(RenderMesh* rm, const LoadedMesh& mesh) {
     if (mesh.name == "Icosphere" || mesh.name == "Sphere") {
         rm->primitiveType = (mesh.name == "Icosphere") ? PrimitiveType::Icosphere
@@ -219,7 +63,6 @@ static void setPrimitiveInfo(RenderMesh* rm, const LoadedMesh& mesh) {
             hx = std::max(hx, std::abs(v.position[0]));
         rm->primitiveExtents = {hx, 0.f, 0.f};
     }
-    // else: stays Custom
 
     if (rm->primitiveType != PrimitiveType::Custom) {
         rm->cpuVertices.clear(); rm->cpuVertices.shrink_to_fit();
@@ -227,34 +70,137 @@ static void setPrimitiveInfo(RenderMesh* rm, const LoadedMesh& mesh) {
     }
 }
 
+// ---- World lifecycle ----
+
+World::World()  = default;
+World::~World() = default;
+
+void World::init(GpuDevice& gpu, VkCommandPool pool) {
+    gpu_  = &gpu;
+    pool_ = pool;
+}
+
+int World::getThreadCount() const {
+    return threadPool_ ? static_cast<int>(threadPool_->size()) : 0;
+}
+
+// ---- Cache management ----
+
+void World::rebuildCaches() {
+    meshCache_.clear();
+    for (auto& m : meshPool_)
+        if (m) meshCache_.push_back(m.get());
+}
+
+int World::getHullCount() {
+    int count = 0;
+    for (auto [e, hc] : registry_.view<ecs::Hull>())
+        ++count;
+    return count;
+}
+
+// ---- Physics-only factory methods ----
+
+ecs::Entity World::addSphere(float mass, float radius, math::Vec3 pos) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {radius, radius, radius}});
+    ecs::Hull hc;
+    hc.mass        = mass;
+    hc.inverseMass = (mass > 0.0f) ? 1.0f / mass : 0.0f;
+    float invI = (mass > 0.0f && radius > 0.0f)
+                 ? 1.0f / (0.4f * mass * radius * radius) : 0.0f;
+    hc.inverseInertia = math::Mat3::scale({invI, invI, invI});
+    registry_.add<ecs::Hull>(e, hc);
+    registry_.add<ecs::SphereForm>(e, {radius});
+    return e;
+}
+
+ecs::Entity World::addOBB(math::Vec3 extent, float mass, math::Vec3 pos) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, extent});
+    ecs::Hull hc;
+    hc.mass        = mass;
+    hc.inverseMass = (mass > 0.0f) ? 1.0f / mass : 0.0f;
+    if (mass > 0.0f) {
+        float ex = extent.x, ey = extent.y, ez = extent.z;
+        hc.inverseInertia = math::Mat3::scale({
+            12.0f / (mass * (ey*ey + ez*ez)),
+            12.0f / (mass * (ex*ex + ez*ez)),
+            12.0f / (mass * (ex*ex + ey*ey))
+        });
+    }
+    registry_.add<ecs::Hull>(e, hc);
+    registry_.add<ecs::OBBForm>(e, {extent});
+    return e;
+}
+
+ecs::Entity World::addAABB(math::Vec3 extent, float mass, math::Vec3 pos) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, extent});
+    ecs::Hull hc;
+    hc.mass           = mass;
+    hc.inverseMass    = (mass > 0.0f) ? 1.0f / mass : 0.0f;
+    hc.inverseInertia = math::Mat3::scale({0,0,0});  // AABB has no angular dynamics
+    registry_.add<ecs::Hull>(e, hc);
+    registry_.add<ecs::AABBForm>(e, {extent});
+    return e;
+}
+
+ecs::Entity World::addStaticAABB(math::Vec3 pos, math::Vec3 extent) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, extent});
+    ecs::Hull hc;
+    hc.mass           = 0.0f;
+    hc.inverseMass    = 0.0f;
+    hc.inverseInertia = math::Mat3::scale({0,0,0});
+    hc.gravity        = false;
+    registry_.add<ecs::Hull>(e, hc);
+    registry_.add<ecs::AABBForm>(e, {extent});
+    registry_.add<ecs::Fixed>(e);
+    return e;
+}
+
+ecs::Entity World::addOBBFromMesh(const LoadedMesh& loadedMesh, float mass) {
+    math::Vec3 mn = { FLT_MAX,  FLT_MAX,  FLT_MAX };
+    math::Vec3 mx = {-FLT_MAX, -FLT_MAX, -FLT_MAX };
+    for (const auto& v : loadedMesh.vertices) {
+        mn.x = std::min(mn.x, v.position[0]);
+        mn.y = std::min(mn.y, v.position[1]);
+        mn.z = std::min(mn.z, v.position[2]);
+        mx.x = std::max(mx.x, v.position[0]);
+        mx.y = std::max(mx.y, v.position[1]);
+        mx.z = std::max(mx.z, v.position[2]);
+    }
+    math::Vec3 center     = (mn + mx) * 0.5f;
+    math::Vec3 halfExtent = (mx - mn) * 0.5f;
+    return addOBB(halfExtent, mass, center);
+}
+
 // ---- Visual-only factory methods ----
 
 ecs::Entity World::addRenderObject(const std::vector<Vertex>& vertices,
                                     const std::vector<uint32_t>& indices) {
     std::lock_guard lk(structureMtx_);
-    auto obj = std::make_unique<SceneObject>();
-    obj->mesh = std::make_unique<RenderMesh>(*gpu_, pool_, vertices, indices);
-    obj->mesh->transformReady = true;  // static mesh: transform is known at creation
-    objects_.push_back(std::move(obj));
+    auto rm = std::make_unique<RenderMesh>(*gpu_, pool_, vertices, indices);
+    rm->transformReady = true;
+    RenderMesh* raw = rm.get();
+    meshPool_.push_back(std::move(rm));
     rebuildCaches();
-    SceneObject* raw = objects_.back().get();
     ecs::Entity e = registry_.create();
-    raw->entity = e;
     registry_.add<Transform>(e);
-    registry_.add<ecs::MeshRenderer>(e, {raw->getMesh()});
-    meshToEntity_[raw->getMesh()] = e;
+    registry_.add<ecs::MeshRenderer>(e, {raw});
+    meshToEntity_[raw] = e;
     return e;
 }
 
 ecs::Entity World::addRenderObject(const LoadedMesh& mesh) {
     ecs::Entity e = addRenderObject(mesh.vertices, mesh.indices);
-    // find the SceneObject we just created to set primitive info
-    for (auto& obj : objects_) {
-        if (obj->entity == e && obj->mesh) {
-            setPrimitiveInfo(obj->mesh.get(), mesh);
-            break;
-        }
-    }
+    if (auto* mr = registry_.get<ecs::MeshRenderer>(e))
+        setPrimitiveInfo(mr->mesh, mesh);
     return e;
 }
 
@@ -264,19 +210,21 @@ RenderMesh* World::attachMesh(ecs::Entity e,
                                const std::vector<Vertex>& vertices,
                                const std::vector<uint32_t>& indices) {
     std::lock_guard lk(structureMtx_);
-    SceneObject* obj = nullptr;
-    for (auto& o : objects_)
-        if (o->entity == e) { obj = o.get(); break; }
-    if (!obj) return nullptr;
-    obj->mesh = std::make_unique<RenderMesh>(*gpu_, pool_, vertices, indices);
-    if (obj->hull) {
-        obj->hull->linkedMesh = obj->mesh.get();
-    } else {
-        obj->mesh->transformReady = true;
-    }
+    if (!registry_.valid(e)) return nullptr;
+    auto rm = std::make_unique<RenderMesh>(*gpu_, pool_, vertices, indices);
+    RenderMesh* raw = rm.get();
+    // Physics entities get transformReady set by publishSnapshot (to avoid 0,0,0 flicker).
+    // Render-only entities are ready immediately.
+    if (!registry_.has<ecs::Hull>(e))
+        raw->transformReady = true;
+    meshPool_.push_back(std::move(rm));
     rebuildCaches();
-    registry_.add<ecs::MeshRenderer>(e, {obj->mesh.get()});
-    return obj->mesh.get();
+    if (registry_.has<ecs::MeshRenderer>(e))
+        registry_.get<ecs::MeshRenderer>(e)->mesh = raw;
+    else
+        registry_.add<ecs::MeshRenderer>(e, {raw});
+    meshToEntity_[raw] = e;
+    return raw;
 }
 
 RenderMesh* World::attachMesh(ecs::Entity e, const LoadedMesh& mesh) {
@@ -287,21 +235,66 @@ RenderMesh* World::attachMesh(ecs::Entity e, const LoadedMesh& mesh) {
 
 // ---- Entity/mesh accessors ----
 
-physics::Hull* World::getHull(ecs::Entity e) {
-    auto* ref = registry_.get<ecs::LegacyHullRef>(e);
-    return ref ? ref->ptr : nullptr;
-}
-
 RenderMesh* World::getMesh(ecs::Entity e) {
     auto* mr = registry_.get<ecs::MeshRenderer>(e);
     return mr ? mr->mesh : nullptr;
 }
 
+// ---- Remove entity ----
+
 void World::removeEntity(ecs::Entity e) {
-    for (const auto& obj : objects_) {
-        if (obj->entity == e) { removeObject(obj.get()); return; }
+    if (!registry_.valid(e)) return;
+    std::lock_guard lk(structureMtx_);
+
+    RenderMesh* mesh = nullptr;
+    if (auto* mr = registry_.get<ecs::MeshRenderer>(e)) mesh = mr->mesh;
+
+    // Remove springs that reference this entity; recursively remove their visual/proxy entities.
+    std::vector<ecs::Entity> dependent;
+    springs_.erase(std::remove_if(springs_.begin(), springs_.end(),
+        [&](const std::unique_ptr<physics::Spring>& s) {
+            if (s->first_ == e || s->second_ == e) {
+                if (registry_.valid(s->visualMeshEntity_) && s->visualMeshEntity_ != e)
+                    dependent.push_back(s->visualMeshEntity_);
+                for (ecs::Entity p : s->proxies_)
+                    if (registry_.valid(p) && p != e) dependent.push_back(p);
+                return true;
+            }
+            return false;
+        }), springs_.end());
+
+    for (ecs::Entity dep : dependent) removeEntity(dep);
+
+    // Remove proxy back-references in surviving springs.
+    for (auto& s : springs_)
+        s->proxies_.erase(std::remove(s->proxies_.begin(), s->proxies_.end(), e), s->proxies_.end());
+
+    // Purge contact cache entries keyed by this entity.
+    std::erase_if(contactCache_,
+        [e](const auto& kv) { return kv.first.a == e || kv.first.b == e; });
+
+    if (mesh) meshToEntity_.erase(mesh);
+
+    // GPU sync before freeing Vulkan buffers.
+    if (mesh) gpu_->syncDevice();
+
+    // Erase mesh from pool and destroy GPU resources.
+    if (mesh) {
+        auto it = std::find_if(meshPool_.begin(), meshPool_.end(),
+            [mesh](const std::unique_ptr<RenderMesh>& m) { return m.get() == mesh; });
+        if (it != meshPool_.end()) {
+            (*it)->destroy(gpu_->device());
+            meshPool_.erase(it);
+        }
     }
-    if (registry_.valid(e)) registry_.destroy(e);
+
+    registry_.destroy(e);
+    rebuildCaches();
+
+    if (debugPhysics) {
+        destroyDebugMeshes();
+        rebuildDebugMeshes();
+    }
 }
 
 // ---- Springs ----
@@ -320,16 +313,23 @@ physics::Spring* World::addSpringWithProxies(ecs::Entity a, ecs::Entity b,
     std::lock_guard lk(structureMtx_);
     springs_.push_back(std::make_unique<physics::Spring>(a, b, k, rest));
     physics::Spring* s = springs_.back().get();
+
     math::Vec3 posA{}, posB{};
-    if (auto* ha = getHull(a)) posA = ha->getPosition();
-    if (auto* hb = getHull(b)) posB = hb->getPosition();
+    if (auto* tf = registry_.get<Transform>(a)) posA = tf->position;
+    if (auto* tf = registry_.get<Transform>(b)) posB = tf->position;
+
     for (int i = 0; i < proxyCount; ++i) {
         float t = (float)(i + 1) / (float)(proxyCount + 1);
         ecs::Entity proxyEnt = addSphere(1.0f, proxyRadius, posA + (posB - posA) * t);
-        if (auto* proxy = dynamic_cast<physics::CSphere*>(getHull(proxyEnt))) {
-            proxy->fix(); proxy->disableGravity();
+        if (auto* phc = registry_.get<ecs::Hull>(proxyEnt)) {
+            phc->inverseMass    = 0.0f;
+            phc->inverseInertia = math::Mat3::scale({0,0,0});
+            phc->velocity       = {};
+            phc->omega          = {};
+            phc->gravity        = false;
         }
-        if (!registry_.has<ecs::Fixed>(proxyEnt)) registry_.add<ecs::Fixed>(proxyEnt);
+        if (!registry_.has<ecs::Fixed>(proxyEnt))
+            registry_.add<ecs::Fixed>(proxyEnt);
         s->proxies_.push_back(proxyEnt);
     }
     ecs::Entity springEnt = registry_.create();
@@ -353,15 +353,21 @@ physics::Spring* World::addSpringWithMesh(ecs::Entity a, ecs::Entity b,
         m->modelMatrix = Transform{spos, srot, sscale}.getModelMatrix();
 
     math::Vec3 posA{}, posB{};
-    if (auto* ha = getHull(a)) posA = ha->getPosition();
-    if (auto* hb = getHull(b)) posB = hb->getPosition();
+    if (auto* tf = registry_.get<Transform>(a)) posA = tf->position;
+    if (auto* tf = registry_.get<Transform>(b)) posB = tf->position;
+
     for (int i = 0; i < proxyCount; ++i) {
         float t = (float)(i + 1) / (float)(proxyCount + 1);
         ecs::Entity proxyEnt = addSphere(1.0f, proxyRadius, posA + (posB - posA) * t);
-        if (auto* proxy = dynamic_cast<physics::CSphere*>(getHull(proxyEnt))) {
-            proxy->fix(); proxy->disableGravity();
+        if (auto* phc = registry_.get<ecs::Hull>(proxyEnt)) {
+            phc->inverseMass    = 0.0f;
+            phc->inverseInertia = math::Mat3::scale({0,0,0});
+            phc->velocity       = {};
+            phc->omega          = {};
+            phc->gravity        = false;
         }
-        if (!registry_.has<ecs::Fixed>(proxyEnt)) registry_.add<ecs::Fixed>(proxyEnt);
+        if (!registry_.has<ecs::Fixed>(proxyEnt))
+            registry_.add<ecs::Fixed>(proxyEnt);
         s->proxies_.push_back(proxyEnt);
     }
     ecs::Entity springEnt = registry_.create();
@@ -416,101 +422,32 @@ void World::removeLight(int index) {
     }
 }
 
-// ---- removeObject ----
-
-void World::removeObject(SceneObject* obj) {
-    if (!obj) return;
-    std::lock_guard lk(structureMtx_);
-    ecs::Entity removedEnt = obj->entity;
-    if (registry_.valid(removedEnt))
-        registry_.destroy(removedEnt);
-    physics::Hull* h = obj->hull.get();
-
-    if (h) {
-        // 1a. Remove springs that reference this entity; collect coil/proxy SceneObjects.
-        std::vector<SceneObject*> toRemove;
-        springs_.erase(std::remove_if(springs_.begin(), springs_.end(),
-            [&](const std::unique_ptr<physics::Spring>& s) {
-                if (s->first_ == removedEnt || s->second_ == removedEnt) {
-                    // Collect the coil visual SceneObject by entity.
-                    for (auto& o : objects_) {
-                        if (o.get() != obj && o->entity == s->visualMeshEntity_)
-                            toRemove.push_back(o.get());
-                    }
-                    // Collect proxy SceneObjects by entity.
-                    for (ecs::Entity proxyEnt : s->proxies_) {
-                        for (auto& o : objects_) {
-                            if (o.get() != obj && o->entity == proxyEnt)
-                                toRemove.push_back(o.get());
-                        }
-                    }
-                    return true;
-                }
-                return false;
-            }), springs_.end());
-
-        // Remove collected coil/proxy objects (they don't trigger spring cleanup themselves).
-        for (auto* dead : toRemove) {
-            if (dead->mesh) { dead->mesh->destroy(gpu_->device()); dead->mesh.reset(); }
-            objects_.erase(std::remove_if(objects_.begin(), objects_.end(),
-                [dead](const std::unique_ptr<SceneObject>& o) { return o.get() == dead; }),
-                objects_.end());
-        }
-
-        // 1b. Remove proxy back-references in surviving springs.
-        for (auto& s : springs_) {
-            s->proxies_.erase(std::remove(s->proxies_.begin(), s->proxies_.end(), removedEnt),
-                              s->proxies_.end());
-        }
-
-        // 1c. Purge EntityContactCache entries keyed by this entity.
-        std::erase_if(contactCache_,
-            [removedEnt](const auto& kv) {
-                return kv.first.a == removedEnt || kv.first.b == removedEnt;
-            });
-
-        hullToEntity_.erase(h);
-    }
-
-    // 2. GPU teardown — sync device before freeing Vulkan buffers.
-    if (obj->mesh) meshToEntity_.erase(obj->mesh.get());
-    gpu_->syncDevice();
-    if (obj->mesh) { obj->mesh->destroy(gpu_->device()); obj->mesh.reset(); }
-
-    // 3. Erase from objects (frees the unique_ptrs — hull pointer invalidated here).
-    objects_.erase(std::remove_if(objects_.begin(), objects_.end(),
-        [obj](const std::unique_ptr<SceneObject>& o) { return o.get() == obj; }),
-        objects_.end());
-
-    // 4. Rebuild caches; refresh debug overlay if active.
-    rebuildCaches();
-    if (debugPhysics) {
-        destroyDebugMeshes();
-        rebuildDebugMeshes();
-    }
-}
-
 // ---- resetPhysics ----
 
 void World::resetPhysics() {
     std::lock_guard lk(structureMtx_);
-    // Sync GPU before destroying Vulkan buffers.
     if (gpu_) gpu_->syncDevice();
 
     destroyDebugMeshes();
 
-    for (auto& obj : objects_)
-        if (obj->mesh) obj->mesh->destroy(gpu_->device());
-    objects_.clear();
-
+    for (auto& m : meshPool_)
+        if (m) m->destroy(gpu_->device());
+    meshPool_.clear();
     springs_.clear();
-    barriers_.clear();
     contactCache_.clear();
-    hullToEntity_.clear();
     meshToEntity_.clear();
     rebuildCaches();
 
-    // Preserve lights across physics resets — they're rendering state, not simulation state.
+    {
+        std::lock_guard slk(snapshotMtx_);
+        snapshotFront_.clear();
+        snapshotBack_.clear();
+        springSnapshotFront_.clear();
+        springSnapshotBack_.clear();
+    }
+    newSnapshotReady_.store(false, std::memory_order_release);
+
+    // Preserve lights across physics resets.
     std::vector<ecs::LightSource> savedLights;
     savedLights.reserve(lightEntities_.size());
     for (auto e : lightEntities_)
@@ -531,16 +468,13 @@ void World::resetPhysics() {
 void World::cleanup() {
     std::lock_guard lk(structureMtx_);
     destroyDebugMeshes();
-    for (auto& obj : objects_)
-        if (obj->mesh) obj->mesh->destroy(gpu_->device());
-    objects_.clear();
+    for (auto& m : meshPool_)
+        if (m) m->destroy(gpu_->device());
+    meshPool_.clear();
     springs_.clear();
-    barriers_.clear();
     contactCache_.clear();
-    hullToEntity_.clear();
     meshToEntity_.clear();
     rebuildCaches();
-
     registry_ = ecs::Registry{};
     lightEntities_.clear();
 }
@@ -550,21 +484,24 @@ void World::cleanup() {
 void World::advance(float dt) {
     std::lock_guard lk(structureMtx_);
 
-    // Build entity and hull lists from ECS.
-    std::vector<ecs::Entity>    entities;
-    std::vector<physics::Hull*> hulls;
-    for (auto [e, ref] : registry_.view<ecs::LegacyHullRef>()) {
-        if (ref.ptr) {
-            entities.push_back(e);
-            hulls.push_back(ref.ptr);
+    // Build entity list and pre-compute world-space inverse inertia tensors.
+    std::vector<ecs::Entity> entities;
+    for (auto [e, hc] : registry_.view<ecs::Hull>()) {
+        entities.push_back(e);
+        auto* tf = registry_.get<Transform>(e);
+        if (!tf || registry_.has<ecs::Fixed>(e)) {
+            hc.inertiaTensorWorld = {};
+            continue;
         }
+        math::Mat3 R = quatToMat3(tf->rotation);
+        hc.inertiaTensorWorld = R * hc.inverseInertia * R.transpose();
     }
 
     // 0. Sync spring proxies.
     for (auto& s : springs_)
         s->syncProxies(registry_);
 
-    // 1. SAP broadphase — Entity-keyed pairs.
+    // 1. SAP broadphase.
     sap_.collectPairs(entities, registry_, sapPairs_);
 
     // 2. Narrow-phase detection.
@@ -600,21 +537,82 @@ void World::advance(float dt) {
         physics::IslandDetector::mergeCache(islands, contactCache_);
     }
 
-    // 4. Integration (Hull*-based; Hull deleted in Step 5).
-    for (auto* h : hulls) {
-        if (h->isTangible()) h->advance(dt, gravity);
-    }
+    // 4. Integration + sleep check.
+    std::vector<ecs::Entity> toSleep;
+    for (ecs::Entity e : entities) {
+        auto* hc = registry_.get<ecs::Hull>(e);
+        auto* tf = registry_.get<Transform>(e);
+        if (!hc || !tf) continue;
+        if (!hc->tangible) continue;
+        if (registry_.has<ecs::Fixed>(e) || registry_.has<ecs::Sleeping>(e)) {
+            hc->pseudoVel   = {};
+            hc->pseudoOmega = {};
+            continue;
+        }
 
-    // 5. Sleeping check.
-    for (auto* h : hulls) {
-        if (!h->isFixed() && h->isTangible() && !h->isSleeping()) {
-            math::Vec3 v = h->getVelocity();
-            math::Vec3 w = h->getOmega();
-            h->tickSleep(v.dot(v), w.dot(w));
+        // Gravity
+        if (hc->gravity)
+            hc->velocity += gravity * dt;
+
+        // Damping
+        float linDecay = 1.0f - hc->linearDamping  * dt;
+        float angDecay = 1.0f - hc->angularDamping * dt;
+        if (linDecay < 0.0f) linDecay = 0.0f;
+        if (angDecay < 0.0f) angDecay = 0.0f;
+        hc->velocity *= linDecay;
+        hc->omega    *= angDecay;
+
+        // Integrate position
+        tf->position += hc->velocity * dt;
+
+        // Integrate rotation via angular velocity
+        if (hc->omega.dot(hc->omega) > 1e-12f) {
+            math::Quat omegaQ{hc->omega.x, hc->omega.y, hc->omega.z, 0.0f};
+            math::Quat dq = omegaQ * tf->rotation;
+            tf->rotation.x += 0.5f * dt * dq.x;
+            tf->rotation.y += 0.5f * dt * dq.y;
+            tf->rotation.z += 0.5f * dt * dq.z;
+            tf->rotation.w += 0.5f * dt * dq.w;
+            tf->rotation = normalizeQuat(tf->rotation);
+        }
+
+        // Split-impulse pseudo-velocity position correction
+        tf->position += hc->pseudoVel * dt;
+        if (hc->pseudoOmega.dot(hc->pseudoOmega) > 1e-12f) {
+            math::Quat pOmegaQ{hc->pseudoOmega.x, hc->pseudoOmega.y, hc->pseudoOmega.z, 0.0f};
+            math::Quat pdq = pOmegaQ * tf->rotation;
+            tf->rotation.x += 0.5f * dt * pdq.x;
+            tf->rotation.y += 0.5f * dt * pdq.y;
+            tf->rotation.z += 0.5f * dt * pdq.z;
+            tf->rotation.w += 0.5f * dt * pdq.w;
+            tf->rotation = normalizeQuat(tf->rotation);
+        }
+        hc->pseudoVel   = {};
+        hc->pseudoOmega = {};
+
+        // Sleep check
+        if (hc->sleepingEnabled) {
+            float linSq = hc->velocity.dot(hc->velocity);
+            float angSq = hc->omega.dot(hc->omega);
+            float linThresh = physics::SLEEP_LINEAR_THRESHOLD  * physics::SLEEP_LINEAR_THRESHOLD;
+            float angThresh = physics::SLEEP_ANGULAR_THRESHOLD * physics::SLEEP_ANGULAR_THRESHOLD;
+            if (linSq < linThresh && angSq < angThresh) {
+                if (++hc->sleepFrames >= physics::SLEEP_FRAMES_REQUIRED) {
+                    hc->velocity = {};
+                    hc->omega    = {};
+                    toSleep.push_back(e);
+                }
+            } else {
+                hc->sleepFrames = 0;
+            }
         }
     }
+    // Add Sleeping tags outside view iteration (archetype mutation not safe inside).
+    for (ecs::Entity e : toSleep)
+        if (!registry_.has<ecs::Sleeping>(e))
+            registry_.add<ecs::Sleeping>(e);
 
-    // 6. Springs.
+    // 5. Springs.
     for (auto& s : springs_)
         s->update(dt, registry_);
 
@@ -624,23 +622,13 @@ void World::advance(float dt) {
 // ---- Snapshot double-buffer ----
 
 void World::publishSnapshot() {
-    // Called at end of advance(), still holding structureMtx_.
     snapshotBack_.clear();
-    for (auto [e, ref] : registry_.view<ecs::LegacyHullRef>()) {
-        auto* h = ref.ptr;
-        if (!h) continue;
-        snapshotBack_.push_back({ h->getPosition(), h->getRotation(), h->getScale(), h->linkedMesh, e });
-
-        if (auto* hc = registry_.get<ecs::Hull>(e)) {
-            hc->velocity           = h->getVelocity();
-            hc->omega              = h->getOmega();
-            hc->inertiaTensorWorld = h->getInverseInertiaTensorWorld();
-        }
-        bool sleeping = h->isSleeping();
-        if (sleeping && !registry_.has<ecs::Sleeping>(e))
-            registry_.add<ecs::Sleeping>(e);
-        else if (!sleeping && registry_.has<ecs::Sleeping>(e))
-            registry_.remove<ecs::Sleeping>(e);
+    for (auto [e, hc] : registry_.view<ecs::Hull>()) {
+        auto* tf = registry_.get<Transform>(e);
+        if (!tf) continue;
+        RenderMesh* mesh = nullptr;
+        if (auto* mr = registry_.get<ecs::MeshRenderer>(e)) mesh = mr->mesh;
+        snapshotBack_.push_back({ tf->position, tf->rotation, tf->scale, mesh, e });
     }
 
     springSnapshotBack_.clear();
@@ -664,31 +652,15 @@ void World::publishSnapshot() {
 }
 
 void World::syncRenderMeshesFromFront() {
-    // Called on the main thread after newSnapshotReady_ is observed; no lock needed
-    // since snapshotFront_ is only swapped under snapshotMtx_ before this call.
     for (auto& s : snapshotFront_) {
         if (s.mesh) {
             s.mesh->modelMatrix    = Transform{s.pos, s.rot, s.scale}.getModelMatrix();
             s.mesh->transformReady = true;
         }
-        if (registry_.valid(s.entity)) {
-            if (auto* t = registry_.get<Transform>(s.entity)) {
-                t->position = s.pos;
-                t->rotation = s.rot;
-                t->scale    = s.scale;
-            }
-        }
     }
     for (auto& ss : springSnapshotFront_) {
         ss.mesh->modelMatrix    = Transform{ss.pos, ss.rot, ss.scale}.getModelMatrix();
         ss.mesh->transformReady = true;
-        if (registry_.valid(ss.entity)) {
-            if (auto* t = registry_.get<Transform>(ss.entity)) {
-                t->position = ss.pos;
-                t->rotation = ss.rot;
-                t->scale    = ss.scale;
-            }
-        }
     }
 }
 
@@ -698,14 +670,15 @@ void World::rebuildDebugMeshes() {
     destroyDebugMeshes();
     auto [boxV, boxI] = DebugShapes::makeBox();
     auto [sphV, sphI] = DebugShapes::makeSphere();
+    debugEntities_.clear();
 
-    for (const auto& obj : objects_) {
-        auto* h = obj->hull.get();
-        if (!h || !h->isTangible()) {
+    for (auto [e, hc] : registry_.view<ecs::Hull>()) {
+        debugEntities_.push_back(e);
+        if (!hc.tangible) {
             debugMeshes_.push_back(nullptr);
             continue;
         }
-        if (dynamic_cast<physics::CSphere*>(h))
+        if (registry_.has<ecs::SphereForm>(e))
             debugMeshes_.push_back(std::make_unique<RenderMesh>(*gpu_, pool_, sphV, sphI));
         else
             debugMeshes_.push_back(std::make_unique<RenderMesh>(*gpu_, pool_, boxV, boxI));
@@ -714,24 +687,28 @@ void World::rebuildDebugMeshes() {
 }
 
 void World::syncDebugMeshes() {
-    size_t dmIdx = 0;
-    for (const auto& obj : objects_) {
-        if (dmIdx >= debugMeshes_.size()) break;
-        if (!debugMeshes_[dmIdx]) { ++dmIdx; continue; }
-        auto* h  = obj->hull.get();
-        if (!h)  { ++dmIdx; continue; }
-        auto& dm = *debugMeshes_[dmIdx];
-        ++dmIdx;
+    for (size_t i = 0; i < debugEntities_.size() && i < debugMeshes_.size(); ++i) {
+        if (!debugMeshes_[i]) continue;
+        ecs::Entity e = debugEntities_[i];
+        auto* tf = registry_.get<Transform>(e);
+        if (!tf) continue;
 
-        math::Vec3 ext = h->getBroadExtent();
+        math::Vec3 ext{1, 1, 1};
+        if (auto* sf = registry_.get<ecs::SphereForm>(e))
+            ext = {sf->radius, sf->radius, sf->radius};
+        else if (auto* af = registry_.get<ecs::AABBForm>(e))
+            ext = af->extent;
+        else if (auto* of = registry_.get<ecs::OBBForm>(e))
+            ext = of->extent;
+
         math::Mat4 T;
-        T.m[12] = h->getPosition().x;
-        T.m[13] = h->getPosition().y;
-        T.m[14] = h->getPosition().z;
+        T.m[12] = tf->position.x;
+        T.m[13] = tf->position.y;
+        T.m[14] = tf->position.z;
         math::Mat4 R;
-        R.setRotationScale(h->getRotTransform());
+        R.setRotationScale(quatToMat3(tf->rotation));
         math::Mat4 S = math::Mat4::scale(ext);
-        dm.modelMatrix = T * R * S;
+        debugMeshes_[i]->modelMatrix = T * R * S;
     }
 }
 
@@ -742,14 +719,12 @@ void World::destroyDebugMeshes() {
             if (m) m->destroy(gpu_->device());
     }
     debugMeshes_.clear();
+    debugEntities_.clear();
 }
 
 void World::toggleProxies(bool enabled) {
     for (auto& s : springs_)
-        for (ecs::Entity proxyEnt : s->proxies_) {
+        for (ecs::Entity proxyEnt : s->proxies_)
             if (auto* hc = registry_.get<ecs::Hull>(proxyEnt))
                 hc->tangible = enabled;
-            if (auto* ref = registry_.get<ecs::LegacyHullRef>(proxyEnt))
-                if (ref->ptr) ref->ptr->setTangible(enabled);
-        }
 }

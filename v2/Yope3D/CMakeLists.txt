@@ -101,13 +101,7 @@ endif()
 
 set(PHYSICS_SOURCES
     src/ecs/Registry.cpp
-    src/physics/Hull.cpp
-    src/physics/CSphere.cpp
-    src/physics/CAABB.cpp
-    src/physics/COBB.cpp
-    src/physics/BarrierHull.cpp
     src/physics/BroadphaseSAP.cpp
-    src/physics/ColliderCCD.cpp
     src/physics/ColliderDiscrete.cpp
     src/physics/IslandDetector.cpp
     src/physics/ThreadPool.cpp

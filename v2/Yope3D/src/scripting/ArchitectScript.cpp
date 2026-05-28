@@ -15,6 +15,7 @@
 #include "ui/TextBox.h"
 #include "ui/TextAtlas.h"
 #include "ecs/Components.h"
+#include "world/Transform.h"
 #include <GLFW/glfw3.h>
 #include <cmath>
 #include <string>
@@ -80,17 +81,20 @@ void ArchitectScript::init(ScriptContext& ctx) {
     // Player sphere — physics-driven, sleeping disabled, low friction
     playerEnt_ = ctx.world->addSphere(1.0f, ARCH_PLAYER_R, {0.0f, 2.0f, 25.0f});
     {
-        auto* h = ctx.world->getHull(playerEnt_);
-        h->disableSleeping();
-        h->friction      = ARCH_PLAYER_FRICTION;
-        h->linearDamping = 0.0f;
+        auto* h = ctx.world->getRegistry().get<ecs::Hull>(playerEnt_);
+        if (h) {
+            h->sleepingEnabled = false;
+            h->sleepFrames     = 0;
+            h->friction        = ARCH_PLAYER_FRICTION;
+            h->linearDamping   = 0.0f;
+        }
     }
 
     // Tracker sphere (horror enemy)
     trackerEnt_ = ctx.world->addSphere(2.0f, 0.8f, {0.0f, 2.0f, -40.0f});
     {
-        auto* h = ctx.world->getHull(trackerEnt_);
-        h->disableSleeping();   // tracker also driven by script — same problem applies
+        auto* h = ctx.world->getRegistry().get<ecs::Hull>(trackerEnt_);
+        if (h) { h->sleepingEnabled = false; h->sleepFrames = 0; }
     }
     auto* tm = ctx.world->attachMesh(trackerEnt_, Primitives::icosphere(0.8f));
     if (tm) { tm->color[0] = 0.6f; tm->color[1] = 0.05f; tm->color[2] = 0.05f; }
@@ -140,8 +144,10 @@ void ArchitectScript::init(ScriptContext& ctx) {
 void ArchitectScript::update(ScriptContext& ctx, float dt) {
     ++frameCounter_;
 
-    auto* hull = ctx.world->getHull(playerEnt_);
-    math::Vec3 spherePos = hull->getPosition();
+    auto& reg = ctx.world->getRegistry();
+    auto* hull     = reg.get<ecs::Hull>(playerEnt_);
+    auto* playerTf = reg.get<Transform>(playerEnt_);
+    math::Vec3 spherePos = playerTf ? playerTf->position : math::Vec3{};
 
     // ---- Mouselook ----
     auto delta = ctx.input->getMouseDelta();
@@ -168,14 +174,14 @@ void ArchitectScript::update(ScriptContext& ctx, float dt) {
     bool grounded = spherePos.y < (ARCH_PLAYER_R + 0.15f);
 
     // ---- Apply velocity ----
-    math::Vec3 vel = hull->getVelocity();
+    math::Vec3 vel = hull ? hull->velocity : math::Vec3{};
     vel.x *= ARCH_HORIZ_DAMP;
     vel.z *= ARCH_HORIZ_DAMP;
     if (dir.length() > 0.01f)
         vel += dir.normalize() * speed;
     if (ctx.input->isKeyDown(GLFW_KEY_SPACE) && grounded && vel.y < 0.1f)
         vel.y = ARCH_JUMP_VEL;
-    hull->setVelocity(vel);
+    if (hull) hull->velocity = vel;
 
     // ---- Camera follows sphere ----
     ctx.camera->setPosition(spherePos + math::Vec3{0.0f, ARCH_CAMERA_LIFT, 0.0f});
@@ -221,36 +227,38 @@ void ArchitectScript::update(ScriptContext& ctx, float dt) {
 
     // ---- Tracker behaviour ----
     if (trackerEnt_ != ecs::NullEntity) {
-        auto* th = ctx.world->getHull(trackerEnt_);
-        math::Vec3 tPos = th->getPosition();
-        math::Vec3 tVel = th->getVelocity();
-        math::Vec3 diff = spherePos - tPos;
-        float dist = diff.length();
+        auto* th  = reg.get<ecs::Hull>(trackerEnt_);
+        auto* ttf = reg.get<Transform>(trackerEnt_);
+        if (th && ttf) {
+            math::Vec3 tPos = ttf->position;
+            math::Vec3 tVel = th->velocity;
+            math::Vec3 diff = spherePos - tPos;
+            float dist = diff.length();
 
-        if (flashlightOn_ || dist < TRACKER_ACTIVATE_DIST) {
-            if (dist < TRACKER_SCARE_DIST && jumpSrc_ && !jumpSrc_->isPlaying())
-                jumpSrc_->play();
+            if (flashlightOn_ || dist < TRACKER_ACTIVATE_DIST) {
+                if (dist < TRACKER_SCARE_DIST && jumpSrc_ && !jumpSrc_->isPlaying())
+                    jumpSrc_->play();
 
-            if (dist > 0.01f)
-                th->setVelocity(tVel + diff.normalize() * TRACKER_SPEED);
+                if (dist > 0.01f)
+                    th->velocity = tVel + diff.normalize() * TRACKER_SPEED;
 
-            if (jumpSrc_) {
-                jumpSrc_->setPosition(tPos);
-                jumpSrc_->setVelocity(tVel);
+                if (jumpSrc_) {
+                    jumpSrc_->setPosition(tPos);
+                    jumpSrc_->setVelocity(tVel);
+                }
+
+                th->velocity.x *= 0.9f;
+                th->velocity.z *= 0.9f;
             }
 
-            math::Vec3 tv = th->getVelocity();
-            tv.x *= 0.9f; tv.z *= 0.9f;
-            th->setVelocity(tv);
-        }
-
-        if (growlSrc_) {
-            if (dist < TRACKER_GROWL_DIST && !growlSrc_->isPlaying())
-                growlSrc_->play();
-            else if (dist >= TRACKER_GROWL_DIST)
-                growlSrc_->pause();
-            growlSrc_->setPosition(tPos);
-            growlSrc_->setVelocity(tVel);
+            if (growlSrc_) {
+                if (dist < TRACKER_GROWL_DIST && !growlSrc_->isPlaying())
+                    growlSrc_->play();
+                else if (dist >= TRACKER_GROWL_DIST)
+                    growlSrc_->pause();
+                growlSrc_->setPosition(tPos);
+                growlSrc_->setVelocity(tVel);
+            }
         }
     }
 }

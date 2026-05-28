@@ -8,10 +8,6 @@
 namespace ecs { class Registry; }
 
 namespace physics {
-class Hull;
-class CSphere;
-class CAABB;
-class COBB;
 
 namespace ColliderDiscrete {
 
@@ -23,37 +19,24 @@ namespace ColliderDiscrete {
         int        numContacts  = 0;
     };
 
-    // Shared precomputed fields for both HullActiveContact and ActiveContact.
-#define CONTACT_PRECOMPUTED_FIELDS \
-        ContactManifold manifold; \
-        math::Vec3      T1, T2; \
-        float           mu = 0.0f, e = 0.0f; \
-        math::Mat3      IinvA, IinvB; \
-        math::Vec3      rA[4], rB[4]; \
-        float           W[4]    = {}; \
-        float           Wt1[4]  = {}; \
-        float           Wt2[4]  = {}; \
-        float           neta[4] = {}; \
-        float           lambda[4]   = {}; \
-        float           lambdaT1[4] = {}; \
-        float           lambdaT2[4] = {}; \
-        float           lambdaP[4]  = {};
-
-    // Legacy: Hull*-keyed contact — used by physics tests.
-    struct HullActiveContact {
-        Hull* a;
-        Hull* b;
-        CONTACT_PRECOMPUTED_FIELDS
-    };
-
-    // ECS: Entity-keyed contact — used by advance() (Phase D).
+    // ECS: Entity-keyed contact — used by advance().
     struct ActiveContact {
         ecs::Entity a;
         ecs::Entity b;
-        CONTACT_PRECOMPUTED_FIELDS
+        ContactManifold manifold;
+        math::Vec3      T1, T2;
+        float           mu = 0.0f, e = 0.0f;
+        math::Mat3      IinvA, IinvB;
+        math::Vec3      rA[4], rB[4];
+        float           W[4]    = {};
+        float           Wt1[4]  = {};
+        float           Wt2[4]  = {};
+        float           neta[4] = {};
+        float           lambda[4]   = {};
+        float           lambdaT1[4] = {};
+        float           lambdaT2[4] = {};
+        float           lambdaP[4]  = {};
     };
-
-#undef CONTACT_PRECOMPUTED_FIELDS
 
     // Lightweight geometry descriptors — avoid depending on Hull subclasses.
     struct SphereGeom {
@@ -112,18 +95,11 @@ namespace ColliderDiscrete {
     bool detectAABBOBB     (const AABBGeom&   a, const OBBGeom&    b, ContactManifold& m);
     bool detectOBBOBB      (const OBBGeom&    a, const OBBGeom&    b, ContactManifold& m);
 
-    // Legacy Hull*-based detect — used by physics tests.
-    void detect(Hull& a, Hull& b, std::vector<HullActiveContact>& contacts);
-
     // ECS-based detect — used by advance().
     void detect(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg,
                 std::vector<ActiveContact>& contacts);
 
-    // Legacy Hull*-based solve — used by physics tests.
-    void solveIsland(std::vector<HullActiveContact>& contacts, float dt, ContactCache& cache);
-    void solveAll   (std::vector<HullActiveContact>& contacts, float dt, ContactCache& cache);
-
-    // ECS-based solve — used by advance(). Internally bridges via LegacyHullRef in Step 1.
+    // ECS-based solve — used by advance().
     void solveIsland(std::vector<ActiveContact>& contacts, float dt,
                      ecs::Registry& reg, EntityContactCache& cache);
 

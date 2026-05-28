@@ -4,8 +4,8 @@
 #include "rendering/Camera.h"
 #include "rendering/Light.h"
 #include "world/World.h"
-#include "physics/CAABB.h"
 #include "physics/Raycast.h"
+#include "world/Transform.h"
 #include "assets/Primitives.h"
 #include "assets/ObjLoader.h"
 #include "platform/Input.h"
@@ -161,10 +161,13 @@ void PlatformerScript::init(ScriptContext& ctx) {
     // Spawn above platform 0 so it lands on it.
     playerEnt_ = ctx.world->addSphere(1.0f, PLAYER_R, {INITIAL_RADIUS, 125.0f, 0.0f});
     {
-        auto* h = ctx.world->getHull(playerEnt_);
-        h->disableSleeping();          // critical — setVelocity is silently dropped on sleeping hulls
-        h->friction      = PLAYER_FRICTION;  // contact friction must not fight WASD
-        h->linearDamping = 0.0f;             // only the script-side HORIZ_DAMP damps the player
+        auto* h = ctx.world->getRegistry().get<ecs::Hull>(playerEnt_);
+        if (h) {
+            h->sleepingEnabled = false;
+            h->sleepFrames     = 0;
+            h->friction        = PLAYER_FRICTION;
+            h->linearDamping   = 0.0f;
+        }
     }
 
     // Camera at the spawn sphere
@@ -187,8 +190,10 @@ void PlatformerScript::update(ScriptContext& ctx, float dt) {
     totalTime_ += dt;
     if (!won_) gameTime_ += dt;
 
-    auto* hull = ctx.world->getHull(playerEnt_);
-    math::Vec3 spherePos = hull->getPosition();
+    auto& reg = ctx.world->getRegistry();
+    auto* hull     = reg.get<ecs::Hull>(playerEnt_);
+    auto* playerTf = reg.get<Transform>(playerEnt_);
+    math::Vec3 spherePos = playerTf ? playerTf->position : math::Vec3{};
 
     if (!won_) {
         // ---- Mouselook (manual — matches FpsCameraController convention) ----
@@ -230,27 +235,27 @@ void PlatformerScript::update(ScriptContext& ctx, float dt) {
         bool grounded = false;
         math::Vec3 downRay = {0.0f, -1.0f, 0.0f};
         constexpr float MISS = std::numeric_limits<float>::min();
-        for (auto* h : ctx.world->getHulls()) {
-            if (h == hull) continue;
-            if (auto* aabb = dynamic_cast<physics::CAABB*>(h)) {
-                float t = physics::Raycast::raycastAABB(
-                    downRay, spherePos, aabb->getPosition(), aabb->getScales());
-                if (t != MISS && t > 0.0f && t < PLAYER_R + 0.25f) {
-                    grounded = true;
-                    break;
-                }
+        for (auto [e, af] : reg.view<ecs::AABBForm>()) {
+            if (e == playerEnt_) continue;
+            auto* atf = reg.get<Transform>(e);
+            if (!atf) continue;
+            float t = physics::Raycast::raycastAABB(
+                downRay, spherePos, atf->position, af.extent);
+            if (t != MISS && t > 0.0f && t < PLAYER_R + 0.25f) {
+                grounded = true;
+                break;
             }
         }
 
         // ---- Apply velocity ----
-        math::Vec3 vel = hull->getVelocity();
+        math::Vec3 vel = hull ? hull->velocity : math::Vec3{};
         vel.x *= HORIZ_DAMP;   // script-side horizontal damping (snappy stop on release)
         vel.z *= HORIZ_DAMP;
         if (dir.length() > 0.01f)
             vel += dir.normalize() * speed;
         if (ctx.input->isKeyDown(GLFW_KEY_SPACE) && grounded && vel.y < 0.1f)
             vel.y = JUMP_VEL;
-        hull->setVelocity(vel);
+        if (hull) hull->velocity = vel;
     }
 
     // ---- Camera follows sphere ----

@@ -1,7 +1,7 @@
 #include "Spring.h"
-#include "Hull.h"
 #include "PhysicsConstants.h"
 #include "../ecs/Components.h"
+#include "../ecs/Registry.h"
 #include "../world/Transform.h"
 #include <cmath>
 
@@ -13,13 +13,13 @@ Spring::Spring(ecs::Entity first, ecs::Entity second, float k, float rest)
     : first_(first), second_(second), k(k), restLength(rest) {}
 
 void Spring::update(float dt, ecs::Registry& reg) {
-    auto* rA = reg.get<ecs::LegacyHullRef>(first_);
-    auto* rB = reg.get<ecs::LegacyHullRef>(second_);
-    if (!rA || !rB || !rA->ptr || !rB->ptr) return;
-    Hull* a = rA->ptr;
-    Hull* b = rB->ptr;
+    auto* tfA = reg.get<Transform>(first_);
+    auto* tfB = reg.get<Transform>(second_);
+    auto* hA  = reg.get<ecs::Hull>(first_);
+    auto* hB  = reg.get<ecs::Hull>(second_);
+    if (!tfA || !tfB || !hA || !hB) return;
 
-    math::Vec3 delta = a->getPosition() - b->getPosition();
+    math::Vec3 delta = tfA->position - tfB->position;
     float length = delta.length();
     if (length < 1e-7f) return;
 
@@ -27,39 +27,29 @@ void Spring::update(float dt, ecs::Registry& reg) {
     delta = delta * ((1.0f / length) * displacement * k);
     delta *= (1 - SPRING_DAMPING_COEFF);
 
-    math::Vec3 aVel = a->getVelocity() + (delta * (-dt / a->getMass()));
-    math::Vec3 bVel = b->getVelocity() + (delta * ( dt / b->getMass()));
-
-    a->setVelocity(aVel);
-    b->setVelocity(bVel);
+    hA->velocity += delta * (-dt * hA->inverseMass);
+    hB->velocity += delta * ( dt * hB->inverseMass);
 }
 
 void Spring::syncProxies(ecs::Registry& reg) const {
     if (proxies_.empty()) return;
-    auto* rA = reg.get<ecs::LegacyHullRef>(first_);
-    auto* rB = reg.get<ecs::LegacyHullRef>(second_);
-    if (!rA || !rB || !rA->ptr || !rB->ptr) return;
-    math::Vec3 a = rA->ptr->getPosition();
-    math::Vec3 b = rB->ptr->getPosition();
+    auto* tfA = reg.get<Transform>(first_);
+    auto* tfB = reg.get<Transform>(second_);
+    if (!tfA || !tfB) return;
+    math::Vec3 a = tfA->position;
+    math::Vec3 b = tfB->position;
     int n = static_cast<int>(proxies_.size());
     for (int i = 0; i < n; ++i) {
         float t = static_cast<float>(i + 1) / static_cast<float>(n + 1);
-        math::Vec3 pos = a + (b - a) * t;
-        // Update legacy Hull position so broadphase and integration stay consistent.
-        if (auto* ref = reg.get<ecs::LegacyHullRef>(proxies_[i]))
-            if (ref->ptr) ref->ptr->setPosition(pos);
-        // Update ECS Transform so the Entity-based BroadphaseSAP sees current positions.
         if (auto* tf = reg.get<Transform>(proxies_[i]))
-            tf->position = pos;
+            tf->position = a + (b - a) * t;
     }
 }
 
 Spring::SpringTransform Spring::computeSpringTransform(const ecs::Registry& reg) const {
-    auto* rA = reg.get<ecs::LegacyHullRef>(first_);
-    auto* rB = reg.get<ecs::LegacyHullRef>(second_);
     math::Vec3 start{}, end{1, 0, 0};
-    if (rA && rA->ptr) start = rA->ptr->getPosition();
-    if (rB && rB->ptr) end   = rB->ptr->getPosition();
+    if (auto* tf = reg.get<Transform>(first_))  start = tf->position;
+    if (auto* tf = reg.get<Transform>(second_)) end   = tf->position;
 
     math::Vec3 fwd = end - start;
     float length = fwd.length();
