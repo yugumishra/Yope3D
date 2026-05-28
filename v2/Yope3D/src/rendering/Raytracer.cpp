@@ -4,6 +4,7 @@
 #include "gpu/ShaderModule.h"
 #include "world/World.h"
 #include "world/RenderMesh.h"
+#include "../ecs/Components.h"
 #include <stdexcept>
 #include <array>
 #include <variant>
@@ -108,7 +109,7 @@ void Raytracer::onResize(GpuDevice& gpu, uint32_t newWidth, uint32_t newHeight, 
 // ---------------------------------------------------------------------------
 // prepareFrame — pack world geometry into the geometry SSBO for this frame
 // ---------------------------------------------------------------------------
-void Raytracer::prepareFrame(uint32_t frameIndex, const World& world) {
+void Raytracer::prepareFrame(uint32_t frameIndex, World& world) {
     std::vector<float> packed;
     packed.reserve(1024);
     packed.push_back(0.0f);
@@ -452,15 +453,9 @@ void Raytracer::writeBlitDescriptors(VkDevice device, uint32_t frameIndex) {
 
 // ---------------------------------------------------------------------------
 // packGeometry — traverse the World and pack primitives into the float buffer.
-//
-// Three-tier approach:
-//   Tier 1: world.getRenderMeshes() — everything with a visual, dispatched on
-//           PrimitiveType for optimal representation (sphere, quads, triangle soup).
-//   Tier 2: world.getHulls() filtered to hull->linkedMesh==nullptr — physics-only
-//           bodies (static AABBs/OBBs, barriers) that block rays but have no mesh.
-//   Tier 3: world.getBarriers() — standalone BoundedBarriers.
+// Iterates ecs::MeshRenderer components; reads mr.mesh->modelMatrix (snapshot).
 // ---------------------------------------------------------------------------
-void Raytracer::packGeometry(const World& world, std::vector<float>& out) {
+void Raytracer::packGeometry(World& world, std::vector<float>& out) {
     int count = 0;
 
     // Helper: build 6 oriented box quads from a center, three axis vectors, and half-extents.
@@ -482,9 +477,9 @@ void Raytracer::packGeometry(const World& world, std::vector<float>& out) {
         }
     };
 
-    // ---- Tier 1: mesh walk ------------------------------------------------
-    for (const auto* mesh : world.getRenderMeshes()) {
-        if (!mesh->transformReady) continue;
+    for (auto [entity, mr] : world.getRegistry().view<ecs::MeshRenderer>()) {
+        const RenderMesh* mesh = mr.mesh;
+        if (!mesh || !mesh->transformReady) continue;
         if (out.size() + 84 > MAX_GEOMETRY_FLOATS) break;
 
         const float r    = mesh->color[0];

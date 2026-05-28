@@ -4,6 +4,7 @@
 #include "physics/PhysicsConstants.h"
 #include "math/Math.h"
 #include "ui/UIManager.h"
+#include "debug/Profiler.h"
 #include <GLFW/glfw3.h>
 #include <string>
 #include <chrono>
@@ -59,6 +60,8 @@ bool Engine::init() {
     script_ = ScriptFactory::create(cfg.script);
     script_->init(scriptCtx_);
 
+    YOPE_PROF_INIT("yope_profile.csv");
+
     lastTime = glfwGetTime();
 
     physicsThread_ = std::thread([this] {
@@ -82,6 +85,9 @@ bool Engine::init() {
 }
 
 void Engine::update() {
+    YOPE_PROF_STEP("render");
+    YOPE_PROF_SCOPE("total_frame", "render");
+
     double now = glfwGetTime();
     float  dt  = static_cast<float>(now - lastTime);
     lastTime   = now;
@@ -101,8 +107,8 @@ void Engine::update() {
                                 static_cast<float>(window->getHeight()));
     }
 
-    script_->update(scriptCtx_, dt);
-    uiManager->update(dt);
+    { YOPE_PROF_SCOPE("script_update", "render"); script_->update(scriptCtx_, dt); }
+    { YOPE_PROF_SCOPE("ui_update",     "render"); uiManager->update(dt); }
 
     // Dispatch UI click on LMB press edge (held→not tracked, only the falling edge).
     bool lmbNow = input->isLMBDown();
@@ -121,15 +127,20 @@ void Engine::update() {
 }
 
 void Engine::render() {
-    if (world->newSnapshotReady_.exchange(false, std::memory_order_acquire))
+    if (world->newSnapshotReady_.exchange(false, std::memory_order_acquire)) {
+        YOPE_PROF_SCOPE("snapshot_sync", "render");
         world->syncRenderMeshesFromFront();
+    }
     renderer->setMode(renderMode_);
-    renderer->drawFrame(*gpu, *window, *camera, *world, *assets);
+    { YOPE_PROF_SCOPE("renderer_drawframe", "render");
+      renderer->drawFrame(*gpu, *window, *camera, *world, *assets); }
 }
 
 void Engine::cleanup() {
     stopPhysics_.store(true, std::memory_order_release);
     physicsThread_.join();
+
+    YOPE_PROF_SHUTDOWN();
 
     script_.reset();
     audio.reset();

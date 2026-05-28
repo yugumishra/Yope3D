@@ -1,5 +1,6 @@
 #include "Script.h"
 #include "ScriptFactory.h"
+#include "debug/Profiler.h"
 #include "ScriptContext.h"
 #include "rendering/Camera.h"
 #include "rendering/Light.h"
@@ -64,6 +65,7 @@ private:
 };
 
 void ArchitectScript::init(ScriptContext& ctx) {
+    YOPE_PROF_SET_SCENE("Architect");
     // Floor (StaticAABB, top at y=0)
     ctx.world->addStaticAABB({0.0f, -0.5f, 0.0f}, {ARENA_HALF, 0.5f, ARENA_HALF});
 

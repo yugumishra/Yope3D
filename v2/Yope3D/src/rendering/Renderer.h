@@ -46,7 +46,6 @@ public:
     void drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, World& world,
                    class AssetManager& assets);
 
-    bool useECSTransform = false;
     void waitIdle(GpuDevice& gpu);
 
     void setUIManager(UIManager* mgr) { uiManager_ = mgr; }

@@ -12,7 +12,8 @@ void IslandDetector::build(
     const std::vector<ColliderDiscrete::ActiveContact>& allContacts,
     const EntityContactCache& globalCache,
     std::vector<Island>& islands,
-    ecs::Registry& reg)
+    ecs::Registry& reg,
+    const std::vector<std::pair<ecs::Entity, ecs::Entity>>& springPairs)
 {
     islands.clear();
     if (allContacts.empty()) return;
@@ -28,17 +29,25 @@ void IslandDetector::build(
     };
 
     // 1. Assign union-find IDs to dynamic (non-fixed) entities only.
+    //    Include both contact endpoints and spring-connected entities so that
+    //    spring pairs can bridge otherwise-disconnected contact islands.
     struct EntityHash {
         size_t operator()(ecs::Entity e) const {
             return std::hash<uint32_t>{}(e.id) ^ (std::hash<uint32_t>{}(e.generation) * 2654435761u);
         }
     };
     std::unordered_map<ecs::Entity, int, EntityHash> id;
-    id.reserve(allContacts.size() * 2);
+    id.reserve(allContacts.size() * 2 + springPairs.size() * 2);
     int nextId = 0;
     for (const auto& c : allContacts) {
         if (!isFixed(c.a) && !id.count(c.a)) id[c.a] = nextId++;
         if (!isFixed(c.b) && !id.count(c.b)) id[c.b] = nextId++;
+    }
+    // Spring endpoints may not appear in any contact — still assign IDs so the
+    // union step can bridge their contact islands.
+    for (const auto& [ea, eb] : springPairs) {
+        if (!isFixed(ea) && reg.has<ecs::Hull>(ea) && !id.count(ea)) id[ea] = nextId++;
+        if (!isFixed(eb) && reg.has<ecs::Hull>(eb) && !id.count(eb)) id[eb] = nextId++;
     }
 
     // 2. Union-find with path compression.
@@ -54,6 +63,15 @@ void IslandDetector::build(
         if (isFixed(c.a) || isFixed(c.b)) continue;
         int ra = find(id[c.a]);
         int rb = find(id[c.b]);
+        if (ra != rb) parent[ra] = rb;
+    }
+    // Union spring-connected pairs so their contact islands are merged.
+    for (const auto& [ea, eb] : springPairs) {
+        auto itA = id.find(ea);
+        auto itB = id.find(eb);
+        if (itA == id.end() || itB == id.end()) continue;
+        int ra = find(itA->second);
+        int rb = find(itB->second);
         if (ra != rb) parent[ra] = rb;
     }
 

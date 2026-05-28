@@ -5,6 +5,7 @@
 #include "../physics/ThreadPool.h"
 #include "../physics/PhysicsConstants.h"
 #include "../ecs/Components.h"
+#include "../debug/Profiler.h"
 #include <cmath>
 #include <cfloat>
 #include <thread>
@@ -82,14 +83,6 @@ void World::init(GpuDevice& gpu, VkCommandPool pool) {
 
 int World::getThreadCount() const {
     return threadPool_ ? static_cast<int>(threadPool_->size()) : 0;
-}
-
-// ---- Cache management ----
-
-void World::rebuildCaches() {
-    meshCache_.clear();
-    for (auto& m : meshPool_)
-        if (m) meshCache_.push_back(m.get());
 }
 
 int World::getHullCount() {
@@ -190,7 +183,6 @@ ecs::Entity World::addRenderObject(const std::vector<Vertex>& vertices,
     rm->transformReady = true;
     RenderMesh* raw = rm.get();
     meshPool_.push_back(std::move(rm));
-    rebuildCaches();
     ecs::Entity e = registry_.create();
     registry_.add<Transform>(e);
     registry_.add<ecs::MeshRenderer>(e, {raw});
@@ -219,7 +211,6 @@ RenderMesh* World::attachMesh(ecs::Entity e,
     if (!registry_.has<ecs::Hull>(e))
         raw->transformReady = true;
     meshPool_.push_back(std::move(rm));
-    rebuildCaches();
     if (registry_.has<ecs::MeshRenderer>(e))
         registry_.get<ecs::MeshRenderer>(e)->mesh = raw;
     else
@@ -290,7 +281,6 @@ void World::removeEntity(ecs::Entity e) {
     }
 
     registry_.destroy(e);
-    rebuildCaches();
 
     if (debugPhysics) {
         destroyDebugMeshes();
@@ -437,7 +427,6 @@ void World::resetPhysics() {
     springs_.clear();
     contactCache_.clear();
     meshToEntity_.clear();
-    rebuildCaches();
 
     {
         std::lock_guard slk(snapshotMtx_);
@@ -475,7 +464,6 @@ void World::cleanup() {
     springs_.clear();
     contactCache_.clear();
     meshToEntity_.clear();
-    rebuildCaches();
     registry_ = ecs::Registry{};
     lightEntities_.clear();
 }
@@ -483,64 +471,93 @@ void World::cleanup() {
 // ---- Simulation step ----
 
 void World::advance(float dt) {
+    YOPE_PROF_STEP("physics");
     std::lock_guard lk(structureMtx_);
 
     // Build entity list and pre-compute world-space inverse inertia tensors.
-    std::vector<ecs::Entity> entities;
-    for (auto [e, hc] : registry_.view<ecs::Hull>()) {
-        entities.push_back(e);
-        auto* tf = registry_.get<Transform>(e);
-        if (!tf || registry_.has<ecs::Fixed>(e)) {
-            hc.inertiaTensorWorld = math::Mat3::zero();
-            continue;
+    {
+        YOPE_PROF_SCOPE("entity_list_build", "physics");
+        advanceEntities_.clear();
+        for (auto [e, hc] : registry_.view<ecs::Hull>()) {
+            advanceEntities_.push_back(e);
+            auto* tf = registry_.get<Transform>(e);
+            if (!tf || registry_.has<ecs::Fixed>(e)) {
+                hc.inertiaTensorWorld = math::Mat3::zero();
+                continue;
+            }
+            math::Mat3 R = quatToMat3(tf->rotation);
+            hc.inertiaTensorWorld = R * hc.inverseInertia * R.transpose();
         }
-        math::Mat3 R = quatToMat3(tf->rotation);
-        hc.inertiaTensorWorld = R * hc.inverseInertia * R.transpose();
     }
+    YOPE_PROF_SET_OBJECT_COUNT(advanceEntities_.size());
 
     // 0. Sync spring proxies.
-    for (auto& s : springs_)
-        s->syncProxies(registry_);
+    {
+        YOPE_PROF_SCOPE("spring_proxy_sync", "physics");
+        for (auto& s : springs_)
+            s->syncProxies(registry_);
+    }
 
     // 1. SAP broadphase.
-    sap_.collectPairs(entities, registry_, sapPairs_);
+    {
+        YOPE_PROF_SCOPE("broadphase_sap", "physics");
+        sap_.collectPairs(advanceEntities_, registry_, sapPairs_);
+    }
 
     // 2. Narrow-phase detection.
-    std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
-    for (auto& [ea, eb] : sapPairs_) {
-        bool aFixed = registry_.has<ecs::Fixed>(ea);
-        bool bFixed = registry_.has<ecs::Fixed>(eb);
-        bool aSleep = registry_.has<ecs::Sleeping>(ea);
-        bool bSleep = registry_.has<ecs::Sleeping>(eb);
-        if (aFixed && bFixed) continue;
-        if (aSleep && bSleep) continue;
-        if (aSleep && bFixed) continue;
-        if (aFixed && bSleep) continue;
-        physics::ColliderDiscrete::detect(ea, eb, registry_, contacts);
+    {
+        YOPE_PROF_SCOPE("narrowphase_detect", "physics");
+        advanceContacts_.clear();
+        for (auto& [ea, eb] : sapPairs_) {
+            bool aFixed = registry_.has<ecs::Fixed>(ea);
+            bool bFixed = registry_.has<ecs::Fixed>(eb);
+            bool aSleep = registry_.has<ecs::Sleeping>(ea);
+            bool bSleep = registry_.has<ecs::Sleeping>(eb);
+            if (aFixed && bFixed) continue;
+            if (aSleep && bSleep) continue;
+            if (aSleep && bFixed) continue;
+            if (aFixed && bSleep) continue;
+            physics::ColliderDiscrete::detect(ea, eb, registry_, advanceContacts_);
+        }
     }
 
     // 3. Island-partitioned PGS solve.
     lastIslandCount_ = 0;
-    if (!contacts.empty()) {
+    if (!advanceContacts_.empty()) {
         if (!threadPool_) {
             unsigned int n = std::max(1u, std::thread::hardware_concurrency() - 1u);
             threadPool_ = std::make_unique<ThreadPool>(n);
         }
+        // Collect spring entity pairs so the island builder can merge contact
+        // islands that are bridged only by a spring (not a direct collision).
+        std::vector<std::pair<ecs::Entity, ecs::Entity>> springPairs;
+        springPairs.reserve(springs_.size());
+        for (const auto& s : springs_)
+            springPairs.push_back({s->first_, s->second_});
+
         std::vector<physics::Island> islands;
-        islandDetector_.build(contacts, contactCache_, islands, registry_);
-        lastIslandCount_ = static_cast<int>(islands.size());
-        for (auto& island : islands) {
-            threadPool_->enqueue([&island, dt, &reg = registry_]() mutable {
-                physics::ColliderDiscrete::solveIsland(island.contacts, dt, reg, island.localCache);
-            });
+        {
+            YOPE_PROF_SCOPE("island_build", "physics");
+            islandDetector_.build(advanceContacts_, contactCache_, islands, registry_, springPairs);
         }
-        threadPool_->wait();
+        lastIslandCount_ = static_cast<int>(islands.size());
+        YOPE_PROF_SET_ISLAND_COUNT(lastIslandCount_);
+        {
+            YOPE_PROF_SCOPE("pgs_solve", "physics");
+            for (auto& island : islands) {
+                threadPool_->enqueue([&island, dt, &reg = registry_]() mutable {
+                    physics::ColliderDiscrete::solveIsland(island.contacts, dt, reg, island.localCache);
+                });
+            }
+            threadPool_->wait();
+        }
         physics::IslandDetector::mergeCache(islands, contactCache_);
     }
 
     // 4. Integration + sleep check.
+    YOPE_PROF_SCOPE("integration", "physics");
     std::vector<ecs::Entity> toSleep;
-    for (ecs::Entity e : entities) {
+    for (ecs::Entity e : advanceEntities_) {
         auto* hc = registry_.get<ecs::Hull>(e);
         auto* tf = registry_.get<Transform>(e);
         if (!hc || !tf) continue;
@@ -611,10 +628,13 @@ void World::advance(float dt) {
             registry_.add<ecs::Sleeping>(e);
 
     // 5. Springs.
-    for (auto& s : springs_)
-        s->update(dt, registry_);
+    {
+        YOPE_PROF_SCOPE("spring_update", "physics");
+        for (auto& s : springs_)
+            s->update(dt, registry_);
+    }
 
-    publishSnapshot();
+    { YOPE_PROF_SCOPE("publish_snapshot", "physics"); publishSnapshot(); }
 }
 
 // ---- Snapshot double-buffer ----

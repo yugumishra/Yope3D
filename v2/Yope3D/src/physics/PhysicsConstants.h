@@ -36,8 +36,8 @@ namespace physics {
     inline constexpr float BOUNCE_VELOCITY_THRESHOLD     = 1.0f;
 
     // Sleeping
-    inline constexpr float SLEEP_LINEAR_THRESHOLD        = 0.5f;  // m/s
-    inline constexpr float SLEEP_ANGULAR_THRESHOLD       = 0.5f;  // rad/s
+    inline constexpr float SLEEP_LINEAR_THRESHOLD        = 0.25f;  // m/s
+    inline constexpr float SLEEP_ANGULAR_THRESHOLD       = 0.25f;  // rad/s
     inline constexpr int   SLEEP_FRAMES_REQUIRED         = 120;    // ~0.5 s at 240 hz physics
 
     // Legacy names kept for any remaining references

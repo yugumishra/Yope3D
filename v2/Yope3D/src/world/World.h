@@ -52,8 +52,6 @@ public:
     RenderMesh* getMesh(ecs::Entity e);
     void        removeEntity(ecs::Entity e);
 
-    // ---- Flat caches ----
-    const std::vector<RenderMesh*>& getRenderMeshes() const { return meshCache_; }
     int getHullCount();
 
     // ---- Springs ----
@@ -67,7 +65,8 @@ public:
                                        int proxyCount, float proxyRadius);
 
     // ---- ECS registry ----
-    ecs::Registry& getRegistry() { return registry_; }
+    ecs::Registry&       getRegistry()       { return registry_; }
+    const ecs::Registry& getRegistry() const { return registry_; }
 
     // ---- Lights ----
     void addLight(const Light& light);
@@ -130,7 +129,6 @@ private:
     std::recursive_mutex structureMtx_;
 
     std::vector<std::unique_ptr<RenderMesh>> meshPool_;
-    std::vector<RenderMesh*>                 meshCache_;
 
     ecs::Registry                                        registry_;
     std::vector<ecs::Entity>                             lightEntities_;
@@ -138,7 +136,9 @@ private:
 
     std::vector<std::unique_ptr<physics::Spring>>        springs_;
     physics::BroadphaseSAP                               sap_;
+    std::vector<ecs::Entity>                             advanceEntities_;    // reused each tick
     std::vector<std::pair<ecs::Entity, ecs::Entity>>     sapPairs_;
+    std::vector<physics::ColliderDiscrete::ActiveContact> advanceContacts_;   // reused each tick
     physics::EntityContactCache                          contactCache_;
     physics::IslandDetector                              islandDetector_;
     std::unique_ptr<ThreadPool>                          threadPool_;
@@ -146,5 +146,4 @@ private:
     std::vector<std::unique_ptr<RenderMesh>>             debugMeshes_;
     std::vector<ecs::Entity>                             debugEntities_;
 
-    void rebuildCaches();
 };
