@@ -214,6 +214,7 @@ target_link_libraries(yope_tests PRIVATE Catch2::Catch2WithMain)
 add_executable(yope_physics_tests
     tests/physics_tests.cpp
     src/math/MathImpl.cpp
+    src/debug/Profiler.cpp
     ${PHYSICS_SOURCES}
 )
 

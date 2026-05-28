@@ -2,6 +2,7 @@
 #include "ScriptFactory.h"
 #include "debug/Profiler.h"
 #include "ScriptContext.h"
+#include <cstdlib>   // std::getenv, std::atoi (Phase E stress sweep)
 #include "rendering/CameraController.h"
 #include "world/World.h"
 #include "physics/CollisionLayers.h"
@@ -509,6 +510,36 @@ void SandboxScript::loadStressTest() {
 
     ctx_->camera->setPosition({0.0f, 3.5f, STRESS_HALF - 2.0f});
     ctx_->camera->setRotation({0.0f, 0.0f, 0.0f});
+
+    // Optional bulk spawn for Phase E scaling sweeps. tools/run_scaling_sweep.sh
+    // sets YOPE_STRESS_N to control entity count per run. 36×36 horizontal grid
+    // (1296 per layer) keeps stack height under STRESS_CEILING up to ~46k spheres.
+    int stressN = 0;
+    if (const char* s = std::getenv("YOPE_STRESS_N")) stressN = std::atoi(s);
+    if (stressN > 0) {
+        constexpr int   Kx      = 36;
+        constexpr int   Kz      = 36;
+        constexpr float spacing = 1.05f;     // just over sphere diameter (0.5 radius)
+        constexpr float radius  = 0.5f;
+        constexpr float mass    = 1.0f;
+        const float x0 = -((Kx - 1) * 0.5f) * spacing;
+        const float z0 = -((Kz - 1) * 0.5f) * spacing;
+        for (int i = 0; i < stressN; ++i) {
+            int ix =  i % Kx;
+            int iz = (i / Kx) % Kz;
+            int iy =  i / (Kx * Kz);
+            math::Vec3 pos{
+                x0 + ix * spacing,
+                1.0f + iy * spacing,
+                z0 + iz * spacing
+            };
+            ecs::Entity e = ctx_->world->addSphere(mass, radius, pos);
+            ctx_->world->attachMesh(e, Primitives::icosphere(radius));
+            if (auto* m = ctx_->world->getMesh(e)) {
+                m->color[0] = 0.7f; m->color[1] = 0.4f; m->color[2] = 0.3f;
+            }
+        }
+    }
 }
 
 // ---- loadDopplerTest ----

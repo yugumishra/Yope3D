@@ -13,6 +13,7 @@
 #include "assets/AssetManager.h"
 #include "ui/UIManager.h"
 #include "ecs/Components.h"
+#include "debug/Profiler.h"
 #include <GLFW/glfw3.h>
 #include <stdexcept>
 #include <array>
@@ -619,6 +620,20 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
 
         if (!world.debugPhysics) {
             auto& reg = world.getRegistry();
+            // Query-only sentinel walk — measures pure ECS iteration cost over the
+            // (Transform, MeshRenderer) archetypes, separated from the Vulkan record
+            // work below. Combined with raster_cmdbuffer_record this answers
+            // "is the cost the ECS walk or the GPU command submission?".
+            {
+                YOPE_PROF_SCOPE("view_meshrenderer", "render");
+                static volatile int sink = 0;
+                int acc = 0;
+                for (auto [entity, tf, mr] : reg.view<Transform, ecs::MeshRenderer>()) {
+                    (void)entity; (void)tf;
+                    acc += mr.mesh ? 1 : 0;
+                }
+                sink = acc;
+            }
             for (auto [entity, tf, mr] : reg.view<Transform, ecs::MeshRenderer>()) {
                 if (!mr.mesh || !mr.mesh->transformReady) continue;
 
@@ -914,11 +929,14 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, W
     // Pack lights from ECS registry.
     std::vector<float> packedLights;
     int numLights = 0;
-    for (auto [entity, ls] : world.getRegistry().view<ecs::LightSource>()) {
-        if (numLights >= static_cast<int>(YOPE_MAX_LIGHTS)) break;
-        auto lightData = packLightSource(ls);
-        packedLights.insert(packedLights.end(), lightData.begin(), lightData.end());
-        ++numLights;
+    {
+        YOPE_PROF_SCOPE("view_lightsource", "render");
+        for (auto [entity, ls] : world.getRegistry().view<ecs::LightSource>()) {
+            if (numLights >= static_cast<int>(YOPE_MAX_LIGHTS)) break;
+            auto lightData = packLightSource(ls);
+            packedLights.insert(packedLights.end(), lightData.begin(), lightData.end());
+            ++numLights;
+        }
     }
     uboData.numLights = numLights;
 
@@ -942,7 +960,10 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, W
     }
 
     vkResetCommandBuffer(cmdBuffers[currentFrame], 0);
-    recordCommandBuffer(cmdBuffers[currentFrame], imageIndex, world, assets);
+    {
+        YOPE_PROF_SCOPE("raster_cmdbuffer_record", "render");
+        recordCommandBuffer(cmdBuffers[currentFrame], imageIndex, world, assets);
+    }
 
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo si{};

@@ -8,6 +8,7 @@
 #include <GLFW/glfw3.h>
 #include <string>
 #include <chrono>
+#include <cstdlib>   // YOPE_PROFILE_DURATION env var
 
 Engine::~Engine() = default;
 
@@ -63,6 +64,12 @@ bool Engine::init() {
     YOPE_PROF_INIT("yope_profile.csv");
 
     lastTime = glfwGetTime();
+
+    // Optional fixed-duration auto-exit for tools/run_scaling_sweep.sh.
+    if (const char* s = std::getenv("YOPE_PROFILE_DURATION")) {
+        double d = std::atof(s);
+        if (d > 0.0) profileEndTime_ = lastTime + d;
+    }
 
     physicsThread_ = std::thread([this] {
         using namespace std::chrono_literals;
@@ -124,6 +131,10 @@ void Engine::update() {
     // Listener tracks camera (updated after script may have moved it).
     Listener::setPosition(camera->getPosition());
     Listener::setOrientation(camera->getForward(), {0.0f, 1.0f, 0.0f});
+
+    // Profile-sweep auto-exit. main loop checks window->shouldClose().
+    if (profileEndTime_ > 0.0 && now >= profileEndTime_)
+        glfwSetWindowShouldClose(window->getHandle(), GLFW_TRUE);
 }
 
 void Engine::render() {
@@ -140,8 +151,6 @@ void Engine::cleanup() {
     stopPhysics_.store(true, std::memory_order_release);
     physicsThread_.join();
 
-    YOPE_PROF_SHUTDOWN();
-
     script_.reset();
     audio.reset();
     camera.reset();
@@ -149,9 +158,14 @@ void Engine::cleanup() {
     if (uiManager) { uiManager->cleanup(gpu->device()); uiManager.reset(); }
     if (assets) { assets->cleanup(gpu->device()); assets.reset(); }
     world->cleanup();
-    world.reset();
+    world.reset();   // joins ThreadPool workers → drains their thread-local profiler buffers
     renderer.reset();
     gpu.reset();
+
+    // Must come AFTER world.reset(): worker TLBs flush in ~ThreadLocalBuf which
+    // takes the global mutex and writes to g_file. If we close g_file first,
+    // the tail of the last few physics steps gets silently dropped.
+    YOPE_PROF_SHUTDOWN();
     window.reset();
     input.reset();
 }

@@ -474,7 +474,25 @@ void World::advance(float dt) {
     YOPE_PROF_STEP("physics");
     std::lock_guard lk(structureMtx_);
 
+    // Per-step ECS structure snapshot — drives the archetype/migration plots
+    // and lets analyze_profile.py spot archetype churn vs. step time.
+    YOPE_PROF_SET_ARCHETYPE_COUNT(registry_.archetypeCount());
+    YOPE_PROF_SET_ARCHETYPE_MIGRATIONS(registry_.archetypeMigrationCount());
+
     // Build entity list and pre-compute world-space inverse inertia tensors.
+    // The *_query scope below measures pure view-walk cost (no work) so the
+    // delta against entity_list_build isolates the math/lookups for the
+    // AoS-vs-SoA Phase E decision (yope3d_phase2_design.md §5.9).
+    {
+        YOPE_PROF_SCOPE("entity_list_build_query", "physics");
+        static volatile int sink = 0;
+        int acc = 0;
+        for (auto [e, hc] : registry_.view<ecs::Hull>()) {
+            (void)e;
+            acc += hc.sleepFrames;
+        }
+        sink = acc;
+    }
     {
         YOPE_PROF_SCOPE("entity_list_build", "physics");
         advanceEntities_.clear();
@@ -507,6 +525,7 @@ void World::advance(float dt) {
     // 2. Narrow-phase detection.
     {
         YOPE_PROF_SCOPE("narrowphase_detect", "physics");
+        physics::ColliderDiscrete::resetNarrowphaseTiming();
         advanceContacts_.clear();
         for (auto& [ea, eb] : sapPairs_) {
             bool aFixed = registry_.has<ecs::Fixed>(ea);
@@ -519,7 +538,9 @@ void World::advance(float dt) {
             if (aFixed && bSleep) continue;
             physics::ColliderDiscrete::detect(ea, eb, registry_, advanceContacts_);
         }
+        physics::ColliderDiscrete::emitNarrowphaseProfile();
     }
+    YOPE_PROF_SET_CONTACT_COUNT(advanceContacts_.size());
 
     // 3. Island-partitioned PGS solve.
     lastIslandCount_ = 0;
@@ -544,17 +565,45 @@ void World::advance(float dt) {
         YOPE_PROF_SET_ISLAND_COUNT(lastIslandCount_);
         {
             YOPE_PROF_SCOPE("pgs_solve", "physics");
-            for (auto& island : islands) {
-                threadPool_->enqueue([&island, dt, &reg = registry_]() mutable {
-                    physics::ColliderDiscrete::solveIsland(island.contacts, dt, reg, island.localCache);
-                });
+            {
+                YOPE_PROF_SCOPE("pgs_dispatch", "physics");
+                for (auto& island : islands) {
+                    const int islandContactN = static_cast<int>(island.contacts.size());
+                    threadPool_->enqueue([&island, dt, &reg = registry_, islandContactN]() mutable {
+                        // Worker-thread scope. Stamped with scope_n = contact count for this
+                        // island, so analyze_profile.py can plot solve-time vs. island size
+                        // and spot the single-giant-island case where parallelism collapses.
+                        YOPE_PROF_SCOPE_N("pgs_island", "physics", islandContactN);
+                        physics::ColliderDiscrete::solveIsland(island.contacts, dt, reg, island.localCache);
+                    });
+                }
             }
-            threadPool_->wait();
+            {
+                YOPE_PROF_SCOPE("pgs_wait", "physics");
+                threadPool_->wait();
+            }
         }
         physics::IslandDetector::mergeCache(islands, contactCache_);
     }
 
     // 4. Integration + sleep check.
+    // The *_query scope measures the cost of the random-access registry
+    // lookups (get<Hull>/get<Transform>) per entity, isolated from the math.
+    // If integration time scales but integration_query stays flat, the math
+    // dominates; if both grow together, the access pattern is the cost and
+    // a view<Hull,Transform>-based rewrite (or SoA) is the right Phase E call.
+    {
+        YOPE_PROF_SCOPE("integration_query", "physics");
+        static volatile int sink = 0;
+        int acc = 0;
+        for (ecs::Entity e : advanceEntities_) {
+            auto* hc = registry_.get<ecs::Hull>(e);
+            auto* tf = registry_.get<Transform>(e);
+            if (hc) acc += hc->sleepFrames;
+            if (tf) acc += 1;
+        }
+        sink = acc;
+    }
     YOPE_PROF_SCOPE("integration", "physics");
     std::vector<ecs::Entity> toSleep;
     for (ecs::Entity e : advanceEntities_) {
