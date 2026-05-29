@@ -6,6 +6,10 @@
     "freetype",
     "openal-soft",
     "stb",
-    "catch2"
+    "catch2",
+    {
+      "name": "imgui",
+      "features": ["docking-experimental", "vulkan-binding", "glfw-binding"]
+    }
   ]
 }

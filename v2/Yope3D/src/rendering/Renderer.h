@@ -53,6 +53,8 @@ public:
 
     VkCommandPool         getCommandPool()      const { return commandPool; }
     VkDescriptorSetLayout getTextureSetLayout() const;
+    const Swapchain&      getSwapchain()        const { return *swapchain; }
+    VkFormat              getDepthFormat()      const;
 
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
@@ -123,4 +125,29 @@ private:
 
     void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, World& world,
                             class AssetManager& assets);
+
+#ifdef YOPE_EDITOR
+public:
+    // Editor-mode rendering: records the game pass into the ViewportTarget's offscreen texture.
+    // The caller (EditorApp) then records ImGui into the same command buffer, followed by
+    // endFrameForEditor which ends + submits + presents.
+    // Returns the acquired swapchain image index.
+    uint32_t beginFrameForEditor(GpuDevice& gpu, Window& window,
+                                 const Camera& camera, World& world,
+                                 class AssetManager& assets,
+                                 class ViewportTarget& vt);
+    // Returns true if swapchain was recreated (EditorApp must rebuild ImGui framebuffers).
+    bool endFrameForEditor(GpuDevice& gpu, Window& window, uint32_t imageIndex);
+
+    VkCommandBuffer currentCmdBuffer()     const { return cmdBuffers[currentFrame]; }
+    VkRenderPass    getOffscreenGamePass()  const;
+    VkRenderPass    getOffscreenRaytracePass() const;
+    void            notifySwapchainRecreated(GpuDevice& gpu, Window& window);
+
+private:
+    std::unique_ptr<RenderPass> offscreenGamePass_;
+    std::unique_ptr<RenderPass> offscreenRaytracePass_;
+    void createOffscreenGamePass(GpuDevice& gpu);
+    void createOffscreenRaytracePass(GpuDevice& gpu);
+#endif
 };

@@ -1,6 +1,9 @@
 #include "Renderer.h"
 #include "Raytracer.h"
 #include "Camera.h"
+#ifdef YOPE_EDITOR
+#include "rendering/ViewportTarget.h"
+#endif
 #include "gpu/GpuDevice.h"
 #include "gpu/Swapchain.h"
 #include "gpu/RenderPass.h"
@@ -142,6 +145,10 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
 
     // Raytracer (requires commandPool, so constructed last)
     createRaytracePass(gpu);
+#ifdef YOPE_EDITOR
+    createOffscreenGamePass(gpu);
+    createOffscreenRaytracePass(gpu);
+#endif
     std::array<VkBuffer,     2> uboBuffs{},   lightBuffs{};
     std::array<VkDeviceSize, 2> uboSizes{},   lightSizes{};
     for (int i = 0; i < MAX_FRAMES; ++i) {
@@ -160,6 +167,10 @@ Renderer::~Renderer() {
 
 VkDescriptorSetLayout Renderer::getTextureSetLayout() const {
     return textureSetLayout->get();
+}
+
+VkFormat Renderer::getDepthFormat() const {
+    return depthBuffer->format();
 }
 
 void Renderer::waitIdle(GpuDevice& gpu) {
@@ -999,3 +1010,219 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, W
 
     currentFrame = (currentFrame + 1) % MAX_FRAMES;
 }
+
+// ---------------------------------------------------------------------------
+// Editor offscreen path (#ifdef YOPE_EDITOR)
+// ---------------------------------------------------------------------------
+
+#ifdef YOPE_EDITOR
+void Renderer::createOffscreenGamePass(GpuDevice& gpu) {
+    offscreenGamePass_ = std::make_unique<RenderPass>(
+        RenderPass::createOffscreenGamePass(gpu.device(),
+                                            swapchain->imageFormat(),
+                                            depthBuffer->format()));
+}
+
+void Renderer::createOffscreenRaytracePass(GpuDevice& gpu) {
+    offscreenRaytracePass_ = std::make_unique<RenderPass>(
+        RenderPass::createOffscreenRaytracePass(gpu.device(), swapchain->imageFormat()));
+}
+
+VkRenderPass Renderer::getOffscreenGamePass() const {
+    return offscreenGamePass_ ? offscreenGamePass_->get() : VK_NULL_HANDLE;
+}
+
+VkRenderPass Renderer::getOffscreenRaytracePass() const {
+    return offscreenRaytracePass_ ? offscreenRaytracePass_->get() : VK_NULL_HANDLE;
+}
+
+uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
+                                       const Camera& camera, World& world,
+                                       AssetManager& assets,
+                                       ViewportTarget& vt) {
+    vkWaitForFences(gpu.device(), 1, &inFlightFence[currentFrame], VK_TRUE, UINT64_MAX);
+
+    uint32_t imageIndex;
+    VkResult result = vkAcquireNextImageKHR(gpu.device(), swapchain->handle(),
+                                            UINT64_MAX, imageAvailable[currentFrame],
+                                            VK_NULL_HANDLE, &imageIndex);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        recreateSwapchain(gpu, window);
+        // Return sentinel — EditorApp must check and skip ImGui recording this frame.
+        return UINT32_MAX;
+    }
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+        throw std::runtime_error("beginFrameForEditor: failed to acquire image");
+
+    vkResetFences(gpu.device(), 1, &inFlightFence[currentFrame]);
+
+    // Upload per-frame data (UBO + light SSBO)
+    GlobalUBO uboData{};
+    uboData.view         = camera.genViewMatrix();
+    uboData.proj         = camera.genProjectionMatrix();
+    math::Vec3 pos       = camera.getPosition();
+    uboData.cameraPos[0] = pos.x; uboData.cameraPos[1] = pos.y; uboData.cameraPos[2] = pos.z;
+
+    std::vector<float> packedLights;
+    int numLights = 0;
+    for (auto [entity, ls] : world.getRegistry().view<ecs::LightSource>()) {
+        if (numLights >= static_cast<int>(YOPE_MAX_LIGHTS)) break;
+        auto d = packLightSource(ls);
+        packedLights.insert(packedLights.end(), d.begin(), d.end());
+        ++numLights;
+    }
+    uboData.numLights = numLights;
+    if (!packedLights.empty())
+        lightBuffers[currentFrame].write(packedLights.data(), packedLights.size() * sizeof(float));
+    uniformBuffers[currentFrame].write(&uboData, sizeof(GlobalUBO));
+
+    VkCommandBuffer cmd = cmdBuffers[currentFrame];
+    vkResetCommandBuffer(cmd, 0);
+    VkCommandBufferBeginInfo bi{};
+    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    vkBeginCommandBuffer(cmd, &bi);
+
+    if (mode_ == RenderMode::RAYTRACE && raytracer_ && offscreenRaytracePass_
+        && vt.raytraceFramebuffer() != VK_NULL_HANDLE) {
+        // ---- Raytrace path ----
+        raytracer_->prepareFrame(currentFrame, world);
+        raytracer_->dispatch(cmd, currentFrame);
+
+        VkClearValue rtClear{};
+        rtClear.color = {0.0f, 0.0f, 0.0f, 1.0f};
+
+        VkRenderPassBeginInfo rpbi{};
+        rpbi.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rpbi.renderPass        = offscreenRaytracePass_->get();
+        rpbi.framebuffer       = vt.raytraceFramebuffer();
+        rpbi.renderArea.offset = {0, 0};
+        rpbi.renderArea.extent = {vt.width(), vt.height()};
+        rpbi.clearValueCount   = 1;
+        rpbi.pClearValues      = &rtClear;
+
+        vkCmdBeginRenderPass(cmd, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
+
+        VkViewport vp{};
+        vp.width = static_cast<float>(vt.width());
+        vp.height = static_cast<float>(vt.height());
+        vp.minDepth = 0.0f; vp.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd, 0, 1, &vp);
+        VkRect2D sc2{{0,0},{vt.width(),vt.height()}};
+        vkCmdSetScissor(cmd, 0, 1, &sc2);
+
+        raytracer_->recordBlit(cmd, currentFrame);
+        vkCmdEndRenderPass(cmd);
+    } else {
+        // ---- Raster path ----
+        VkClearValue clearValues[2]{};
+        clearValues[0].color        = {0.05f, 0.05f, 0.05f, 1.0f};
+        clearValues[1].depthStencil = {1.0f, 0};
+
+        VkRenderPassBeginInfo rpbi{};
+        rpbi.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rpbi.renderPass        = offscreenGamePass_->get();
+        rpbi.framebuffer       = vt.framebuffer();
+        rpbi.renderArea.offset = {0, 0};
+        rpbi.renderArea.extent = {vt.width(), vt.height()};
+        rpbi.clearValueCount   = 2;
+        rpbi.pClearValues      = clearValues;
+
+        vkCmdBeginRenderPass(cmd, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+        VkViewport vp{};
+        vp.width    = static_cast<float>(vt.width());
+        vp.height   = static_cast<float>(vt.height());
+        vp.minDepth = 0.0f; vp.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd, 0, 1, &vp);
+        VkRect2D scissor{{0, 0}, {vt.width(), vt.height()}};
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
+
+        auto& reg = world.getRegistry();
+        if (!world.debugPhysics) {
+            for (auto [entity, tf, mr] : reg.view<Transform, ecs::MeshRenderer>()) {
+                if (!mr.mesh || !mr.mesh->transformReady) continue;
+
+                Texture* tex = mr.mesh->texture ? mr.mesh->texture : assets.getDefaultTexture();
+                VkDescriptorSet texSet = tex->getDescriptorSet();
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    pipelineLayout, 1, 1, &texSet, 0, nullptr);
+
+                struct PushConstants { math::Mat4 model; float color[3]; int32_t state; } push{};
+                push.model    = mr.mesh->modelMatrix;
+                push.color[0] = mr.mesh->color[0]; push.color[1] = mr.mesh->color[1]; push.color[2] = mr.mesh->color[2];
+                push.state    = mr.mesh->state;
+                vkCmdPushConstants(cmd, pipelineLayout,
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, 80, &push);
+                mr.mesh->draw(cmd);
+            }
+        }
+
+        if (world.debugPhysics) {
+            VkDescriptorSet defaultTex = assets.getDefaultTexture()->getDescriptorSet();
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+                1, 1, &defaultTex, 0, nullptr);
+            for (const auto& dm : world.getDebugMeshes()) {
+                if (!dm) continue;
+                struct PushConstants { math::Mat4 model; float color[3]; int32_t state; } push{};
+                push.model    = dm->modelMatrix;
+                push.color[0] = 0.0f; push.color[1] = 1.0f; push.color[2] = 0.2f;
+                push.state    = 0;
+                vkCmdPushConstants(cmd, pipelineLayout,
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, 80, &push);
+                dm->draw(cmd);
+            }
+        }
+
+        vkCmdEndRenderPass(cmd);
+    }
+
+    // Command buffer stays open — ImGuiBackend::render() records the ImGui pass next.
+    return imageIndex;
+}
+
+bool Renderer::endFrameForEditor(GpuDevice& gpu, Window& window, uint32_t imageIndex) {
+    vkEndCommandBuffer(cmdBuffers[currentFrame]);
+
+    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkSubmitInfo si{};
+    si.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    si.waitSemaphoreCount   = 1;
+    si.pWaitSemaphores      = &imageAvailable[currentFrame];
+    si.pWaitDstStageMask    = &waitStage;
+    si.commandBufferCount   = 1;
+    si.pCommandBuffers      = &cmdBuffers[currentFrame];
+    si.signalSemaphoreCount = 1;
+    si.pSignalSemaphores    = &renderFinished[imageIndex];
+
+    if (vkQueueSubmit(gpu.graphicsQueue(), 1, &si, inFlightFence[currentFrame]) != VK_SUCCESS)
+        throw std::runtime_error("endFrameForEditor: failed to submit");
+
+    VkSwapchainKHR sc = swapchain->handle();
+    VkPresentInfoKHR pi{};
+    pi.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    pi.waitSemaphoreCount = 1;
+    pi.pWaitSemaphores    = &renderFinished[imageIndex];
+    pi.swapchainCount     = 1;
+    pi.pSwapchains        = &sc;
+    pi.pImageIndices      = &imageIndex;
+    VkResult result = vkQueuePresentKHR(gpu.presentQueue(), &pi);
+
+    currentFrame = (currentFrame + 1) % MAX_FRAMES;
+
+    bool swapchainRecreated = false;
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || window.wasResized()) {
+        window.clearResizedFlag();
+        recreateSwapchain(gpu, window);
+        swapchainRecreated = true;
+    }
+    return swapchainRecreated;
+}
+
+void Renderer::notifySwapchainRecreated(GpuDevice& gpu, Window& window) {
+    recreateSwapchain(gpu, window);
+}
+#endif

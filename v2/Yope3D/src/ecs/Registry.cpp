@@ -124,4 +124,20 @@ void Registry::removeRow(Archetype& arch, uint32_t row) {
     arch.entities.pop_back();
 }
 
+#ifdef YOPE_EDITOR
+Registry::Snapshot Registry::takeSnapshot() const {
+    return { records_, freeIds_, nextId_, archetypes_, archIndex_, elementSizes_, migrationCount_ };
+}
+
+void Registry::restoreSnapshot(const Snapshot& snap) {
+    records_        = snap.records;
+    freeIds_        = snap.freeIds;
+    nextId_         = snap.nextId;
+    archetypes_     = snap.archetypes;
+    archIndex_      = snap.archIndex;
+    elementSizes_   = snap.elementSizes;
+    migrationCount_ = snap.migrationCount;
+}
+#endif
+
 } // namespace ecs

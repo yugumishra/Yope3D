@@ -25,10 +25,20 @@ bool Engine::init() {
     if (cfg.width  > 0) screenW = cfg.width;
     if (cfg.height > 0) screenH = cfg.height;
 
-    window = std::make_unique<Window>("Yope3D", screenW, screenH);
+    window = std::make_unique<Window>(
+#ifdef YOPE_EDITOR
+        "Yope3D Editor"
+#else
+        "Yope3D"
+#endif
+        , screenW, screenH);
     window->init(input.get());
     window->setIcon("textures/tnail.png");
+#ifdef YOPE_EDITOR
+    glfwSetInputMode(window->getHandle(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+#else
     glfwSetInputMode(window->getHandle(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+#endif
 
     gpu      = std::make_unique<GpuDevice>(*window);
     renderer = std::make_unique<Renderer>(*gpu, *window);
@@ -59,7 +69,10 @@ bool Engine::init() {
     scriptCtx_.renderMode  = &renderMode_;
 
     script_ = ScriptFactory::create(cfg.script);
+#ifndef YOPE_EDITOR
+    // In editor mode EditorApp calls script_->init() when Play is pressed.
     script_->init(scriptCtx_);
+#endif
 
     YOPE_PROF_INIT("yope_profile.csv");
 
