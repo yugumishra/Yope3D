@@ -587,87 +587,88 @@ void World::advance(float dt) {
     }
 
     // 4. Integration + sleep check.
-    // The *_query scope measures the cost of the random-access registry
-    // lookups (get<Hull>/get<Transform>) per entity, isolated from the math.
-    // If integration time scales but integration_query stays flat, the math
-    // dominates; if both grow together, the access pattern is the cost and
-    // a view<Hull,Transform>-based rewrite (or SoA) is the right Phase E call.
+    // Rewritten to iterate view<Hull, Transform> directly — the previous
+    // pattern walked advanceEntities_ and did random get<Hull>/get<Transform>
+    // lookups per entity, which the A1 query data showed cost ~26% of the
+    // integration scope (0.18 µs/entity of pure lookup overhead). The view
+    // walks archetypes contiguously, eliminating the random-access lookups.
+    // Sleep tags are still applied AFTER the view loop — archetype mutation
+    // during iteration is not safe.
     {
+        // Query sentinel — measures pure contiguous view-walk cost. After the
+        // rewrite this should drop sharply vs. the old version (which was
+        // measuring random-lookup cost). Delta to `integration` is now closer
+        // to "actual math" rather than "math + lookup overhead".
         YOPE_PROF_SCOPE("integration_query", "physics");
         static volatile int sink = 0;
         int acc = 0;
-        for (ecs::Entity e : advanceEntities_) {
-            auto* hc = registry_.get<ecs::Hull>(e);
-            auto* tf = registry_.get<Transform>(e);
-            if (hc) acc += hc->sleepFrames;
-            if (tf) acc += 1;
+        for (auto [e, hc, tf] : registry_.view<ecs::Hull, Transform>()) {
+            (void)e; (void)tf;
+            acc += hc.sleepFrames;
         }
         sink = acc;
     }
     YOPE_PROF_SCOPE("integration", "physics");
     std::vector<ecs::Entity> toSleep;
-    for (ecs::Entity e : advanceEntities_) {
-        auto* hc = registry_.get<ecs::Hull>(e);
-        auto* tf = registry_.get<Transform>(e);
-        if (!hc || !tf) continue;
-        if (!hc->tangible) continue;
+    for (auto [e, hc, tf] : registry_.view<ecs::Hull, Transform>()) {
+        if (!hc.tangible) continue;
         if (registry_.has<ecs::Fixed>(e) || registry_.has<ecs::Sleeping>(e)) {
-            hc->pseudoVel   = {};
-            hc->pseudoOmega = {};
+            hc.pseudoVel   = {};
+            hc.pseudoOmega = {};
             continue;
         }
 
         // Gravity (applied once per full step, same as Hull::advance isFirst guard)
-        if (hc->gravity)
-            hc->velocity += gravity * dt;
+        if (hc.gravity)
+            hc.velocity += gravity * dt;
 
         // Damping — skip if decay would flip sign (matches Hull::advance: if linDecay > 0)
-        float linDecay = 1.0f - hc->linearDamping  * dt;
-        float angDecay = 1.0f - hc->angularDamping * dt;
-        if (linDecay > 0.0f) hc->velocity = hc->velocity * linDecay;
-        if (angDecay > 0.0f) hc->omega    = hc->omega    * angDecay;
+        float linDecay = 1.0f - hc.linearDamping  * dt;
+        float angDecay = 1.0f - hc.angularDamping * dt;
+        if (linDecay > 0.0f) hc.velocity = hc.velocity * linDecay;
+        if (angDecay > 0.0f) hc.omega    = hc.omega    * angDecay;
 
         // Integrate position
-        tf->position += hc->velocity * dt;
+        tf.position += hc.velocity * dt;
 
         // Integrate rotation — exact axis-angle left-multiply (matches Hull::advance)
-        float omegaLen = hc->omega.length();
+        float omegaLen = hc.omega.length();
         if (omegaLen > 1e-7f) {
             float angle = omegaLen * dt;
-            math::Quat dq = math::Quat::fromAxisAngle(hc->omega * (1.0f / omegaLen), angle);
-            tf->rotation = dq * tf->rotation;
-            tf->rotation = normalizeQuat(tf->rotation);
+            math::Quat dq = math::Quat::fromAxisAngle(hc.omega * (1.0f / omegaLen), angle);
+            tf.rotation = dq * tf.rotation;
+            tf.rotation = normalizeQuat(tf.rotation);
         }
 
         // Split-impulse pseudo-velocity correction (matches Hull::advance)
-        tf->position += hc->pseudoVel * dt;
+        tf.position += hc.pseudoVel * dt;
         constexpr float MAX_PSEUDO_OMEGA = 2.0f;
-        float pOmLen = std::sqrt(hc->pseudoOmega.dot(hc->pseudoOmega));
+        float pOmLen = std::sqrt(hc.pseudoOmega.dot(hc.pseudoOmega));
         if (pOmLen > MAX_PSEUDO_OMEGA)
-            hc->pseudoOmega = hc->pseudoOmega * (MAX_PSEUDO_OMEGA / pOmLen);
+            hc.pseudoOmega = hc.pseudoOmega * (MAX_PSEUDO_OMEGA / pOmLen);
         if (pOmLen > 1e-7f) {
             float angle = pOmLen * dt;
-            math::Quat dq = math::Quat::fromAxisAngle(hc->pseudoOmega * (1.0f / pOmLen), angle);
-            tf->rotation = dq * tf->rotation;
-            tf->rotation = normalizeQuat(tf->rotation);
+            math::Quat dq = math::Quat::fromAxisAngle(hc.pseudoOmega * (1.0f / pOmLen), angle);
+            tf.rotation = dq * tf.rotation;
+            tf.rotation = normalizeQuat(tf.rotation);
         }
-        hc->pseudoVel   = {};
-        hc->pseudoOmega = {};
+        hc.pseudoVel   = {};
+        hc.pseudoOmega = {};
 
         // Sleep check
-        if (hc->sleepingEnabled) {
-            float linSq = hc->velocity.dot(hc->velocity);
-            float angSq = hc->omega.dot(hc->omega);
+        if (hc.sleepingEnabled) {
+            float linSq = hc.velocity.dot(hc.velocity);
+            float angSq = hc.omega.dot(hc.omega);
             float linThresh = physics::SLEEP_LINEAR_THRESHOLD  * physics::SLEEP_LINEAR_THRESHOLD;
             float angThresh = physics::SLEEP_ANGULAR_THRESHOLD * physics::SLEEP_ANGULAR_THRESHOLD;
             if (linSq < linThresh && angSq < angThresh) {
-                if (++hc->sleepFrames >= physics::SLEEP_FRAMES_REQUIRED) {
-                    hc->velocity = {};
-                    hc->omega    = {};
+                if (++hc.sleepFrames >= physics::SLEEP_FRAMES_REQUIRED) {
+                    hc.velocity = {};
+                    hc.omega    = {};
                     toSleep.push_back(e);
                 }
             } else {
-                hc->sleepFrames = 0;
+                hc.sleepFrames = 0;
             }
         }
     }

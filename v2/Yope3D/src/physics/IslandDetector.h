@@ -31,6 +31,15 @@ public:
 
     // After parallel solve, write each island's localCache back to globalCache.
     static void mergeCache(std::vector<Island>& islands, EntityContactCache& globalCache);
+
+private:
+    // Persistent buffers — reused across build() calls to avoid per-step
+    // heap allocation. Sized lazily; the previous unordered_map/set churn
+    // accounted for ~50% of island_build wall time at N=16k.
+    std::vector<int>     entityToUfId_;   // entity.id → UF id (kNoUfId = unset)
+    std::vector<int>     parent_;          // UF parent array
+    std::vector<int>     rootToIsland_;    // UF root → island index (-1 = unset)
+    std::vector<uint8_t> seen_;            // entity.id → seen flag (phase 4 dedup)
 };
 
 } // namespace physics

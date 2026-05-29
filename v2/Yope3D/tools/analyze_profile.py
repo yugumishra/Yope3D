@@ -27,6 +27,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Iterable
+from contextlib import redirect_stdout  # <-- 1. Import this
 
 import numpy as np
 import pandas as pd
@@ -147,7 +148,12 @@ def classify_stage(stage: str, thread: str) -> str:
 # Loading
 # ============================================================================
 
-_N_PAT = re.compile(r"_N(\d+)", re.IGNORECASE)
+_N_PAT     = re.compile(r"_N(\d+)", re.IGNORECASE)
+# Shape suffix from sweep harness: yope_profile_N<N>_<shape>.csv.
+# Known shapes recognized by SandboxScript::loadStressTest; unrecognized
+# suffixes (or no suffix at all — legacy single-shape sweeps) fall through
+# to "sphere" as a sensible default since that was the original behavior.
+_SHAPE_PAT = re.compile(r"_N\d+_(sphere|aabb|obb)\.csv$", re.IGNORECASE)
 
 
 def n_from_filename(path: str) -> int | None:
@@ -155,8 +161,13 @@ def n_from_filename(path: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def shape_from_filename(path: str) -> str:
+    m = _SHAPE_PAT.search(os.path.basename(path))
+    return m.group(1).lower() if m else "sphere"
+
+
 def load_one(path: str) -> pd.DataFrame:
-    """Read a single CSV, pad missing columns, tag with source/N."""
+    """Read a single CSV, pad missing columns, tag with source/N/shape."""
     df = pd.read_csv(path)
     for col in CSV_COLUMNS:
         if col not in df.columns:
@@ -171,6 +182,7 @@ def load_one(path: str) -> pd.DataFrame:
     df["source_file"] = os.path.basename(path)
     n = n_from_filename(path)
     df["N"] = n if n is not None else df["object_count"].median()
+    df["shape"] = shape_from_filename(path)
     return df
 
 
@@ -556,42 +568,43 @@ def plot_narrowphase_mix(df: pd.DataFrame, outdir: Path) -> None:
 
 
 # ============================================================================
-# Main
+# Reports — named text printouts that can be filtered via --reports.
+# Each function takes (df, summary, par_eff, outdir) for uniformity even
+# when it doesn't use all of them. Returns None.
 # ============================================================================
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(description="Yope3D Phase E profile analyzer")
-    ap.add_argument("inputs", nargs="+", help="profile CSV files")
-    ap.add_argument("-o", "--outdir", default=DEFAULT_OUT, help="output directory")
-    ap.add_argument("--no-plots", action="store_true", help="skip PNG generation")
-    args = ap.parse_args(argv)
+NUM_WORKERS_DEFAULT = 9  # hardware_concurrency()-1 on M-series; override via --workers
 
-    df = load_all(args.inputs)
-    outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
+# Query/work pair stages from A1 instrumentation. Used by report_pairs.
+PAIRS_PHYSICS_SIBLINGS = [
+    # (query_stage, full_stage) — sibling scopes; work = full - query.
+    ("entity_list_build_query", "entity_list_build"),
+    ("integration_query",       "integration"),
+]
+PAIRS_RENDER_NESTED = [
+    # (child_query_stage, parent_stage) — child is inside parent;
+    # work = parent - child.
+    ("view_meshrenderer", "raster_cmdbuffer_record"),
+]
 
-    # Tables — always written.
-    summary = stage_summary(df)
-    summary.to_csv(outdir / "stage_summary.csv", index=False)
-    print(f"wrote {outdir/'stage_summary.csv'} ({len(summary)} rows)")
 
-    steptotals = physics_step_totals(df)
-    steptotals.to_csv(outdir / "physics_step_totals.csv", index=False)
-    print(f"wrote {outdir/'physics_step_totals.csv'} ({len(steptotals)} rows)")
+def _slopes(Ns, values):
+    """Power-law slopes between consecutive pairs. Returns list of slopes
+    of length len(Ns)-1; entries are NaN where either endpoint is non-positive."""
+    out = []
+    for i in range(1, len(Ns)):
+        a, b = values[i-1], values[i]
+        if a > 0 and b > 0:
+            out.append(math.log(b/a) / math.log(Ns[i]/Ns[i-1]))
+        else:
+            out.append(float("nan"))
+    return out
 
-    # Parallel efficiency table — written and printed if pgs_island scopes
-    # exist (i.e. profile was taken after A2 instrumentation landed).
-    par_eff = parallel_efficiency(df)
-    if not par_eff.empty:
-        par_eff.to_csv(outdir / "parallel_efficiency.csv", index=False)
-        print(f"wrote {outdir/'parallel_efficiency.csv'} ({len(par_eff)} rows)")
 
-    # Top-5 main-thread wall stages per file — what fits in the physics budget.
-    # share_wall_pct is the meaningful number here: fraction of physics step
-    # wall time spent in this stage. (pgs_island shows up huge in share_cpu_pct
-    # but is intentionally absent here because it runs on workers, not the
-    # main thread budget.)
-    print("\n--- top 5 PHYSICS main-thread WALL stages per file ---")
+def report_top5_wall(df, summary, par_eff, outdir):
+    """Top-5 main-thread wall stages per file — the physics step budget.
+    pgs_island is excluded because it runs on workers, not the main budget."""
+    print("\n=== top5_wall: top 5 PHYSICS main-thread WALL stages per file ===")
     print("    share_wall_pct = fraction of physics-step wall time on main thread")
     phys = summary[(summary["thread"] == "physics") &
                    (summary["kind"] == "main_wall_leaf")]
@@ -600,9 +613,11 @@ def main(argv=None):
     print(top[["source_file", "stage", "mean_us", "p99_us", "share_wall_pct"]]
           .to_string(index=False, float_format=lambda x: f"{x:9.2f}"))
 
-    # CPU breakdown including workers — answers "where does the actual work
-    # happen?" Useful for picking optimization targets.
-    print("\n--- top 5 PHYSICS stages by aggregate CPU share (incl. workers) ---")
+
+def report_top5_cpu(df, summary, par_eff, outdir):
+    """Top-5 stages by aggregate CPU share, including worker threads.
+    Answers 'where does the actual work happen' regardless of threading."""
+    print("\n=== top5_cpu: top 5 PHYSICS stages by aggregate CPU share (incl. workers) ===")
     print("    share_cpu_pct = fraction of (main wall + worker CPU) per file")
     phys_cpu = summary[(summary["thread"] == "physics") &
                        (summary["kind"].isin(["main_wall_leaf", "worker_cpu"]))]
@@ -612,25 +627,384 @@ def main(argv=None):
     print(top_cpu[["source_file", "stage", "kind", "mean_us", "p99_us", "share_cpu_pct"]]
           .to_string(index=False, float_format=lambda x: f"{x:9.2f}"))
 
-    if not par_eff.empty:
-        print("\n--- PGS parallel efficiency per file ---")
-        print("    effective_workers = sum(pgs_island µs) / pgs_solve µs")
-        print("    near hardware_concurrency-1 = fully parallel; near 1.0 = serialized")
-        print(par_eff.to_string(index=False, float_format=lambda x: f"{x:9.2f}"))
 
-    if args.no_plots:
+def report_parallel(df, summary, par_eff, outdir):
+    """PGS solver parallel efficiency — effective workers per step."""
+    if par_eff.empty:
+        print("\n=== parallel: SKIPPED — no pgs_island scopes found in CSV ===")
+        return
+    print("\n=== parallel: PGS parallel efficiency per file ===")
+    print("    effective_workers = sum(pgs_island µs) / pgs_solve µs")
+    print("    near hardware_concurrency-1 = fully parallel; near 1.0 = serialized")
+    print(par_eff.to_string(index=False, float_format=lambda x: f"{x:9.2f}"))
+
+
+def report_pairs(df, summary, par_eff, outdir):
+    """Query-vs-work analysis for A1 sentinel pairs.
+
+    For each pair across all N values, prints:
+      query µs (sentinel walk only), full µs (parent scope), work µs (delta),
+      query/full ratio, per-entity work cost.
+
+    Then prints scaling slopes for query and work columns to reveal whether
+    iteration cost is degrading with N (slope > 1 = cache misses growing
+    super-linearly; slope ≈ 1 = scaling cleanly).
+
+    Use this to answer §5.9 AoS-vs-SoA: high query ratio → iteration-bound,
+    low ratio → work-bound. If slopes diverge with N, that's a different
+    problem (cache or random-access pattern degrading).
+    """
+    pairs_all = (
+        [(q, f, "physics", "siblings")  for q, f in PAIRS_PHYSICS_SIBLINGS] +
+        [(q, f, "render",  "nested")    for q, f in PAIRS_RENDER_NESTED]
+    )
+
+    print("\n=== pairs: query-vs-work breakdown per pair, per N ===")
+    print("    siblings: query and full are independent scopes; work = full - query")
+    print("    nested:   query is INSIDE parent; work = parent - query")
+    print(f"\n{'N':>6}  {'pair':30}  {'query µs':>10}  {'full µs':>10}  "
+          f"{'work µs':>10}  {'query/full':>11}  {'work/N µs':>11}")
+    print("-" * 110)
+
+    # Collect per-N values for the scaling-slope summary below.
+    table = {}  # (full_stage, N) -> (query, full)
+    for src in sorted(df["source_file"].unique(),
+                      key=lambda s: df.loc[df.source_file == s, "N"].iloc[0]):
+        sub = df[df.source_file == src]
+        N = int(sub["N"].iloc[0]) if not sub["N"].empty else 0
+        for q_stage, f_stage, thread, kind in pairs_all:
+            q = sub[(sub.thread == thread) & (sub.stage == q_stage)]["duration_us"].mean()
+            ful = sub[(sub.thread == thread) & (sub.stage == f_stage)]["duration_us"].mean()
+            if math.isnan(q) or math.isnan(ful):
+                continue
+            work = ful - q
+            ratio = q / ful if ful > 0 else 0.0
+            work_per_N = work / N if N > 0 else 0.0
+            table[(f_stage, N)] = (q, ful)
+            print(f"{N:>6}  {f_stage:30}  {q:>10.1f}  {ful:>10.1f}  "
+                  f"{work:>10.1f}  {ratio*100:>10.1f}%  {work_per_N:>10.4f}")
+        print()
+
+    # Scaling slopes per pair.
+    print(f"--- power-law slopes per pair (consecutive N) ---")
+    print(f"{'pair':30}  {'series':>8}  slopes")
+    print("-" * 80)
+    for q_stage, f_stage, thread, kind in pairs_all:
+        pts = sorted([(N, q, ful) for (s, N), (q, ful) in table.items() if s == f_stage])
+        if len(pts) < 2:
+            continue
+        Ns  = [p[0] for p in pts]
+        qs  = [p[1] for p in pts]
+        ws  = [p[2] - p[1] for p in pts]
+        q_slopes = _slopes(Ns, qs)
+        w_slopes = _slopes(Ns, ws)
+        print(f"{f_stage:30}  {'query':>8}  " +
+              " ".join(f"{s:5.2f}" for s in q_slopes))
+        print(f"{'':30}  {'work':>8}  " +
+              " ".join(f"{s:5.2f}" for s in w_slopes))
+
+
+def report_scaling(df, summary, par_eff, outdir):
+    """Per-stage scaling table: mean µs at each N, plus power-law slopes
+    between consecutive N pairs. The same shape as the broadphase /
+    island_build inline extractions we used earlier."""
+    # Determine which stages to include. Skip stages with insufficient data
+    # (need at least 2 N values), and stages with all-zero duration (e.g.
+    # nphase_aabb_aabb in spheres-only stress test).
+    Ns = sorted(df["N"].dropna().unique())
+    Ns = [int(n) for n in Ns]
+    if len(Ns) < 2:
+        print("\n=== scaling: SKIPPED — need at least 2 N values to compute slopes ===")
+        return
+    print(f"\n=== scaling: per-stage mean µs across N + power-law slopes ===")
+    print(f"    N values: {Ns}")
+    # Aggregate mean µs per (stage, N) only for physics-thread stages.
+    phys = df[df["thread"] == "physics"]
+    pivot = phys.groupby(["stage", "N"])["duration_us"].mean().unstack("N")
+    # Keep only stages that have at least one nonzero value and at least two
+    # data points (so we can compute a slope).
+    pivot = pivot.loc[(pivot.fillna(0).sum(axis=1) > 0) & (pivot.notna().sum(axis=1) >= 2)]
+    # Order rows by mean µs at the largest N — heaviest stages on top.
+    largest_N = Ns[-1]
+    if largest_N in pivot.columns:
+        pivot = pivot.sort_values(largest_N, ascending=False)
+
+    # Header: stage name + one column per N + slope columns.
+    n_hdr = "  ".join(f"{n:>10}" for n in Ns)
+    slope_hdr = "  ".join(f"{f'{Ns[i-1]}→{Ns[i]}':>10}"
+                          for i in range(1, len(Ns)))
+    print(f"\n{'stage':28}  {n_hdr}  | slopes:  {slope_hdr}")
+    print("-" * (28 + 12 * len(Ns) + 12 + 12 * (len(Ns) - 1) + 4))
+    for stage, row in pivot.iterrows():
+        vals = [row.get(n, float("nan")) for n in Ns]
+        slopes = _slopes(Ns, vals)
+        vals_str   = "  ".join(f"{v:>10.1f}" if not math.isnan(v) else f"{'—':>10}"
+                                for v in vals)
+        slopes_str = "  ".join(f"{s:>10.2f}" if not math.isnan(s) else f"{'—':>10}"
+                                for s in slopes)
+        print(f"{stage:28}  {vals_str}  | slopes:  {slopes_str}")
+
+
+def report_load_balance(df, summary, par_eff, outdir, num_workers=NUM_WORKERS_DEFAULT):
+    """Per-N pgs_island load-balance metrics.
+
+    Reports the biggest island's share of total per-step CPU work, the
+    theoretical minimum wall time given perfect scheduling, and how much
+    of pgs_solve wall time was 'lost' relative to that lower bound.
+
+    Low biggest_share + low inefficiency = work is well-distributed; the
+    solver is near-optimally parallel.
+    """
+    isl = df[(df["thread"] == "physics") & (df["stage"] == "pgs_island")]
+    sol = df[(df["thread"] == "physics") & (df["stage"] == "pgs_solve")]
+    if isl.empty or sol.empty:
+        print("\n=== load_balance: SKIPPED — no pgs_island or pgs_solve scopes ===")
+        return
+
+    print(f"\n=== load_balance: per-N pgs_island load distribution ===")
+    print(f"    biggest_share  = max island's share of total per-step CPU (lower=better)")
+    print(f"    parallel_lb_us = max(biggest_island_us, total_cpu_us / {num_workers}) per step")
+    print(f"    inefficiency   = (solve_wall - parallel_lb) / solve_wall (lower=better)")
+
+    print(f"\n{'N':>6}  {'steps':>6}  {'mean_islands':>13}  {'max_island_us':>14}  "
+          f"{'sum_island_us':>14}  {'biggest_share':>14}  {'parallel_lb_us':>14}  "
+          f"{'observed_solve':>14}  {'inefficiency':>13}")
+    print("-" * 130)
+    for src in sorted(df["source_file"].unique(),
+                      key=lambda s: df.loc[df.source_file == s, "N"].iloc[0]):
+        sub = df[df.source_file == src]
+        N = int(sub["N"].iloc[0]) if not sub["N"].empty else 0
+        isl_sub = sub[sub.stage == "pgs_island"]
+        sol_sub = sub[sub.stage == "pgs_solve"]
+        if isl_sub.empty or sol_sub.empty:
+            continue
+        per_step = isl_sub.groupby("step")["duration_us"].agg(
+            ["count", "sum", "max"]).rename(
+                columns={"count": "n_islands", "sum": "sum_us", "max": "max_us"})
+        sol_by_step = sol_sub.groupby("step")["duration_us"].first().rename("solve_wall")
+        per_step = per_step.join(sol_by_step, how="inner")
+        per_step["biggest_share"] = per_step["max_us"] / per_step["sum_us"]
+        per_step["parallel_lb"]   = np.maximum(
+            per_step["max_us"], per_step["sum_us"] / num_workers)
+        per_step["efficiency"]    = per_step["parallel_lb"] / per_step["solve_wall"]
+
+        print(f"{N:>6}  {len(per_step):>6}  {per_step['n_islands'].mean():>13.1f}  "
+              f"{per_step['max_us'].mean():>14.1f}  {per_step['sum_us'].mean():>14.1f}  "
+              f"{per_step['biggest_share'].mean()*100:>13.1f}%  "
+              f"{per_step['parallel_lb'].mean():>14.1f}  "
+              f"{per_step['solve_wall'].mean():>14.1f}  "
+              f"{(1 - per_step['efficiency'].mean())*100:>12.1f}%")
+
+
+def report_island_buckets(df, summary, par_eff, outdir):
+    """Contact-weighted island size distribution at the largest N.
+
+    The plot_island_distribution histogram shows island COUNT by size,
+    which is misleading because small islands dominate by count but
+    contribute negligible CPU work. This report instead shows what
+    fraction of total solve CPU comes from islands in each size bucket.
+    """
+    isl = df[(df["thread"] == "physics") & (df["stage"] == "pgs_island")]
+    if isl.empty:
+        print("\n=== island_buckets: SKIPPED — no pgs_island scopes ===")
+        return
+    largest_N = isl["N"].max()
+    if math.isnan(largest_N):
+        return
+    iso = isl[isl["N"] == largest_N].copy()
+    iso["size_bucket"] = pd.cut(
+        iso["scope_n"],
+        bins=[0, 1, 3, 5, 10, 20, 50, 100, 500, 5000, 100000],
+        labels=["1", "2-3", "4-5", "6-10", "11-20", "21-50", "51-100",
+                "101-500", "501-5k", "5k+"])
+    buckets = iso.groupby("size_bucket", observed=True).agg(
+        n_islands=("duration_us", "count"),
+        total_cpu_us=("duration_us", "sum"),
+        mean_us_per_island=("duration_us", "mean"),
+    ).reset_index()
+    total = buckets["total_cpu_us"].sum()
+    buckets["pct_of_solve_cpu"] = 100 * buckets["total_cpu_us"] / total if total > 0 else 0.0
+
+    print(f"\n=== island_buckets: contact-weighted island size distribution (N={int(largest_N)}) ===")
+    print(f"    What fraction of total solve CPU comes from islands in each size bucket.")
+    print(f"    (compare to plot_island_distribution which weighs by COUNT not WORK)")
+    print()
+    print(buckets.to_string(index=False, float_format=lambda x: f"{x:11.1f}"))
+
+
+def report_shape_compare(df, summary, par_eff, outdir):
+    """Per-stage mean µs at the largest N, pivoted by shape.
+
+    For multi-shape sweeps (YOPE_STRESS_SHAPE × YOPE_STRESS_N). Drops stages
+    that are zero across every shape (e.g. nphase_obb_obb when no OBB run
+    happened). Highlights ratios so you can see which dispatch path is the
+    actual outlier:
+
+       stage              sphere    aabb     obb     max/min
+       nphase_sph_sph     4500      0        0       —
+       nphase_aabb_aabb   0         2300     0       —
+       nphase_obb_obb     0         0        12000   —
+       broadphase_sap     20000     19000    19500   1.05×
+       integration        11000     9500     11000   1.16×
+
+    Use to spot per-shape outliers and pick optimization targets per
+    dispatch entry.
+    """
+    shapes = sorted(df["shape"].dropna().unique())
+    if len(shapes) < 2:
+        print(f"\n=== shape_compare: SKIPPED — only one shape present ({shapes}) ===")
+        print(f"    To compare, run: SHAPES=sphere,aabb,obb tools/run_scaling_sweep.sh")
+        return
+
+    # Pick the largest N that exists for at least 2 shapes.
+    by_N_shape = df.groupby(["shape", "N"]).size().unstack("shape", fill_value=0)
+    common_Ns  = [N for N, row in by_N_shape.iterrows()
+                  if (row > 0).sum() >= 2]
+    if not common_Ns:
+        print("\n=== shape_compare: SKIPPED — no N value common to multiple shapes ===")
+        return
+    target_N = max(common_Ns)
+
+    print(f"\n=== shape_compare: per-stage mean µs at N={int(target_N)} by shape ===")
+    print(f"    shapes present at this N: {shapes}")
+
+    sub = df[(df["N"] == target_N) & (df["thread"] == "physics")]
+    pivot = sub.groupby(["stage", "shape"])["duration_us"].mean().unstack("shape")
+    # Drop stages that are zero/NaN across every shape.
+    pivot = pivot.loc[(pivot.fillna(0).sum(axis=1) > 0)]
+    # Sort by total time across shapes — biggest stages first.
+    pivot["__row_sum"] = pivot.fillna(0).sum(axis=1)
+    pivot = pivot.sort_values("__row_sum", ascending=False).drop(columns="__row_sum")
+
+    # max/min ratio per row, ignoring zeros (which signal "no work for this shape").
+    def row_ratio(row):
+        nz = row.dropna()
+        nz = nz[nz > 0]
+        if len(nz) < 2: return float("nan")
+        return nz.max() / nz.min()
+    pivot["max/min"] = pivot.apply(row_ratio, axis=1)
+
+    # Pretty-print with dashes for zeros/NaN.
+    def fmt(v):
+        if pd.isna(v): return f"{'—':>10}"
+        if isinstance(v, float) and v == 0: return f"{'—':>10}"
+        return f"{v:>10.1f}"
+    rows = []
+    for stage, row in pivot.iterrows():
+        cells = [fmt(row[s]) for s in shapes]
+        ratio = row.get("max/min", float("nan"))
+        ratio_str = (f"{ratio:>6.2f}×" if not pd.isna(ratio)
+                                       else f"{'—':>7}")
+        rows.append(f"{stage:28}  " + "  ".join(cells) + f"  | {ratio_str}")
+
+    header = f"{'stage':28}  " + "  ".join(f"{s:>10}" for s in shapes) + f"  | {'max/min':>7}"
+    print()
+    print(header)
+    print("-" * len(header))
+    for r in rows:
+        print(r)
+
+
+# Report name → function.
+REPORTS = {
+    "top5_wall":       report_top5_wall,
+    "top5_cpu":        report_top5_cpu,
+    "parallel":        report_parallel,
+    "pairs":           report_pairs,
+    "scaling":         report_scaling,
+    "load_balance":    report_load_balance,
+    "island_buckets":  report_island_buckets,
+    "shape_compare":   report_shape_compare,
+}
+
+
+# ============================================================================
+# Main
+# ============================================================================
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        description="Yope3D Phase E profile analyzer",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="available reports: " + ", ".join(REPORTS.keys()))
+    ap.add_argument("inputs", nargs="*", help="profile CSV files")
+    ap.add_argument("-o", "--outdir", default=DEFAULT_OUT, help="output directory")
+    ap.add_argument("--no-plots", action="store_true", help="skip PNG generation")
+    ap.add_argument("--reports", default="all",
+                    help="comma-separated report names (default: all). "
+                         "use --list-reports to see options.")
+    ap.add_argument("--list-reports", action="store_true",
+                    help="print available report names and exit")
+    ap.add_argument("--workers", type=int, default=NUM_WORKERS_DEFAULT,
+                    help=f"thread-pool worker count for parallel-efficiency math "
+                         f"(default: {NUM_WORKERS_DEFAULT}, matches M-series default)")
+    args = ap.parse_args(argv)
+
+    if args.list_reports:
+        print("Available reports (use --reports to filter):")
+        for name, fn in REPORTS.items():
+            doc = (fn.__doc__ or "").strip().split("\n")[0]
+            print(f"  {name:18}  {doc}")
         return 0
 
-    print("\n--- plots ---")
-    plot_stage_breakdown   (summary, outdir)
-    plot_scaling_loglog    (steptotals, df, outdir)
-    plot_query_vs_work     (df, outdir)
-    plot_island_distribution(df, outdir)
-    plot_frametime_cdf     (df, outdir)
-    plot_steptime_series   (steptotals, outdir)
-    plot_crossthread       (df, steptotals, outdir)
-    plot_narrowphase_mix   (df, outdir)
+    if not args.inputs:
+        ap.error("the following arguments are required: inputs")
+
+    # Resolve --reports filter.
+    if args.reports == "all":
+        selected = list(REPORTS.keys())
+    else:
+        selected = [r.strip() for r in args.reports.split(",") if r.strip()]
+        unknown = [r for r in selected if r not in REPORTS]
+        if unknown:
+            ap.error(f"unknown report(s): {unknown}. "
+                     f"available: {list(REPORTS.keys())}")
+
+    df = load_all(args.inputs)
+    outdir = Path(args.outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    report_file_path = outdir / "profile_report.txt"
+    
+    with open(report_file_path, "w", encoding = "utf-8") as f, redirect_stdout(f):
+
+        # Always-written tables — referenced by multiple reports.
+        summary = stage_summary(df)
+        summary.to_csv(outdir / "stage_summary.csv", index=False)
+        print(f"wrote {outdir/'stage_summary.csv'} ({len(summary)} rows)")
+
+        steptotals = physics_step_totals(df)
+        steptotals.to_csv(outdir / "physics_step_totals.csv", index=False)
+        print(f"wrote {outdir/'physics_step_totals.csv'} ({len(steptotals)} rows)")
+
+        par_eff = parallel_efficiency(df)
+        if not par_eff.empty:
+            par_eff.to_csv(outdir / "parallel_efficiency.csv", index=False)
+            print(f"wrote {outdir/'parallel_efficiency.csv'} ({len(par_eff)} rows)")
+
+        # Reports.
+        for name in selected:
+            fn = REPORTS[name]
+            # load_balance is the only one that takes the worker-count override.
+            if name == "load_balance":
+                fn(df, summary, par_eff, outdir, num_workers=args.workers)
+            else:
+                fn(df, summary, par_eff, outdir)
+
+        if args.no_plots:
+            return 0
+
+        print("\n--- plots ---")
+        plot_stage_breakdown    (summary, outdir)
+        plot_scaling_loglog     (steptotals, df, outdir)
+        plot_query_vs_work      (df, outdir)
+        plot_island_distribution(df, outdir)
+        plot_frametime_cdf      (df, outdir)
+        plot_steptime_series    (steptotals, outdir)
+        plot_crossthread        (df, steptotals, outdir)
+        plot_narrowphase_mix    (df, outdir)
     print(f"\n[done] outputs in {outdir.resolve()}/")
+    print(f"\n[done] Text report dumped to: {report_file_path.resolve()}")
     return 0
 
 
