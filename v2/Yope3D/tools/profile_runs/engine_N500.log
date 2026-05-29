@@ -1,4 +1,3 @@
-libc++abi: terminating due to uncaught exception of type std::runtime_error: ScriptFactory: unknown script 'Sandbox'
 === Vulkan Physical Device ===
   Name:    Apple M4
   Type:    Integrated GPU

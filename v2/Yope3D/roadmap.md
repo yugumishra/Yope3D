@@ -380,7 +380,25 @@ Translate `SpringDemo` and `Platformer` to the new C++ scripting system. This mi
 
 ---
 
-### Milestone 12 — Editor Window
+### Milestone 12 — ECS Architecture
+**Weeks 32–37 | ~35 hrs** *(begins while editor is being refined)*
+
+**Why ECS Now:**
+The editor makes ECS more tractable — the inspector panel maps cleanly onto component iteration. The scripting system (Milestone 14) maps most naturally onto ECS entities as well.
+
+**Approach — Sparse-Set ECS:**
+- [ ] `world/Registry.h`: the ECS registry. Stores component arrays as `std::unordered_map<ComponentTypeId, ComponentArray*>`. `ComponentTypeId` is a compile-time `uint64_t` generated from `typeid(T).hash_code()`.
+- [ ] `world/ComponentArray.h`: sparse-set backed dense array for each component type. O(1) add, remove, iteration.
+- [ ] `world/Entity.h`: `using Entity = uint32_t`. `EntityManager` allocates/recycles IDs.
+- [ ] Core component types: `Transform`, `RenderMesh`, `Hull` (base ptr), `RigidBody`, `AudioEmitter`, `ScriptComponent` (holds a `Script*`).
+- [ ] Migration: `World` refactored to use `Registry` internally. `SceneObject` becomes a factory function that creates an entity with a standard set of components.
+- [ ] `World::advance()` becomes a series of system calls: `PhysicsSystem::update(Registry&, float dt)`, `AudioSystem::updateSources(Registry&)`, `RenderSystem::collectDrawCalls(Registry&)`.
+- [ ] Editor's Scene Hierarchy panel iterates `Registry::view<Transform>()` — shows all entities with a transform.
+
+
+---
+
+### Milestone 13 — Editor Window
 **Weeks 28–36 | ~65 hrs**
 
 The editor is the single most impactful quality-of-life improvement over the original project. This is a large milestone and must be designed carefully because it affects how the engine's main loop and rendering work.
@@ -408,23 +426,6 @@ The engine has two modes determined at launch: `EditorMode` and `RuntimeMode`. I
 - [ ] In editor play mode, the registered script's `init()` and `update()` run normally.
 - [ ] Stop mode: scene state resets to the pre-play snapshot. `World` state is deep-copied before play and restored on stop.
 - [ ] Script is selected via a dropdown in editor (reads from `ScriptFactory` registry). Changing the selection and pressing play relaunches with the new script.
-
----
-
-### Milestone 13 — ECS Architecture
-**Weeks 32–37 | ~35 hrs** *(begins while editor is being refined)*
-
-**Why ECS Now:**
-The editor makes ECS more tractable — the inspector panel maps cleanly onto component iteration. The scripting system (Milestone 14) maps most naturally onto ECS entities as well.
-
-**Approach — Sparse-Set ECS:**
-- [ ] `world/Registry.h`: the ECS registry. Stores component arrays as `std::unordered_map<ComponentTypeId, ComponentArray*>`. `ComponentTypeId` is a compile-time `uint64_t` generated from `typeid(T).hash_code()`.
-- [ ] `world/ComponentArray.h`: sparse-set backed dense array for each component type. O(1) add, remove, iteration.
-- [ ] `world/Entity.h`: `using Entity = uint32_t`. `EntityManager` allocates/recycles IDs.
-- [ ] Core component types: `Transform`, `RenderMesh`, `Hull` (base ptr), `RigidBody`, `AudioEmitter`, `ScriptComponent` (holds a `Script*`).
-- [ ] Migration: `World` refactored to use `Registry` internally. `SceneObject` becomes a factory function that creates an entity with a standard set of components.
-- [ ] `World::advance()` becomes a series of system calls: `PhysicsSystem::update(Registry&, float dt)`, `AudioSystem::updateSources(Registry&)`, `RenderSystem::collectDrawCalls(Registry&)`.
-- [ ] Editor's Scene Hierarchy panel iterates `Registry::view<Transform>()` — shows all entities with a transform.
 
 ---
 

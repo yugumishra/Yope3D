@@ -512,16 +512,27 @@ void SandboxScript::loadStressTest() {
     ctx_->camera->setRotation({0.0f, 0.0f, 0.0f});
 
     // Optional bulk spawn for Phase E scaling sweeps. tools/run_scaling_sweep.sh
-    // sets YOPE_STRESS_N to control entity count per run. 36×36 horizontal grid
-    // (1296 per layer) keeps stack height under STRESS_CEILING up to ~46k spheres.
+    // sets YOPE_STRESS_N for entity count and YOPE_STRESS_SHAPE for shape type.
+    // YOPE_STRESS_SHAPE options: "sphere" (default), "aabb", "obb".
+    // 36×36 horizontal grid (1296 per layer) keeps stack height under
+    // STRESS_CEILING up to ~46k bodies regardless of shape.
     int stressN = 0;
     if (const char* s = std::getenv("YOPE_STRESS_N")) stressN = std::atoi(s);
+    enum class StressShape { Sphere, AABB, OBB };
+    StressShape shape = StressShape::Sphere;
+    if (const char* s = std::getenv("YOPE_STRESS_SHAPE")) {
+        std::string v = s;
+        if      (v == "aabb") shape = StressShape::AABB;
+        else if (v == "obb")  shape = StressShape::OBB;
+        // anything else (including "sphere") keeps the default.
+    }
     if (stressN > 0) {
         constexpr int   Kx      = 36;
         constexpr int   Kz      = 36;
-        constexpr float spacing = 1.05f;     // just over sphere diameter (0.5 radius)
-        constexpr float radius  = 0.5f;
+        constexpr float spacing = 1.05f;     // just over diameter (extent=0.5)
+        constexpr float halfExt = 0.5f;
         constexpr float mass    = 1.0f;
+        const math::Vec3 extent{halfExt, halfExt, halfExt};
         const float x0 = -((Kx - 1) * 0.5f) * spacing;
         const float z0 = -((Kz - 1) * 0.5f) * spacing;
         for (int i = 0; i < stressN; ++i) {
@@ -533,8 +544,22 @@ void SandboxScript::loadStressTest() {
                 1.0f + iy * spacing,
                 z0 + iz * spacing
             };
-            ecs::Entity e = ctx_->world->addSphere(mass, radius, pos);
-            ctx_->world->attachMesh(e, Primitives::icosphere(radius));
+            ecs::Entity e;
+            switch (shape) {
+                case StressShape::AABB:
+                    e = ctx_->world->addAABB(extent, mass, pos);
+                    ctx_->world->attachMesh(e, Primitives::rect(extent));
+                    break;
+                case StressShape::OBB:
+                    e = ctx_->world->addOBB(extent, mass, pos);
+                    ctx_->world->attachMesh(e, Primitives::rect(extent));
+                    break;
+                case StressShape::Sphere:
+                default:
+                    e = ctx_->world->addSphere(mass, halfExt, pos);
+                    ctx_->world->attachMesh(e, Primitives::icosphere(halfExt));
+                    break;
+            }
             if (auto* m = ctx_->world->getMesh(e)) {
                 m->color[0] = 0.7f; m->color[1] = 0.4f; m->color[2] = 0.3f;
             }

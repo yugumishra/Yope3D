@@ -41,6 +41,13 @@ BIN="${BIN:-./build/mac-debug/yope3d}"
 DURATION="${DURATION:-30}"
 COOLDOWN="${COOLDOWN:-10}"
 OUT_DIR="${OUT_DIR:-profile_runs}"
+# Comma-separated list of shapes to sweep. Each shape × each N is one run.
+# Recognized by SandboxScript::loadStressTest via YOPE_STRESS_SHAPE:
+#   sphere (default) — addSphere + icosphere mesh
+#   aabb             — addAABB   + rect mesh
+#   obb              — addOBB    + rect mesh
+# Mix-and-match e.g. SHAPES=sphere,obb tools/run_scaling_sweep.sh 8000 16000
+SHAPES="${SHAPES:-sphere}"
 
 if [[ ! -x "$BIN" ]]; then
     echo "error: $BIN not found or not executable" >&2
@@ -55,71 +62,85 @@ else
     N_VALUES=(500 1000 2000 4000 8000 12000 16000)
 fi
 
+# Parse SHAPES into array (comma-separated).
+#IFS=',' read -r -a SHAPE_VALUES <<< "$SHAPES"
+SHAPE_VALUES=( ${SHAPES//,/ } )
+
 mkdir -p "$OUT_DIR"
+
+TOTAL_RUNS=$(( ${#N_VALUES[@]} * ${#SHAPE_VALUES[@]} ))
 
 echo "binary:     $BIN"
 echo "duration:   ${DURATION}s per run"
 echo "cooldown:   ${COOLDOWN}s between runs"
 echo "output:     $OUT_DIR"
 echo "N values:   ${N_VALUES[*]}"
+echo "shapes:     ${SHAPE_VALUES[*]}"
+echo "total runs: $TOTAL_RUNS"
 echo
 
-# macOS ships bash 3.2 — no negative array subscripts. Compute the last
-# index up front so the "skip cooldown after last run" check works.
-LAST_IDX=$(( ${#N_VALUES[@]} - 1 ))
+LAST_N_IDX=$(( ${#N_VALUES[@]} - 1 ))
+LAST_SHAPE_IDX=$(( ${#SHAPE_VALUES[@]} - 1 ))
+RUN=0
 
-for IDX in "${!N_VALUES[@]}"; do
-    N="${N_VALUES[$IDX]}"
-    echo ">>> running N=$N for ${DURATION}s"
-    # Stamp time so we know which CSV to grab — the profiler appends an
-    # epoch suffix, and `ls -t` only sorts by mtime, not by content, so we
-    # need to filter on creation time to avoid grabbing stale files.
-    START=$(date +%s)
-    LOG="$OUT_DIR/engine_N${N}.log"
-    # Show engine output live AND save to a log via `tee`. `tee -a "$LOG"`
-    # writes to the log file in addition to stdout. The `( … )` subshell
-    # plus `|| true` keeps `set -e` from killing the whole sweep when the
-    # engine exits non-zero (Abort trap etc.) — we want to keep going.
-    set +e
-    YOPE_STRESS_N=$N YOPE_PROFILE_DURATION=$DURATION "$BIN" 2>&1 | tee "$LOG"
-    EXIT=${PIPESTATUS[0]}
-    set -e
-    if (( EXIT != 0 )); then
-        echo "    !! engine exited with status $EXIT — log saved to $LOG"
-    fi
+for SHAPE_IDX in "${!SHAPE_VALUES[@]}"; do
+    SHAPE="${SHAPE_VALUES[$SHAPE_IDX]}"
+    for N_IDX in "${!N_VALUES[@]}"; do
+        N="${N_VALUES[$N_IDX]}"
+        RUN=$((RUN + 1))
+        echo ">>> [$RUN/$TOTAL_RUNS] N=$N shape=$SHAPE for ${DURATION}s"
+        START=$(date +%s)
+        LOG="$OUT_DIR/engine_N${N}_${SHAPE}.log"
+        set +e
+        YOPE_STRESS_N=$N YOPE_STRESS_SHAPE=$SHAPE \
+            YOPE_PROFILE_DURATION=$DURATION "$BIN" 2>&1 | tee "$LOG"
+        EXIT=${PIPESTATUS[0]}
+        set -e
+        if (( EXIT != 0 )); then
+            echo "    !! engine exited with status $EXIT — log saved to $LOG"
+        fi
 
-    # Find profile CSVs created at or after START.
-    LATEST=""
-    for f in yope_profile_*.csv; do
-        [[ -f "$f" ]] || continue
-        # File's mtime as epoch.
-        if command -v stat >/dev/null; then
-            if stat -f '%m' "$f" >/dev/null 2>&1; then
-                MT=$(stat -f '%m' "$f")             # BSD/macOS
-            else
-                MT=$(stat -c '%Y' "$f")             # GNU/Linux
+        # Find profile CSVs created at or after START.
+        LATEST=""
+        for f in yope_profile_*.csv; do
+            [[ -f "$f" ]] || continue
+            if command -v stat >/dev/null; then
+                if stat -f '%m' "$f" >/dev/null 2>&1; then
+                    MT=$(stat -f '%m' "$f")             # BSD/macOS
+                else
+                    MT=$(stat -c '%Y' "$f")             # GNU/Linux
+                fi
+                if (( MT >= START )); then
+                    LATEST="$f"
+                fi
             fi
-            if (( MT >= START )); then
-                LATEST="$f"
-            fi
+        done
+
+        if [[ -z "$LATEST" ]]; then
+            echo "    !! no CSV produced — is the binary a debug build? see $LOG"
+        else
+            # Filename pattern: yope_profile_N<N>_<shape>.csv
+            # The analyzer regex matches _N<digits> for the N field and
+            # _<shape>.csv for the shape field — both stay independent.
+            DEST="$OUT_DIR/yope_profile_N${N}_${SHAPE}.csv"
+            mv "$LATEST" "$DEST"
+            ROWS=$(wc -l <"$DEST" | tr -d ' ')
+            echo "    -> $DEST  ($ROWS rows)"
+        fi
+
+        # Cooldown unless this was the very last run of the sweep.
+        IS_LAST_RUN=0
+        if (( SHAPE_IDX == LAST_SHAPE_IDX && N_IDX == LAST_N_IDX )); then
+            IS_LAST_RUN=1
+        fi
+        if (( IS_LAST_RUN == 0 )); then
+            echo "    cooldown ${COOLDOWN}s..."
+            sleep "$COOLDOWN"
         fi
     done
-
-    if [[ -z "$LATEST" ]]; then
-        echo "    !! no CSV produced — is the binary a debug build? see $LOG"
-    else
-        DEST="$OUT_DIR/yope_profile_N${N}.csv"
-        mv "$LATEST" "$DEST"
-        ROWS=$(wc -l <"$DEST" | tr -d ' ')
-        echo "    -> $DEST  ($ROWS rows)"
-    fi
-
-    if (( IDX != LAST_IDX )); then
-        echo "    cooldown ${COOLDOWN}s..."
-        sleep "$COOLDOWN"
-    fi
 done
 
 echo
 echo "done. analyze with:"
 echo "  python3 tools/analyze_profile.py $OUT_DIR/*.csv"
+echo "  python3 tools/analyze_profile.py $OUT_DIR/*.csv --reports shape_compare"
