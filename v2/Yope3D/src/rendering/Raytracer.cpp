@@ -499,10 +499,13 @@ void Raytracer::packGeometry(World& world, std::vector<float>& out) {
 
             case PrimitiveType::Sphere:
             case PrimitiveType::Icosphere: {
+                // World-space radius = baked mesh radius * uniform scale.
+                // Scale is encoded in the model matrix column lengths (ax = col0).
+                float worldScale = std::sqrt(ax.x*ax.x + ax.y*ax.y + ax.z*ax.z);
                 out.push_back(GEO_SPHERE); out.push_back(refl);
                 out.push_back(r); out.push_back(g); out.push_back(b);
                 out.push_back(p.x); out.push_back(p.y); out.push_back(p.z);
-                out.push_back(mesh->primitiveExtents.x);
+                out.push_back(mesh->primitiveExtents.x * worldScale);
                 ++count;
                 break;
             }

@@ -69,13 +69,18 @@ public:
     const ecs::Registry& getRegistry() const { return registry_; }
 
     // ---- Lights ----
-    void addLight(const Light& light);
-    void removeLight(int index);
+    ecs::Entity addLight(const Light& light);
+    void        removeLight(int index);
     int  getLightCount() const { return static_cast<int>(lightEntities_.size()); }
 
     // ---- Simulation ----
     void advance(float dt);
     void resetPhysics();
+
+    // Edit-mode pause: physics thread's advance() is a no-op while paused.
+    // Zero cost in runtime (atomic load of a false value on every tick).
+    std::atomic<bool> paused_{ false };
+    void setPaused(bool p) { paused_.store(p, std::memory_order_release); }
 
     void publishSnapshot();
     void syncRenderMeshesFromFront();
@@ -97,6 +102,14 @@ public:
     const std::vector<std::unique_ptr<RenderMesh>>& getDebugMeshes() const { return debugMeshes_; }
 
     void toggleProxies(bool enabled);
+
+#ifdef YOPE_EDITOR
+    // Take a snapshot of the entire scene before Play, then restore it on Stop.
+    // GPU resources (vertex/index buffers) survive unchanged; only component state
+    // and meshPool_/springs_ entries added during play are cleaned up on restore.
+    void snapshotForPlay();
+    void restoreFromPlay();
+#endif
 
     World(const World&) = delete;
     World& operator=(const World&) = delete;
@@ -145,5 +158,19 @@ private:
     int                                                  lastIslandCount_ = 0;
     std::vector<std::unique_ptr<RenderMesh>>             debugMeshes_;
     std::vector<ecs::Entity>                             debugEntities_;
+
+#ifdef YOPE_EDITOR
+    // Called at the end of every public factory method to stamp editor-visible tags.
+    void finalizeEntity(ecs::Entity e, const char* name);
+
+    struct PlaySnapshot {
+        ecs::Registry::Snapshot registry;
+        math::Vec3               gravity;
+        physics::CollisionLayers layers;
+    };
+    PlaySnapshot playSnapshot_;
+    size_t       prePlayMeshPoolSize_ = 0;
+    size_t       prePlaySpringCount_  = 0;
+#endif
 
 };

@@ -46,6 +46,21 @@ public:
     size_t   archetypeCount()          const { return archetypes_.size(); }
     uint64_t archetypeMigrationCount() const { return migrationCount_; }
 
+#ifdef YOPE_EDITOR
+    // Deep-copy of all registry state. Used by World::snapshotForPlay/restoreFromPlay.
+    struct Snapshot {
+        std::vector<EntityRecord>                                    records;
+        std::vector<uint32_t>                                        freeIds;
+        uint32_t                                                     nextId;
+        std::vector<Archetype>                                       archetypes;
+        std::unordered_map<ArchetypeKey, uint32_t, ArchetypeKeyHash> archIndex;
+        std::vector<size_t>                                          elementSizes;
+        uint64_t                                                     migrationCount;
+    };
+    Snapshot takeSnapshot() const;
+    void     restoreSnapshot(const Snapshot& snap);
+#endif
+
 private:
     // Indexed by entity id. Generation field detects stale handles.
     std::vector<EntityRecord> records_;

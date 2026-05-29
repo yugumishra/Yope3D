@@ -1,5 +1,6 @@
 #include "World.h"
 #include "../gpu/GpuDevice.h"
+#include <cstring>
 #include "../physics/ColliderDiscrete.h"
 #include "../physics/IslandDetector.h"
 #include "../physics/ThreadPool.h"
@@ -97,7 +98,7 @@ int World::getHullCount() {
 ecs::Entity World::addSphere(float mass, float radius, math::Vec3 pos) {
     std::lock_guard lk(structureMtx_);
     ecs::Entity e = registry_.create();
-    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {radius, radius, radius}});
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {1.0f, 1.0f, 1.0f}});
     ecs::Hull hc;
     hc.mass        = mass;
     hc.inverseMass = (mass > 0.0f) ? 1.0f / mass : 0.0f;
@@ -106,13 +107,16 @@ ecs::Entity World::addSphere(float mass, float radius, math::Vec3 pos) {
     hc.inverseInertia = math::Mat3::scale({invI, invI, invI});
     registry_.add<ecs::Hull>(e, hc);
     registry_.add<ecs::SphereForm>(e, {radius});
+#ifdef YOPE_EDITOR
+    finalizeEntity(e, "Sphere");
+#endif
     return e;
 }
 
 ecs::Entity World::addOBB(math::Vec3 extent, float mass, math::Vec3 pos) {
     std::lock_guard lk(structureMtx_);
     ecs::Entity e = registry_.create();
-    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, extent});
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {1.0f, 1.0f, 1.0f}});
     ecs::Hull hc;
     hc.mass        = mass;
     hc.inverseMass = (mass > 0.0f) ? 1.0f / mass : 0.0f;
@@ -127,26 +131,32 @@ ecs::Entity World::addOBB(math::Vec3 extent, float mass, math::Vec3 pos) {
     }
     registry_.add<ecs::Hull>(e, hc);
     registry_.add<ecs::OBBForm>(e, {extent});
+#ifdef YOPE_EDITOR
+    finalizeEntity(e, "OBB");
+#endif
     return e;
 }
 
 ecs::Entity World::addAABB(math::Vec3 extent, float mass, math::Vec3 pos) {
     std::lock_guard lk(structureMtx_);
     ecs::Entity e = registry_.create();
-    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, extent});
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {1.0f, 1.0f, 1.0f}});
     ecs::Hull hc;
     hc.mass           = mass;
     hc.inverseMass    = (mass > 0.0f) ? 1.0f / mass : 0.0f;
     hc.inverseInertia = math::Mat3::zero();  // AABB has no angular dynamics
     registry_.add<ecs::Hull>(e, hc);
     registry_.add<ecs::AABBForm>(e, {extent});
+#ifdef YOPE_EDITOR
+    finalizeEntity(e, "AABB");
+#endif
     return e;
 }
 
 ecs::Entity World::addStaticAABB(math::Vec3 pos, math::Vec3 extent) {
     std::lock_guard lk(structureMtx_);
     ecs::Entity e = registry_.create();
-    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, extent});
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {1.0f, 1.0f, 1.0f}});
     ecs::Hull hc;
     hc.mass           = 0.0f;
     hc.inverseMass    = 0.0f;
@@ -155,6 +165,9 @@ ecs::Entity World::addStaticAABB(math::Vec3 pos, math::Vec3 extent) {
     registry_.add<ecs::Hull>(e, hc);
     registry_.add<ecs::AABBForm>(e, {extent});
     registry_.add<ecs::Fixed>(e);
+#ifdef YOPE_EDITOR
+    finalizeEntity(e, "StaticAABB");
+#endif
     return e;
 }
 
@@ -187,6 +200,9 @@ ecs::Entity World::addRenderObject(const std::vector<Vertex>& vertices,
     registry_.add<Transform>(e);
     registry_.add<ecs::MeshRenderer>(e, {raw});
     meshToEntity_[raw] = e;
+#ifdef YOPE_EDITOR
+    finalizeEntity(e, "Object");
+#endif
     return e;
 }
 
@@ -369,23 +385,24 @@ physics::Spring* World::addSpringWithMesh(ecs::Entity a, ecs::Entity b,
 
 // ---- Lights ----
 
-void World::addLight(const Light& light) {
+ecs::Entity World::addLight(const Light& light) {
     ecs::LightSource ls;
+    const char* lightName = "Light";
     std::visit([&](const auto& l) {
         using T = std::decay_t<decltype(l)>;
         if constexpr (std::is_same_v<T, PointLight>) {
-            ls.type = 0;
+            ls.type = 0;  lightName = "PointLight";
             std::copy(l.color, l.color + 3, ls.color);
             ls.intensity = l.intensity;
             std::copy(l.position, l.position + 3, ls.position);
             ls.constant = l.constant; ls.linear = l.linear; ls.quadratic = l.quadratic;
         } else if constexpr (std::is_same_v<T, DirectionalLight>) {
-            ls.type = 1;
+            ls.type = 1;  lightName = "DirLight";
             std::copy(l.color, l.color + 3, ls.color);
             ls.intensity = l.intensity;
             std::copy(l.direction, l.direction + 3, ls.direction);
         } else if constexpr (std::is_same_v<T, SpotLight>) {
-            ls.type = 2;
+            ls.type = 2;  lightName = "SpotLight";
             std::copy(l.color, l.color + 3, ls.color);
             ls.intensity = l.intensity;
             std::copy(l.position, l.position + 3, ls.position);
@@ -393,7 +410,7 @@ void World::addLight(const Light& light) {
             ls.constant = l.constant; ls.linear = l.linear; ls.quadratic = l.quadratic;
             ls.innerConeAngle = l.innerConeAngle; ls.outerConeAngle = l.outerConeAngle;
         } else if constexpr (std::is_same_v<T, FlashLight>) {
-            ls.type = 3;
+            ls.type = 3;  lightName = "FlashLight";
             std::copy(l.color, l.color + 3, ls.color);
             ls.intensity = l.intensity;
             ls.constant = l.constant; ls.linear = l.linear; ls.quadratic = l.quadratic;
@@ -404,6 +421,10 @@ void World::addLight(const Light& light) {
     ecs::Entity e = registry_.create();
     registry_.add<ecs::LightSource>(e, ls);
     lightEntities_.push_back(e);
+#ifdef YOPE_EDITOR
+    finalizeEntity(e, lightName);
+#endif
+    return e;
 }
 
 void World::removeLight(int index) {
@@ -471,6 +492,7 @@ void World::cleanup() {
 // ---- Simulation step ----
 
 void World::advance(float dt) {
+    if (paused_.load(std::memory_order_relaxed)) return;
     YOPE_PROF_STEP("physics");
     std::lock_guard lk(structureMtx_);
 
@@ -696,7 +718,7 @@ void World::publishSnapshot() {
         if (!tf) continue;
         RenderMesh* mesh = nullptr;
         if (auto* mr = registry_.get<ecs::MeshRenderer>(e)) mesh = mr->mesh;
-        snapshotBack_.push_back({ tf->position, tf->rotation, {1,1,1}, mesh, e });
+        snapshotBack_.push_back({ tf->position, tf->rotation, tf->scale, mesh, e });
     }
 
     springSnapshotBack_.clear();
@@ -789,6 +811,64 @@ void World::destroyDebugMeshes() {
     debugMeshes_.clear();
     debugEntities_.clear();
 }
+
+#ifdef YOPE_EDITOR
+void World::finalizeEntity(ecs::Entity e, const char* name) {
+    ecs::Name n{};
+    std::strncpy(n.value, name, sizeof(n.value) - 1);
+    registry_.add<ecs::Name>(e, n);
+    registry_.add<ecs::EditorSelectable>(e);
+}
+
+void World::snapshotForPlay() {
+    prePlayMeshPoolSize_       = meshPool_.size();
+    prePlaySpringCount_        = springs_.size();
+    playSnapshot_.registry     = registry_.takeSnapshot();
+    playSnapshot_.gravity      = gravity;
+    playSnapshot_.layers       = layers;
+    setPaused(false);
+}
+
+void World::restoreFromPlay() {
+    setPaused(true);
+    // advance() holds structureMtx_ for its entire duration. Acquiring it here
+    // blocks until any in-flight physics step finishes, so we never restore the
+    // registry while the physics thread is mid-step (which would make entities
+    // created during play invalid and fire the "add: invalid entity" assertion).
+    { std::lock_guard lk(structureMtx_); }
+    if (gpu_) gpu_->syncDevice();
+
+    // Destroy GPU resources for meshes added during play.
+    for (size_t i = prePlayMeshPoolSize_; i < meshPool_.size(); ++i) {
+        RenderMesh* rm = meshPool_[i].get();
+        meshToEntity_.erase(rm);
+        rm->destroy(gpu_->device());
+    }
+    meshPool_.resize(prePlayMeshPoolSize_);
+
+    // Drop springs added during play.
+    springs_.resize(prePlaySpringCount_);
+
+    // Restore ECS state.
+    registry_.restoreSnapshot(playSnapshot_.registry);
+    gravity = playSnapshot_.gravity;
+    layers  = playSnapshot_.layers;
+
+    // Clear physics transient state — stale after a state rewind.
+    advanceEntities_.clear();
+    sapPairs_.clear();
+    advanceContacts_.clear();
+    contactCache_.clear();
+
+    // Rebuild meshToEntity_ from the restored registry (covers any removeEntity calls during play).
+    meshToEntity_.clear();
+    for (auto [e, mr] : registry_.view<ecs::MeshRenderer>())
+        if (mr.mesh) meshToEntity_[mr.mesh] = e;
+
+    // Force-publish so RenderMesh model matrices reflect the restored transforms.
+    publishSnapshot();
+}
+#endif
 
 void World::toggleProxies(bool enabled) {
     for (auto& s : springs_)

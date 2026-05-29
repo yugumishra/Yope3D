@@ -14,6 +14,18 @@ public:
     // Used in RAYTRACE mode instead of the 3D pass.
     static RenderPass createRaytracePass(VkDevice device, VkFormat colorFormat);
 
+    // Offscreen game pass (YOPE_EDITOR): identical to the 3D pass constructor but
+    // finalLayout = SHADER_READ_ONLY_OPTIMAL so ImGui can sample the texture directly.
+    static RenderPass createOffscreenGamePass(VkDevice device, VkFormat colorFormat,
+                                              VkFormat depthFormat);
+
+    // ImGui pass (YOPE_EDITOR): clears the swapchain surface and renders ImGui on top.
+    static RenderPass createImGuiPass(VkDevice device, VkFormat colorFormat);
+
+    // Raytrace offscreen pass (YOPE_EDITOR): color-only (no depth), clears on load,
+    // finalLayout = SHADER_READ_ONLY_OPTIMAL so ImGui can sample the result.
+    static RenderPass createOffscreenRaytracePass(VkDevice device, VkFormat colorFormat);
+
     ~RenderPass();
 
     VkRenderPass get() const { return renderPass; }
