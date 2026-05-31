@@ -24,6 +24,7 @@ public:
     VkFramebuffer   framebuffer()         const { return framebuffer_; }
     VkFramebuffer   raytraceFramebuffer() const { return raytraceFramebuffer_; }
     VkImageView     colorView()           const { return colorView_; }
+    VkImageView     depthView()           const { return depthView_; }
     VkDescriptorSet imguiDescriptor()     const { return imguiDescSet_; }
     uint32_t        width()               const { return w_; }
     uint32_t        height()              const { return h_; }

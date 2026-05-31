@@ -27,6 +27,7 @@ public:
     void swapBuffers();
 
     void setTitle(const std::string& newTitle);
+    void setEscapeCloses(bool v) { escapeCloses = v; }
 
     int   getWidth()       const { return width;  }
     int   getHeight()      const { return height; }
@@ -53,9 +54,10 @@ private:
     int  maxWidth  = 0;
     int  maxHeight = 0;
 
-    bool paused     = false;
-    bool fullscreen = false;
-    bool resized    = false;
+    bool paused        = false;
+    bool fullscreen    = false;
+    bool resized       = false;
+    bool escapeCloses  = true;
 
     // Previous cursor position — used to compute per-frame delta.
     // 'firstMouse' prevents a large spike on the very first callback.

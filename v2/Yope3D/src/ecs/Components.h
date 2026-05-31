@@ -72,8 +72,16 @@ struct LightSource {
 };
 
 // ---- Audio ----
+// Source* is owned by AudioSystem; the path/gain/pitch/loop fields are the
+// authoritative serializable state so the sound can be reconstructed across
+// save/load and play/stop without preserving OpenAL handles.
 struct AudioSource {
-    Source* source = nullptr;   // non-owning; AudioSystem owns the Source
+    Source* source = nullptr;          // non-owning; AudioSystem owns the Source
+    char    path[256] = {};            // asset-relative path (e.g. "audios/hum.ogg")
+    float   gain      = 1.0f;
+    float   pitch     = 1.0f;
+    bool    loop      = false;
+    bool    autoplay  = false;
 };
 
 // ---- Spring constraint ----

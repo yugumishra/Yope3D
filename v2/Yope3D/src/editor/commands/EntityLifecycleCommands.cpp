@@ -1,0 +1,139 @@
+#include "EntityLifecycleCommands.h"
+#ifdef YOPE_EDITOR
+#include "editor/EditorContext.h"
+#include "editor/Selection.h"
+#include "world/World.h"
+#include "world/Transform.h"
+#include "assets/Primitives.h"
+#include "ecs/Registry.h"
+#include <vector>
+
+// ----- CreateEntityCommand -----
+
+static void attachColored(ecs::Entity e, World* world,
+                          const LoadedMesh& mesh, math::Vec3 scale,
+                          float r, float g, float b) {
+    if (!world) return;
+    if (auto* rm = world->attachMesh(e, mesh)) {
+        rm->color[0] = r; rm->color[1] = g; rm->color[2] = b;
+        rm->transformReady = true;
+    }
+    if (auto* tf = world->getRegistry().get<Transform>(e))
+        tf->scale = scale;
+}
+
+void CreateEntityCommand::redo(EditorContext& ctx) {
+    World& w = *ctx.world;
+    switch (kind) {
+        case EntityKind::Sphere:
+            created_ = w.addSphere(mass, radius, pos);
+            attachColored(created_, &w, Primitives::sphere(1.0f),
+                          {radius, radius, radius}, 0.55f, 0.75f, 1.0f);
+            break;
+        case EntityKind::OBB:
+            created_ = w.addOBB(ext, mass, pos);
+            attachColored(created_, &w, Primitives::rect({1, 1, 1}), ext, 1.0f, 0.75f, 0.45f);
+            break;
+        case EntityKind::AABB:
+            created_ = w.addAABB(ext, mass, pos);
+            attachColored(created_, &w, Primitives::rect({1, 1, 1}), ext, 0.75f, 1.0f, 0.55f);
+            break;
+        case EntityKind::StaticAABB:
+            created_ = w.addStaticAABB(pos, ext);
+            attachColored(created_, &w, Primitives::rect({1, 1, 1}), ext, 0.50f, 0.50f, 0.55f);
+            break;
+        case EntityKind::PointLight: {
+            PointLight pl{};
+            pl.color[0] = lightParams.color[0]; pl.color[1] = lightParams.color[1]; pl.color[2] = lightParams.color[2];
+            pl.intensity = lightParams.intensity;
+            pl.position[0] = lightParams.position[0]; pl.position[1] = lightParams.position[1]; pl.position[2] = lightParams.position[2];
+            pl.constant = lightParams.constant; pl.linear = lightParams.linear; pl.quadratic = lightParams.quadratic;
+            created_ = w.addLight(pl);
+            break;
+        }
+        case EntityKind::DirLight: {
+            DirectionalLight dl{};
+            dl.color[0] = lightParams.color[0]; dl.color[1] = lightParams.color[1]; dl.color[2] = lightParams.color[2];
+            dl.intensity = lightParams.intensity;
+            dl.direction[0] = lightParams.direction[0]; dl.direction[1] = lightParams.direction[1]; dl.direction[2] = lightParams.direction[2];
+            created_ = w.addLight(dl);
+            break;
+        }
+        case EntityKind::SpotLight: {
+            SpotLight sl{};
+            sl.color[0] = lightParams.color[0]; sl.color[1] = lightParams.color[1]; sl.color[2] = lightParams.color[2];
+            sl.intensity = lightParams.intensity;
+            sl.position[0] = lightParams.position[0]; sl.position[1] = lightParams.position[1]; sl.position[2] = lightParams.position[2];
+            sl.direction[0] = lightParams.direction[0]; sl.direction[1] = lightParams.direction[1]; sl.direction[2] = lightParams.direction[2];
+            sl.constant = lightParams.constant; sl.linear = lightParams.linear; sl.quadratic = lightParams.quadratic;
+            sl.innerConeAngle = lightParams.innerConeAngle; sl.outerConeAngle = lightParams.outerConeAngle;
+            created_ = w.addLight(sl);
+            break;
+        }
+        case EntityKind::RenderObject: {
+            created_ = w.addRenderObject(Primitives::rect({1.f, 1.f, 1.f}));
+            if (auto* tf = w.getRegistry().get<Transform>(created_)) {
+                tf->position = pos;
+                tf->scale    = ext;
+            }
+            if (auto* rm = w.getMesh(created_)) {
+                rm->color[0] = 0.8f; rm->color[1] = 0.8f; rm->color[2] = 0.8f;
+            }
+            break;
+        }
+        case EntityKind::AudioSource: {
+            created_ = w.addAudioSourceEntity(pos);
+            break;
+        }
+    }
+    // Auto-select the new entity
+    if (ctx.selection && ctx.world->getRegistry().valid(created_))
+        ctx.selection->set(created_);
+}
+
+void CreateEntityCommand::undo(EditorContext& ctx) {
+    if (!ctx.world->getRegistry().valid(created_)) return;
+    if (ctx.selection && ctx.selection->primary() == created_) ctx.selection->clear();
+    ctx.world->removeEntity(created_);
+    created_ = ecs::NullEntity;
+}
+
+// ----- DeleteEntityCommand -----
+
+void DeleteEntityCommand::redo(EditorContext& ctx) {
+    if (!ctx.registry->valid(entity_)) return;
+    snapshot_ = snapshotEntity(entity_, *ctx.registry, *ctx.world);
+    if (ctx.selection && ctx.selection->primary() == entity_) ctx.selection->clear();
+    ctx.world->removeEntity(entity_);
+}
+
+void DeleteEntityCommand::undo(EditorContext& ctx) {
+    ecs::Entity restored = snapshot_.restore(*ctx.world);
+    if (ctx.registry->valid(restored)) {
+        entity_ = restored;
+        if (ctx.selection) ctx.selection->set(restored);
+    }
+}
+
+// ----- PasteEntitiesCommand -----
+
+void PasteEntitiesCommand::redo(EditorContext& ctx) {
+    created_.clear();
+    if (ctx.selection) ctx.selection->clear();
+    for (const auto& snap : snapshots_) {
+        ecs::Entity e = snap.restore(*ctx.world);
+        if (ctx.registry->valid(e)) {
+            created_.push_back(e);
+            if (ctx.selection) ctx.selection->add(e);
+        }
+    }
+}
+
+void PasteEntitiesCommand::undo(EditorContext& ctx) {
+    if (ctx.selection) ctx.selection->clear();
+    for (auto e : created_) {
+        if (ctx.registry->valid(e)) ctx.world->removeEntity(e);
+    }
+    created_.clear();
+}
+#endif

@@ -15,6 +15,7 @@ find_package(Catch2   CONFIG REQUIRED)
 find_package(Vulkan   REQUIRED)
 find_package(Stb      REQUIRED)         # header-only; provides Stb_INCLUDE_DIR
 find_package(imgui    CONFIG REQUIRED)  # docking-experimental + vulkan-binding + glfw-binding
+find_package(imguizmo CONFIG REQUIRED)
 
 # ---------------------------------------------------------------------------
 # Shader compilation — GLSL → SPIR-V via glslc (bundled in the Vulkan SDK)
@@ -34,6 +35,8 @@ set(SHADER_SOURCES
     "${SHADER_SRC_DIR}/raytracer.comp"
     "${SHADER_SRC_DIR}/fullscreen.vert"
     "${SHADER_SRC_DIR}/fullscreen.frag"
+    "${SHADER_SRC_DIR}/id_buffer.vert"
+    "${SHADER_SRC_DIR}/id_buffer.frag"
 )
 
 set(COMPILED_SHADERS "")
@@ -162,13 +165,35 @@ set(ENGINE_SOURCES
 # Editor-only sources — grows as src/editor/ is implemented
 set(EDITOR_SOURCES
     src/editor/Selection.cpp
+    src/editor/CommandHistory.cpp
     src/editor/EditorApp.cpp
     src/editor/ImGuiBackend.cpp
     src/editor/EditorTheme.cpp
     src/rendering/ViewportTarget.cpp
+    src/editor/commands/ComponentSnapshot.cpp
+    src/editor/commands/EntityLifecycleCommands.cpp
+    src/editor/commands/AddColliderCommand.cpp
+    src/editor/commands/RemoveColliderCommand.cpp
+    src/editor/commands/AddSpringConstraintCommand.cpp
+    src/editor/inspectors/InspectorRegistry.cpp
+    src/editor/inspectors/TransformInspector.cpp
+    src/editor/inspectors/HullInspector.cpp
+    src/editor/inspectors/MeshRendererInspector.cpp
+    src/editor/inspectors/ShapeFormInspector.cpp
+    src/editor/inspectors/LightSourceInspector.cpp
+    src/editor/inspectors/NameInspector.cpp
+    src/editor/inspectors/AudioSourceInspector.cpp
+    src/editor/inspectors/SpringConstraintInspector.cpp
+    src/editor/picking/IdBufferPass.cpp
+    src/editor/serialization/JsonWriter.cpp
+    src/editor/serialization/JsonParser.cpp
+    src/editor/serialization/ComponentSerializers.cpp
+    src/editor/serialization/SceneSerializer.cpp
+    src/platform/FileWatcher.cpp
     src/editor/panels/ViewportPanel.cpp
     src/editor/panels/HierarchyPanel.cpp
     src/editor/panels/InspectorPanel.cpp
+    src/editor/panels/AssetBrowserPanel.cpp
     src/editor/panels/StatsPanel.cpp
     src/editor/panels/WorldSettingsPanel.cpp
     src/editor/panels/ConsolePanel.cpp
@@ -239,8 +264,13 @@ target_link_libraries(yope_editor PRIVATE
     OpenAL::OpenAL
     Vulkan::Vulkan
     imgui::imgui
+    imguizmo::imguizmo
     $<$<BOOL:${YOPE_EMBED_ASSETS}>:embedded_assets>
 )
+if(APPLE)
+    find_library(CoreServices_FRAMEWORK CoreServices REQUIRED)
+    target_link_libraries(yope_editor PRIVATE ${CoreServices_FRAMEWORK})
+endif()
 
 # ---------------------------------------------------------------------------
 # Test executables

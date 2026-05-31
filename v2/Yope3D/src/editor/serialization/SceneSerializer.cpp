@@ -1,0 +1,251 @@
+#include "editor/serialization/SceneSerializer.h"
+#ifdef YOPE_EDITOR
+#include "editor/serialization/JsonWriter.h"
+#include "editor/serialization/JsonParser.h"
+#include "editor/serialization/ComponentSerializers.h"
+#include "editor/commands/ComponentSnapshot.h"
+#include "ecs/Registry.h"
+#include "ecs/Components.h"
+#include "ecs/TypeId.h"
+#include "world/World.h"
+#include "world/Transform.h"
+#include "audio/AudioSystem.h"
+#include "audio/Source.h"
+#include "Engine.h"
+#include <fstream>
+#include <stdexcept>
+#include <cstring>
+#include <vector>
+#include <map>
+
+// Table of component serializers in display order.
+struct CompSerEntry {
+    ecs::TypeId typeId;
+    const char* name;
+    void (*serialize)(const void*, JsonWriter&);
+    bool (*deserialize)(const JsonNode&, void*);
+};
+
+static std::vector<CompSerEntry> buildSerTable() {
+    return {
+        { ecs::typeId<ecs::Name>(),             "Name",             compser::serializeName,             compser::deserializeName             },
+        { ecs::typeId<Transform>(),             "Transform",        compser::serializeTransform,        compser::deserializeTransform        },
+        { ecs::typeId<ecs::Hull>(),             "Hull",             compser::serializeHull,             compser::deserializeHull             },
+        { ecs::typeId<ecs::SphereForm>(),       "SphereForm",       compser::serializeSphereForm,       compser::deserializeSphereForm       },
+        { ecs::typeId<ecs::AABBForm>(),         "AABBForm",         compser::serializeAABBForm,         compser::deserializeAABBForm         },
+        { ecs::typeId<ecs::OBBForm>(),          "OBBForm",          compser::serializeOBBForm,          compser::deserializeOBBForm          },
+        { ecs::typeId<ecs::MeshRenderer>(),     "MeshRenderer",     compser::serializeMeshRenderer,     compser::deserializeMeshRenderer     },
+        { ecs::typeId<ecs::LightSource>(),      "LightSource",      compser::serializeLightSource,      compser::deserializeLightSource      },
+        { ecs::typeId<ecs::SpringConstraint>(), "SpringConstraint", compser::serializeSpringConstraint, compser::deserializeSpringConstraint },
+        { ecs::typeId<ecs::AudioSource>(),      "AudioSource",      compser::serializeAudioSource,      compser::deserializeAudioSource      },
+    };
+}
+
+namespace SceneSerializer {
+
+bool save(const char* path, ecs::Registry& reg, World& world) {
+    auto table = buildSerTable();
+
+    JsonWriter w;
+    w.beginObject();
+
+    w.writeInt("version", 1);
+
+    // World settings
+    w.writeFloat3("gravity", world.gravity.x, world.gravity.y, world.gravity.z);
+
+    // Build a runtime-id → fileId map so SpringConstraint can write the
+    // target's *fileId* (stable across runs) instead of its runtime ID
+    // (which is regenerated on load).
+    std::map<uint32_t, uint32_t> runtimeToFile;
+    {
+        uint32_t fid = 0;
+        for (auto [e, _sel] : reg.view<ecs::EditorSelectable>())
+            runtimeToFile[e.id] = fid++;
+    }
+
+    // Entities
+    w.beginArray("entities");
+    uint32_t fileId = 0;
+    for (auto [e, _sel] : reg.view<ecs::EditorSelectable>()) {
+        w.beginArrayObject();
+        w.writeUInt("fileId", fileId++);
+        w.writeUInt("runtimeId", e.id);
+
+        // Tag: fixed
+        if (reg.has<ecs::Fixed>(e)) w.writeBool("isFixed", true);
+
+        // Components
+        for (auto& entry : table) {
+            void* comp = reg.getRaw(e, entry.typeId);
+            if (!comp) continue;
+            w.writeKey(entry.name);
+            w.beginObject();
+            entry.serialize(comp, w);
+            // SpringConstraint's target reference needs the save-loop's
+            // runtime→file mapping, which the generic table can't see.
+            if (entry.typeId == ecs::typeId<ecs::SpringConstraint>()) {
+                auto* sc = static_cast<const ecs::SpringConstraint*>(comp);
+                auto it = runtimeToFile.find(sc->target.id);
+                w.writeUInt("targetId", it != runtimeToFile.end() ? it->second : UINT32_MAX);
+            }
+            w.endObject();
+        }
+
+        w.endObject();  // entity
+    }
+    w.endArray();  // entities
+
+    w.endObject();  // root
+
+    std::ofstream f(path);
+    if (!f.is_open()) return false;
+    f << w.str();
+    return true;
+}
+
+std::string load(const char* path, ecs::Registry& reg, World& world, AudioSystem* audio) {
+    JsonNode root;
+    try {
+        root = parseJsonFile(path);
+    } catch (const std::exception& ex) {
+        return std::string("Parse error: ") + ex.what();
+    }
+
+    auto table = buildSerTable();
+
+    // Clear existing scene
+    world.resetPhysics();
+
+    // Gravity
+    if (root.contains("gravity")) {
+        auto& arr = root["gravity"].asArray();
+        if (arr.size() >= 3)
+            world.gravity = {arr[0].asFloat(), arr[1].asFloat(), arr[2].asFloat()};
+    }
+
+    if (!root.contains("entities")) return "";
+
+    // Build file-id → entity mapping for SpringConstraint cross-references.
+    std::map<uint32_t, ecs::Entity> fileIdToEntity;
+
+    for (auto& entNode : root["entities"].asArray()) {
+        // Use ComponentSnapshot to recreate the entity through World factories.
+        ComponentSnapshot snap;
+
+        if (entNode.contains("Transform")) {
+            snap.hasTransform = true;
+            compser::deserializeTransform(entNode["Transform"], &snap.transform);
+        }
+        if (entNode.contains("Hull")) {
+            snap.hasHull = true;
+            compser::deserializeHull(entNode["Hull"], &snap.hull);
+        }
+        if (entNode.contains("isFixed") && entNode["isFixed"].asBool())
+            snap.hasFixed = true;
+        if (entNode.contains("SphereForm")) {
+            snap.hasSphere = true;
+            compser::deserializeSphereForm(entNode["SphereForm"], &snap.sphere);
+        }
+        if (entNode.contains("AABBForm")) {
+            snap.hasAABB = true;
+            compser::deserializeAABBForm(entNode["AABBForm"], &snap.aabb);
+        }
+        if (entNode.contains("OBBForm")) {
+            snap.hasOBB = true;
+            compser::deserializeOBBForm(entNode["OBBForm"], &snap.obb);
+        }
+        if (entNode.contains("LightSource")) {
+            snap.hasLight = true;
+            compser::deserializeLightSource(entNode["LightSource"], &snap.light);
+        }
+        if (entNode.contains("Name")) {
+            snap.hasName = true;
+            compser::deserializeName(entNode["Name"], &snap.name);
+        }
+        if (entNode.contains("AudioSource")) {
+            snap.hasAudio = true;
+            compser::deserializeAudioSource(entNode["AudioSource"], &snap.audio);
+        }
+        if (entNode.contains("MeshRenderer")) {
+            snap.hasMesh = true;
+            const auto& mr = entNode["MeshRenderer"];
+            if (mr.contains("color")) {
+                auto& c = mr["color"].asArray();
+                if (c.size() >= 3) { snap.meshColor[0] = c[0].asFloat(); snap.meshColor[1] = c[1].asFloat(); snap.meshColor[2] = c[2].asFloat(); }
+            }
+            if (mr.contains("primitiveType"))   snap.primType = static_cast<PrimitiveType>(mr["primitiveType"].asInt());
+            if (mr.contains("primitiveExtents")) {
+                auto& pe = mr["primitiveExtents"].asArray();
+                if (pe.size() >= 3) snap.primExtents = {pe[0].asFloat(), pe[1].asFloat(), pe[2].asFloat()};
+            }
+            // Custom mesh: load from source path (reference-based serialization).
+            // Legacy scenes with packed vertex/index arrays are also handled for
+            // backwards compatibility.
+            if (snap.primType == PrimitiveType::Custom) {
+                if (mr.contains("sourcePath") && mr["sourcePath"].isString())
+                    snap.meshSourcePath = mr["sourcePath"].asString();
+                else if (mr.contains("vertices") && mr.contains("indices")) {
+                    const auto& varr = mr["vertices"].asArray();
+                    snap.cpuVerts.clear();
+                    for (size_t i = 0; i + 7 < varr.size(); i += 8) {
+                        Vertex v{};
+                        v.position[0] = varr[i+0].asFloat(); v.position[1] = varr[i+1].asFloat(); v.position[2] = varr[i+2].asFloat();
+                        v.normal[0]   = varr[i+3].asFloat(); v.normal[1]   = varr[i+4].asFloat(); v.normal[2]   = varr[i+5].asFloat();
+                        v.uv[0]       = varr[i+6].asFloat(); v.uv[1]       = varr[i+7].asFloat();
+                        snap.cpuVerts.push_back(v);
+                    }
+                    const auto& iarr = mr["indices"].asArray();
+                    snap.cpuInds.clear();
+                    snap.cpuInds.reserve(iarr.size());
+                    for (const auto& idx : iarr)
+                        snap.cpuInds.push_back(static_cast<uint32_t>(idx.asInt()));
+                }
+            }
+        }
+
+        ecs::Entity e = snap.restore(world);
+        if (!reg.valid(e)) continue;
+
+        uint32_t fid = entNode.contains("fileId") ? entNode["fileId"].asUInt() : UINT32_MAX;
+        fileIdToEntity[fid] = e;
+    }
+
+    // Resolve SpringConstraint cross-references
+    // (second pass after all entities are created)
+    uint32_t fid = 0;
+    for (auto& entNode : root["entities"].asArray()) {
+        if (!entNode.contains("SpringConstraint")) { ++fid; continue; }
+        auto it = fileIdToEntity.find(fid);
+        if (it == fileIdToEntity.end()) { ++fid; continue; }
+        ecs::Entity e = it->second;
+        if (!reg.valid(e)) { ++fid; continue; }
+        if (auto* sc = reg.get<ecs::SpringConstraint>(e)) {
+            uint32_t targetFileId = entNode["SpringConstraint"]["targetId"].asUInt();
+            auto tit = fileIdToEntity.find(targetFileId);
+            if (tit != fileIdToEntity.end()) sc->target = tit->second;
+        }
+        ++fid;
+    }
+
+    // Rebind AudioSource OpenAL handles from the saved path.
+    if (audio) {
+        for (auto [e, as] : reg.view<ecs::AudioSource>()) {
+            if (as.source || as.path[0] == 0) continue;
+            if (auto* sb = audio->loadSound(as.path)) {
+                as.source = audio->createSource(sb);
+                if (as.source) {
+                    as.source->setGain(as.gain);
+                    as.source->setPitch(as.pitch);
+                    as.source->enableLooping(as.loop);
+                    if (as.autoplay) as.source->play();
+                }
+            }
+        }
+    }
+
+    return "";
+}
+
+} // namespace SceneSerializer
+#endif

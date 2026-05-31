@@ -10,6 +10,7 @@ class CommandHistory;
 class EditorTheme;
 class Camera;
 class ViewportTarget;
+class IdBufferPass;
 
 struct EditorContext {
     ecs::Registry*  registry     = nullptr;
@@ -22,6 +23,7 @@ struct EditorContext {
 
     // Viewport panel
     ViewportTarget* viewportTarget = nullptr;
+    IdBufferPass*   idBufferPass   = nullptr;
     bool*           playMode       = nullptr;   // read: show Play vs Stop label
     std::function<void()>                       onTogglePlay;
     std::function<void(uint32_t, uint32_t)>     onViewportResize;

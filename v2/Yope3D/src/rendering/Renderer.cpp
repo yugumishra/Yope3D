@@ -1032,6 +1032,10 @@ VkRenderPass Renderer::getOffscreenGamePass() const {
     return offscreenGamePass_ ? offscreenGamePass_->get() : VK_NULL_HANDLE;
 }
 
+VkDescriptorSetLayout Renderer::getUBOSetLayout() const {
+    return uboLayout ? uboLayout->get() : VK_NULL_HANDLE;
+}
+
 VkRenderPass Renderer::getOffscreenRaytracePass() const {
     return offscreenRaytracePass_ ? offscreenRaytracePass_->get() : VK_NULL_HANDLE;
 }

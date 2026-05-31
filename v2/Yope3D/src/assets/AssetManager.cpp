@@ -167,3 +167,26 @@ RenderMesh* AssetManager::addMesh(GpuDevice& gpu, const std::string& cacheKey)
     // For Milestone 5, it's not used; Primitives are added directly to World.
     return nullptr;
 }
+
+#ifdef YOPE_EDITOR
+#include <filesystem>
+void AssetManager::onFileChanged(const std::string& absPath) {
+    // Find cache key by checking if absPath ends with any cached key.
+    // Cache keys are relative to YOPE_ASSETS_DIR.
+    for (auto it = textures.begin(); it != textures.end(); ++it) {
+        if (absPath.find(it->first) != std::string::npos) {
+            // Evict and reload
+            it->second.reset();
+            if (gpu_) loadTexture(*gpu_, it->first);
+            return;
+        }
+    }
+    for (auto it = meshes.begin(); it != meshes.end(); ++it) {
+        if (absPath.find(it->first) != std::string::npos) {
+            it->second.reset();
+            if (gpu_) loadMesh(*gpu_, it->first);
+            return;
+        }
+    }
+}
+#endif

@@ -139,10 +139,12 @@ public:
     // Returns true if swapchain was recreated (EditorApp must rebuild ImGui framebuffers).
     bool endFrameForEditor(GpuDevice& gpu, Window& window, uint32_t imageIndex);
 
-    VkCommandBuffer currentCmdBuffer()     const { return cmdBuffers[currentFrame]; }
-    VkRenderPass    getOffscreenGamePass()  const;
-    VkRenderPass    getOffscreenRaytracePass() const;
-    void            notifySwapchainRecreated(GpuDevice& gpu, Window& window);
+    VkCommandBuffer       currentCmdBuffer()        const { return cmdBuffers[currentFrame]; }
+    VkRenderPass          getOffscreenGamePass()    const;
+    VkRenderPass          getOffscreenRaytracePass()const;
+    void                  notifySwapchainRecreated(GpuDevice& gpu, Window& window);
+    VkDescriptorSetLayout getUBOSetLayout()         const;
+    VkDescriptorSet       getCurrentDescriptorSet() const { return descriptorSets[currentFrame]; }
 
 private:
     std::unique_ptr<RenderPass> offscreenGamePass_;

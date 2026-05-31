@@ -44,6 +44,11 @@ public:
     // cacheKey: optional key to store in cache (if empty, mesh is not cached).
     RenderMesh* addMesh(GpuDevice& gpu, const std::string& cacheKey = "");
 
+#ifdef YOPE_EDITOR
+    // Hot-reload: if path matches a cached texture or mesh, evict and reload it.
+    void onFileChanged(const std::string& absPath);
+#endif
+
     AssetManager(const AssetManager&) = delete;
     AssetManager& operator=(const AssetManager&) = delete;
 

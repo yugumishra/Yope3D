@@ -1,6 +1,7 @@
 #include "World.h"
 #include "../gpu/GpuDevice.h"
 #include <cstring>
+#include "../audio/AudioSystem.h"
 #include "../physics/ColliderDiscrete.h"
 #include "../physics/IslandDetector.h"
 #include "../physics/ThreadPool.h"
@@ -171,6 +172,95 @@ ecs::Entity World::addStaticAABB(math::Vec3 pos, math::Vec3 extent) {
     return e;
 }
 
+// ---------------------------------------------------------------------------
+// Attach / detach physics body on an existing entity (editor "Add Component")
+// ---------------------------------------------------------------------------
+
+static ecs::Hull makeHull(float mass) {
+    ecs::Hull h;
+    h.mass        = mass;
+    h.inverseMass = (mass > 0.0f) ? 1.0f / mass : 0.0f;
+    h.gravity     = (mass > 0.0f);
+    return h;
+}
+
+// Returns true when the entity's mesh has geometry already baked into its vertices
+// (drag-dropped OBJ). For these, tf->scale must not be overwritten by the collider
+// extent — that would scale the already-world-sized vertices a second time.
+static bool hasCustomMesh(ecs::Registry& reg, ecs::Entity e) {
+    if (auto* mr = reg.get<ecs::MeshRenderer>(e))
+        return mr->mesh && mr->mesh->primitiveType == PrimitiveType::Custom;
+    return false;
+}
+
+void World::attachSphereCollider(ecs::Entity e, float mass, float radius, bool isStatic) {
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(e)) return;
+    if (registry_.has<ecs::Hull>(e)) return;  // already has a physics body
+
+    ecs::Hull h = makeHull(isStatic ? 0.0f : mass);
+    if (!isStatic && mass > 0.0f && radius > 0.0f) {
+        float invI = 1.0f / (0.4f * mass * radius * radius);
+        h.inverseInertia = math::Mat3::scale({invI, invI, invI});
+    }
+    registry_.add<ecs::Hull>(e, h);
+    registry_.add<ecs::SphereForm>(e, {radius});
+    if (isStatic) registry_.add<ecs::Fixed>(e);
+    if (!hasCustomMesh(registry_, e))
+        if (auto* tf = registry_.get<Transform>(e)) tf->scale = {radius, radius, radius};
+    if (debugPhysics) rebuildDebugMeshes();
+}
+
+void World::attachAABBCollider(ecs::Entity e, float mass, math::Vec3 extent, bool isStatic) {
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(e)) return;
+    if (registry_.has<ecs::Hull>(e)) return;
+
+    ecs::Hull h = makeHull(isStatic ? 0.0f : mass);
+    h.inverseInertia = math::Mat3::zero();  // AABB has no angular dynamics
+    registry_.add<ecs::Hull>(e, h);
+    registry_.add<ecs::AABBForm>(e, {extent});
+    if (isStatic) registry_.add<ecs::Fixed>(e);
+    if (!hasCustomMesh(registry_, e))
+        if (auto* tf = registry_.get<Transform>(e)) tf->scale = extent;
+    if (debugPhysics) rebuildDebugMeshes();
+}
+
+void World::attachOBBCollider(ecs::Entity e, float mass, math::Vec3 extent, bool isStatic) {
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(e)) return;
+    if (registry_.has<ecs::Hull>(e)) return;
+
+    ecs::Hull h = makeHull(isStatic ? 0.0f : mass);
+    if (!isStatic && mass > 0.0f) {
+        float ex = extent.x, ey = extent.y, ez = extent.z;
+        h.inverseInertia = math::Mat3::scale({
+            3.0f / (mass * (ey*ey + ez*ez)),
+            3.0f / (mass * (ex*ex + ez*ez)),
+            3.0f / (mass * (ex*ex + ey*ey))
+        });
+    }
+    registry_.add<ecs::Hull>(e, h);
+    registry_.add<ecs::OBBForm>(e, {extent});
+    if (isStatic) registry_.add<ecs::Fixed>(e);
+    if (!hasCustomMesh(registry_, e))
+        if (auto* tf = registry_.get<Transform>(e)) tf->scale = extent;
+    if (debugPhysics) rebuildDebugMeshes();
+}
+
+void World::detachPhysicsBody(ecs::Entity e) {
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(e)) return;
+    if (registry_.has<ecs::Hull>(e))       registry_.remove<ecs::Hull>(e);
+    if (registry_.has<ecs::SphereForm>(e)) registry_.remove<ecs::SphereForm>(e);
+    if (registry_.has<ecs::AABBForm>(e))   registry_.remove<ecs::AABBForm>(e);
+    if (registry_.has<ecs::OBBForm>(e))    registry_.remove<ecs::OBBForm>(e);
+    if (registry_.has<ecs::Fixed>(e))      registry_.remove<ecs::Fixed>(e);
+    if (registry_.has<ecs::Sleeping>(e))   registry_.remove<ecs::Sleeping>(e);
+    // Stale ContactCache entries are harmless — entity is no longer in Hull view
+    if (debugPhysics) rebuildDebugMeshes();
+}
+
 ecs::Entity World::addOBBFromMesh(const LoadedMesh& loadedMesh, float mass) {
     math::Vec3 mn = { FLT_MAX,  FLT_MAX,  FLT_MAX };
     math::Vec3 mx = {-FLT_MAX, -FLT_MAX, -FLT_MAX };
@@ -257,6 +347,14 @@ void World::removeEntity(ecs::Entity e) {
     RenderMesh* mesh = nullptr;
     if (auto* mr = registry_.get<ecs::MeshRenderer>(e)) mesh = mr->mesh;
 
+    // Free the bound OpenAL Source if the entity owned one.
+    if (audio_) {
+        if (auto* as = registry_.get<ecs::AudioSource>(e); as && as->source) {
+            audio_->removeSource(as->source);
+            as->source = nullptr;
+        }
+    }
+
     // Remove springs that reference this entity; recursively remove their visual/proxy entities.
     std::vector<ecs::Entity> dependent;
     springs_.erase(std::remove_if(springs_.begin(), springs_.end(),
@@ -283,15 +381,17 @@ void World::removeEntity(ecs::Entity e) {
 
     if (mesh) meshToEntity_.erase(mesh);
 
-    // GPU sync before freeing Vulkan buffers.
-    if (mesh) gpu_->syncDevice();
-
-    // Erase mesh from pool and destroy GPU resources.
+    // Move the mesh out of meshPool_ into the pending-destroy queue instead of
+    // destroying immediately. The VkBuffers may still be referenced by the
+    // current frame's command buffer (if removeEntity is called mid-recording,
+    // e.g. from a panel context menu). flushPendingGpuDestroys() is called at
+    // the start of the next tick, before recording opens, where a device sync
+    // makes it safe to free the Vulkan resources.
     if (mesh) {
         auto it = std::find_if(meshPool_.begin(), meshPool_.end(),
             [mesh](const std::unique_ptr<RenderMesh>& m) { return m.get() == mesh; });
         if (it != meshPool_.end()) {
-            (*it)->destroy(gpu_->device());
+            pendingGpuDestroy_.push_back(std::move(*it));
             meshPool_.erase(it);
         }
     }
@@ -302,6 +402,17 @@ void World::removeEntity(ecs::Entity e) {
         destroyDebugMeshes();
         rebuildDebugMeshes();
     }
+}
+
+void World::flushPendingGpuDestroys() {
+    if (pendingGpuDestroy_.empty()) return;
+    // Wait for all in-flight GPU work to finish before freeing Vulkan buffers.
+    // This is safe to call pre-recording (before vkBeginCommandBuffer) which is
+    // the only time EditorApp invokes this function.
+    if (gpu_) gpu_->syncDevice();
+    for (auto& m : pendingGpuDestroy_)
+        if (m) m->destroy(gpu_->device());
+    pendingGpuDestroy_.clear();
 }
 
 // ---- Springs ----
@@ -423,6 +534,19 @@ ecs::Entity World::addLight(const Light& light) {
     lightEntities_.push_back(e);
 #ifdef YOPE_EDITOR
     finalizeEntity(e, lightName);
+#endif
+    return e;
+}
+
+ecs::Entity World::addAudioSourceEntity(math::Vec3 pos) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    Transform tf{};
+    tf.position = pos;
+    registry_.add<Transform>(e, tf);
+    registry_.add<ecs::AudioSource>(e, {});  // empty: no Source* yet, user binds .wav later
+#ifdef YOPE_EDITOR
+    finalizeEntity(e, "AudioSource");
 #endif
     return e;
 }
@@ -720,6 +844,12 @@ void World::publishSnapshot() {
         if (auto* mr = registry_.get<ecs::MeshRenderer>(e)) mesh = mr->mesh;
         snapshotBack_.push_back({ tf->position, tf->rotation, tf->scale, mesh, e });
     }
+    // Render-only entities (no physics body) — model matrix driven by editor transforms.
+    for (auto [e, mr, tf] : registry_.view<ecs::MeshRenderer, Transform>()) {
+        if (registry_.has<ecs::Hull>(e)) continue;  // already covered above
+        if (!mr.mesh) continue;
+        snapshotBack_.push_back({ tf.position, tf.rotation, tf.scale, mr.mesh, e });
+    }
 
     springSnapshotBack_.clear();
     for (auto& s : springs_) {
@@ -818,6 +948,7 @@ void World::finalizeEntity(ecs::Entity e, const char* name) {
     std::strncpy(n.value, name, sizeof(n.value) - 1);
     registry_.add<ecs::Name>(e, n);
     registry_.add<ecs::EditorSelectable>(e);
+    registry_.add<ecs::EditorPickable>(e);
 }
 
 void World::snapshotForPlay() {
