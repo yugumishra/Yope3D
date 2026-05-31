@@ -5,6 +5,9 @@
 #include "math/Math.h"
 #include "ui/UIManager.h"
 #include "debug/Profiler.h"
+#include "ecs/Components.h"
+#include "world/Transform.h"
+#include "audio/Source.h"
 #include <GLFW/glfw3.h>
 #include <string>
 #include <chrono>
@@ -52,6 +55,7 @@ bool Engine::init() {
 
     audio = std::make_unique<AudioSystem>();
     audio->init();
+    world->setAudioSystem(audio.get());
     Listener::setGain(1.0f);
 
     uiManager = std::make_unique<UIManager>();
@@ -144,6 +148,12 @@ void Engine::update() {
     // Listener tracks camera (updated after script may have moved it).
     Listener::setPosition(camera->getPosition());
     Listener::setOrientation(camera->getForward(), {0.0f, 1.0f, 0.0f});
+
+    // Sync AudioSource positions from their entity Transforms so 3D audio follows
+    // the editor's spatial layout. Source* may be null for unbound audio entities.
+    for (auto [e, tf, as] : world->getRegistry().view<Transform, ecs::AudioSource>()) {
+        if (as.source) as.source->setPosition(tf.position);
+    }
 
     // Profile-sweep auto-exit. main loop checks window->shouldClose().
     if (profileEndTime_ > 0.0 && now >= profileEndTime_)

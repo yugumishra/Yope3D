@@ -72,6 +72,10 @@ public:
     std::vector<Vertex>   cpuVertices;
     std::vector<uint32_t> cpuIndices;
 
+    // Absolute path to the source .obj file, if this mesh was drag-dropped from disk.
+    // Empty for procedural/primitive meshes. Used for reference-based serialization.
+    std::string sourcePath;
+
     RenderMesh(const RenderMesh&) = delete;
     RenderMesh& operator=(const RenderMesh&) = delete;
 

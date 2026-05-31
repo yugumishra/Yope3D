@@ -133,7 +133,7 @@ void Window::keyCallback(GLFWwindow* w, int key, int /*scancode*/, int action, i
     // Engine-level hotkeys are consumed here and are NOT forwarded to Input,
     // so scripts never see them as raw keys.
 
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE)
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE && self->escapeCloses)
         glfwSetWindowShouldClose(w, GLFW_TRUE);
 
     if (key == GLFW_KEY_F11 && action == GLFW_PRESS) {

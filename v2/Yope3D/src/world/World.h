@@ -52,6 +52,18 @@ public:
     RenderMesh* getMesh(ecs::Entity e);
     void        removeEntity(ecs::Entity e);
 
+    // Add / remove a physics body on an existing entity (editor "Add Component").
+    // Silently no-ops if the entity already has a collider (or is invalid).
+    void attachSphereCollider(ecs::Entity e, float mass, float radius, bool isStatic = false);
+    void attachAABBCollider  (ecs::Entity e, float mass, math::Vec3 extent, bool isStatic = false);
+    void attachOBBCollider   (ecs::Entity e, float mass, math::Vec3 extent, bool isStatic = false);
+    // Remove all physics components (Hull + shape + Fixed/Sleeping tags).
+    void detachPhysicsBody(ecs::Entity e);
+
+    // Call once per editor tick, before the Vulkan command buffer is opened.
+    // Syncs the device and destroys any RenderMeshes queued by removeEntity().
+    void flushPendingGpuDestroys();
+
     int getHullCount();
 
     // ---- Springs ----
@@ -71,6 +83,14 @@ public:
     // ---- Lights ----
     ecs::Entity addLight(const Light& light);
     void        removeLight(int index);
+
+    // ---- Audio ----
+    // Create an audio-source entity at pos with an empty AudioSource (no Source* bound).
+    // The user binds a .wav by dropping it onto the inspector's audio source drop target.
+    ecs::Entity addAudioSourceEntity(math::Vec3 pos);
+
+    // Wire the AudioSystem so removeEntity can deallocate orphaned OpenAL sources.
+    void setAudioSystem(class AudioSystem* a) { audio_ = a; }
     int  getLightCount() const { return static_cast<int>(lightEntities_.size()); }
 
     // ---- Simulation ----
@@ -130,8 +150,9 @@ private:
         ecs::Entity entity;
     };
 
-    GpuDevice*    gpu_  = nullptr;
-    VkCommandPool pool_ = VK_NULL_HANDLE;
+    GpuDevice*    gpu_   = nullptr;
+    VkCommandPool pool_  = VK_NULL_HANDLE;
+    AudioSystem*  audio_ = nullptr;   // wired by Engine; used to free Sources on removeEntity
 
     std::vector<TransformSnapshot> snapshotBack_, snapshotFront_;
     std::vector<SpringSnapshot>    springSnapshotBack_, springSnapshotFront_;
@@ -142,6 +163,11 @@ private:
     std::recursive_mutex structureMtx_;
 
     std::vector<std::unique_ptr<RenderMesh>> meshPool_;
+    // Meshes removed from meshPool_ but not yet GPU-destroyed.
+    // Flushed (with a device sync) at the start of each editor tick, before
+    // the command buffer is opened, so VkBuffers are never destroyed while
+    // they're still referenced by an in-flight or currently-recording command buffer.
+    std::vector<std::unique_ptr<RenderMesh>> pendingGpuDestroy_;
 
     ecs::Registry                                        registry_;
     std::vector<ecs::Entity>                             lightEntities_;

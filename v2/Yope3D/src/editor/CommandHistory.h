@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <vector>
 
 struct EditorContext;
 
@@ -11,12 +12,15 @@ public:
     virtual const char* label() const = 0;
 };
 
-// Phase 1 stub: execute() calls redo() immediately, undo/redo history is Phase 2.
 class CommandHistory {
 public:
-    void execute(EditorContext& ctx, std::unique_ptr<ICommand> cmd) { cmd->redo(ctx); }
-    void undo(EditorContext&) {}
-    void redo(EditorContext&) {}
-    bool canUndo() const { return false; }
-    bool canRedo() const { return false; }
+    void execute(EditorContext& ctx, std::unique_ptr<ICommand> cmd);
+    void undo(EditorContext& ctx);
+    void redo(EditorContext& ctx);
+    bool canUndo() const;
+    bool canRedo() const;
+
+private:
+    std::vector<std::unique_ptr<ICommand>> stack_;
+    size_t cursor_ = 0;
 };

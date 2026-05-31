@@ -1,6 +1,8 @@
 #include "editor/panels/HierarchyPanel.h"
 #include "editor/EditorContext.h"
 #include "editor/Selection.h"
+#include "editor/CommandHistory.h"
+#include "editor/commands/EntityLifecycleCommands.h"
 #include "ecs/Registry.h"
 #include "ecs/Components.h"
 #include "world/World.h"
@@ -9,23 +11,6 @@
 #include "rendering/Light.h"
 #include <imgui.h>
 #include <cstdio>
-
-static void autoSelect(ecs::Entity e, EditorContext& ctx) {
-    if (ctx.selection) ctx.selection->set(e);
-}
-
-static void attachDefaultMesh(ecs::Entity e, World* world,
-                               const LoadedMesh& meshData,
-                               math::Vec3 initialScale,
-                               float r, float g, float b) {
-    if (!world) return;
-    if (auto* rm = world->attachMesh(e, meshData)) {
-        rm->color[0] = r; rm->color[1] = g; rm->color[2] = b;
-        rm->transformReady = true;
-    }
-    if (auto* tf = world->getRegistry().get<Transform>(e))
-        tf->scale = initialScale;
-}
 
 void HierarchyPanel::draw(EditorContext& ctx) {
     if (!visible) return;
@@ -40,82 +25,81 @@ void HierarchyPanel::draw(EditorContext& ctx) {
         ImGui::TextDisabled("Add Object");
         ImGui::Separator();
 
+        if (ImGui::MenuItem("Empty Object")) {
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::RenderObject, math::Vec3{0.f, 0.f, 0.f},
+                    math::Vec3{1.f, 1.f, 1.f}));
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::Separator();
         if (ImGui::MenuItem("Sphere")) {
-            if (ctx.world) {
-                float r = 0.5f;
-                auto e = ctx.world->addSphere(1.0f, r, {0.0f, 2.0f, 0.0f});
-                attachDefaultMesh(e, ctx.world, Primitives::sphere(1.0f),
-                                  {r, r, r}, 0.55f, 0.75f, 1.0f);
-                autoSelect(e, ctx);
-            }
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::Sphere, math::Vec3{0.f, 2.f, 0.f},
+                    math::Vec3{0.5f, 0.5f, 0.5f}, 1.0f, 0.5f));
             ImGui::CloseCurrentPopup();
         }
         if (ImGui::MenuItem("OBB")) {
-            if (ctx.world) {
-                math::Vec3 ext{0.5f, 0.5f, 0.5f};
-                auto e = ctx.world->addOBB(ext, 1.0f, {0.0f, 2.0f, 0.0f});
-                attachDefaultMesh(e, ctx.world, Primitives::rect({1.0f, 1.0f, 1.0f}),
-                                  ext, 1.0f, 0.75f, 0.45f);
-                autoSelect(e, ctx);
-            }
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::OBB, math::Vec3{0.f, 2.f, 0.f},
+                    math::Vec3{0.5f, 0.5f, 0.5f}, 1.0f));
             ImGui::CloseCurrentPopup();
         }
         if (ImGui::MenuItem("AABB")) {
-            if (ctx.world) {
-                math::Vec3 ext{0.5f, 0.5f, 0.5f};
-                auto e = ctx.world->addAABB(ext, 1.0f, {0.0f, 2.0f, 0.0f});
-                attachDefaultMesh(e, ctx.world, Primitives::rect({1.0f, 1.0f, 1.0f}),
-                                  ext, 0.75f, 1.0f, 0.55f);
-                autoSelect(e, ctx);
-            }
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::AABB, math::Vec3{0.f, 2.f, 0.f},
+                    math::Vec3{0.5f, 0.5f, 0.5f}, 1.0f));
             ImGui::CloseCurrentPopup();
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Point Light")) {
-            if (ctx.world) {
-                PointLight pl{};
-                pl.position[0] = 0.0f; pl.position[1] = 4.0f; pl.position[2] = 0.0f;
-                pl.color[0] = 1.0f; pl.color[1] = 1.0f; pl.color[2] = 1.0f;
-                pl.intensity = 1.5f;
-                pl.constant  = 1.0f; pl.linear = 0.09f; pl.quadratic = 0.032f;
-                autoSelect(ctx.world->addLight(pl), ctx);
-            }
+            ecs::LightSource lp{};
+            lp.type = 0;
+            lp.position[0] = 0.f; lp.position[1] = 4.f; lp.position[2] = 0.f;
+            lp.color[0] = 1.f; lp.color[1] = 1.f; lp.color[2] = 1.f;
+            lp.intensity = 1.5f; lp.constant = 1.f; lp.linear = 0.09f; lp.quadratic = 0.032f;
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(EntityKind::PointLight, lp));
             ImGui::CloseCurrentPopup();
         }
         if (ImGui::MenuItem("Directional Light")) {
-            if (ctx.world) {
-                DirectionalLight dl{};
-                dl.direction[0] = -0.4f; dl.direction[1] = -1.0f; dl.direction[2] = -0.3f;
-                dl.color[0] = 1.0f; dl.color[1] = 0.95f; dl.color[2] = 0.85f;
-                dl.intensity = 1.0f;
-                autoSelect(ctx.world->addLight(dl), ctx);
-            }
+            ecs::LightSource lp{};
+            lp.type = 1;
+            lp.direction[0] = -0.4f; lp.direction[1] = -1.f; lp.direction[2] = -0.3f;
+            lp.color[0] = 1.f; lp.color[1] = 0.95f; lp.color[2] = 0.85f; lp.intensity = 1.f;
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(EntityKind::DirLight, lp));
             ImGui::CloseCurrentPopup();
         }
         if (ImGui::MenuItem("Spot Light")) {
-            if (ctx.world) {
-                SpotLight sl{};
-                sl.position[0] = 0.0f; sl.position[1] = 5.0f; sl.position[2] = 0.0f;
-                sl.direction[0] = 0.0f; sl.direction[1] = -1.0f; sl.direction[2] = 0.0f;
-                sl.color[0] = 1.0f; sl.color[1] = 0.95f; sl.color[2] = 0.8f;
-                sl.intensity = 2.0f;
-                sl.constant  = 1.0f; sl.linear = 0.09f; sl.quadratic = 0.032f;
-                sl.innerConeAngle = 0.2f;
-                sl.outerConeAngle = 0.4f;
-                autoSelect(ctx.world->addLight(sl), ctx);
-            }
+            ecs::LightSource lp{};
+            lp.type = 2;
+            lp.position[0] = 0.f; lp.position[1] = 5.f; lp.position[2] = 0.f;
+            lp.direction[0] = 0.f; lp.direction[1] = -1.f; lp.direction[2] = 0.f;
+            lp.color[0] = 1.f; lp.color[1] = 0.95f; lp.color[2] = 0.8f;
+            lp.intensity = 2.f; lp.constant = 1.f; lp.linear = 0.09f; lp.quadratic = 0.032f;
+            lp.innerConeAngle = 0.2f; lp.outerConeAngle = 0.4f;
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(EntityKind::SpotLight, lp));
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Audio Source")) {
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::AudioSource, math::Vec3{0.f, 1.f, 0.f},
+                    math::Vec3{1.f, 1.f, 1.f}));
             ImGui::CloseCurrentPopup();
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Static Floor")) {
-            if (ctx.world) {
-                math::Vec3 pos{0.0f, -0.1f, 0.0f};
-                math::Vec3 ext{10.0f, 0.1f, 10.0f};
-                auto e = ctx.world->addStaticAABB(pos, ext);
-                attachDefaultMesh(e, ctx.world, Primitives::rect({1.0f, 1.0f, 1.0f}),
-                                  ext, 0.50f, 0.50f, 0.55f);
-                autoSelect(e, ctx);
-            }
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::StaticAABB, math::Vec3{0.f, -0.1f, 0.f},
+                    math::Vec3{10.f, 0.1f, 10.f}));
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -141,9 +125,8 @@ void HierarchyPanel::draw(EditorContext& ctx) {
 
         if (ImGui::BeginPopupContextItem()) {
             if (ImGui::MenuItem("Delete")) {
-                if (ctx.selection && ctx.selection->primary() == e)
-                    ctx.selection->clear();
-                if (ctx.onDeleteEntity) ctx.onDeleteEntity(e);
+                if (ctx.history)
+                    ctx.history->execute(ctx, std::make_unique<DeleteEntityCommand>(e));
             }
             ImGui::EndPopup();
         }

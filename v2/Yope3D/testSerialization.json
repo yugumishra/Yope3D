@@ -1,0 +1,105 @@
+{
+    "version": 1,
+    "gravity": [0, -9.80665, 0],
+    "entities": [
+        {
+            "fileId": 0,
+            "runtimeId": 0,
+            "isFixed": true,
+            "Name":             {
+                "value": "StaticAABB"
+            },
+            "Transform":             {
+                "position": [0, -0.1, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [10, 0.1, 10]
+            },
+            "Hull":             {
+                "mass": 0,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": false,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "AABBForm":             {
+                "extent": [10, 0.1, 10]
+            },
+            "MeshRenderer":             {
+                "color": [0.5, 0.5, 0.55],
+                "primitiveType": 3,
+                "primitiveExtents": [1, 1, 1]
+            }
+        },
+        {
+            "fileId": 1,
+            "runtimeId": 1,
+            "Name":             {
+                "value": "SpotLight"
+            },
+            "LightSource":             {
+                "type": 2,
+                "color": [0.663717, 0.0176208, 0.0176208],
+                "intensity": 2,
+                "position": [0, 5, 0],
+                "direction": [0.176246, -0.984346, -0],
+                "constant": 0.02,
+                "linear": 0.096,
+                "quadratic": 0.041,
+                "innerConeAngle": 0.488692,
+                "outerConeAngle": 0.9585
+            }
+        },
+        {
+            "fileId": 2,
+            "runtimeId": 2,
+            "Name":             {
+                "value": "DirLight"
+            },
+            "LightSource":             {
+                "type": 1,
+                "color": [0.262865, 0.256441, 0.982301],
+                "intensity": 0.2,
+                "position": [0, 0, 0],
+                "direction": [-0.4, -1, -0.3],
+                "constant": 1,
+                "linear": 0,
+                "quadratic": 0,
+                "innerConeAngle": 0.2,
+                "outerConeAngle": 0.5
+            }
+        },
+        {
+            "fileId": 3,
+            "runtimeId": 3,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 1.80669, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [0.5, 0.5, 0.5]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": true,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "OBBForm":             {
+                "extent": [0.5, 0.5, 0.5]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            }
+        }
+    ]
+}
