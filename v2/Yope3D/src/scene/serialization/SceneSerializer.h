@@ -1,5 +1,4 @@
 #pragma once
-#ifdef YOPE_EDITOR
 #include <string>
 
 class World;
@@ -15,8 +14,8 @@ bool save(const char* path, ecs::Registry& reg, World& world);
 // Clear the scene and load entities from a JSON file.
 // Returns empty string on success, error message on failure.
 // audio: optional — used to rebind AudioSource.source from path on load.
+// startAudio: if false, autoplay sources are bound but not started (editor edit-mode).
 std::string load(const char* path, ecs::Registry& reg, World& world,
-                 AudioSystem* audio = nullptr);
+                 AudioSystem* audio = nullptr, bool startAudio = true);
 
 } // namespace SceneSerializer
-#endif

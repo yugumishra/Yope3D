@@ -121,12 +121,14 @@ Texture Texture::load(GpuDevice& gpu,
                      VkCommandPool commandPool,
                      VkDescriptorSetLayout set1Layout,
                      VkDescriptorPool texturePool,
-                     const uint8_t* pixels, int width, int height)
+                     const uint8_t* pixels, int width, int height,
+                     bool generateMipmaps, bool srgb)
 {
     if (!pixels || width <= 0 || height <= 0)
         throw std::runtime_error("Invalid texture dimensions or null pixel data");
 
-    uint32_t mipLevels = calculateMipLevels(width, height);
+    const VkFormat format = srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
+    uint32_t mipLevels = generateMipmaps ? calculateMipLevels(width, height) : 1u;
     VkDevice device = gpu.device();
     VkQueue graphicsQueue = gpu.graphicsQueue();
 
@@ -137,7 +139,7 @@ Texture Texture::load(GpuDevice& gpu,
     VkImageCreateInfo imageCI{};
     imageCI.sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageCI.imageType   = VK_IMAGE_TYPE_2D;
-    imageCI.format      = VK_FORMAT_R8G8B8A8_SRGB;
+    imageCI.format      = format;
     imageCI.extent      = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
     imageCI.mipLevels   = mipLevels;
     imageCI.arrayLayers = 1;
@@ -236,13 +238,13 @@ Texture Texture::load(GpuDevice& gpu,
     staging.destroy(device);
 
     // ---------------------------------------------------------------------------
-    // 5. Generate mipmaps via vkCmdBlitImage
+    // 5. Generate mipmaps via vkCmdBlitImage (skipped when generateMipmaps=false)
     // ---------------------------------------------------------------------------
 
     int mipWidth = width;
     int mipHeight = height;
 
-    for (uint32_t i = 1; i < mipLevels; ++i) {
+    for (uint32_t i = 1; generateMipmaps && i < mipLevels; ++i) {
         // Transition previous mip from TRANSFER_DST → TRANSFER_SRC
         transitionImageLayout(device, commandPool, graphicsQueue, image, i - 1,
                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -328,7 +330,7 @@ Texture Texture::load(GpuDevice& gpu,
     viewCI.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewCI.image                           = image;
     viewCI.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
-    viewCI.format                          = VK_FORMAT_R8G8B8A8_SRGB;
+    viewCI.format                          = format;
     viewCI.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
     viewCI.subresourceRange.baseMipLevel   = 0;
     viewCI.subresourceRange.levelCount     = mipLevels;
@@ -343,24 +345,30 @@ Texture Texture::load(GpuDevice& gpu,
     }
 
     // ---------------------------------------------------------------------------
-    // 7. Create VkSampler (REPEAT, LINEAR_MIPMAP_LINEAR min, LINEAR mag)
+    // 7. Create VkSampler
+    //    generateMipmaps=true:  REPEAT, LINEAR_MIPMAP_LINEAR (3D textures)
+    //    generateMipmaps=false: CLAMP_TO_EDGE, NEAREST mipmap, maxLod=0 (font atlases)
     // ---------------------------------------------------------------------------
 
     VkSamplerCreateInfo samplerCI{};
     samplerCI.sType                   = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     samplerCI.magFilter               = VK_FILTER_LINEAR;
     samplerCI.minFilter               = VK_FILTER_LINEAR;
-    samplerCI.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    samplerCI.addressModeU            = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerCI.addressModeV            = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerCI.addressModeW            = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerCI.mipmapMode              = generateMipmaps ? VK_SAMPLER_MIPMAP_MODE_LINEAR
+                                                        : VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerCI.addressModeU            = generateMipmaps ? VK_SAMPLER_ADDRESS_MODE_REPEAT
+                                                        : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerCI.addressModeV            = generateMipmaps ? VK_SAMPLER_ADDRESS_MODE_REPEAT
+                                                        : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerCI.addressModeW            = generateMipmaps ? VK_SAMPLER_ADDRESS_MODE_REPEAT
+                                                        : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     samplerCI.anisotropyEnable        = VK_FALSE;
     samplerCI.borderColor             = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     samplerCI.unnormalizedCoordinates = VK_FALSE;
     samplerCI.compareEnable           = VK_FALSE;
     samplerCI.mipLodBias              = 0.0f;
     samplerCI.minLod                  = 0.0f;
-    samplerCI.maxLod                  = static_cast<float>(mipLevels);
+    samplerCI.maxLod                  = generateMipmaps ? static_cast<float>(mipLevels) : 0.0f;
 
     VkSampler sampler;
     if (vkCreateSampler(device, &samplerCI, nullptr, &sampler) != VK_SUCCESS) {

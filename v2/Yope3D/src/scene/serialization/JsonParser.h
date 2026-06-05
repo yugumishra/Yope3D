@@ -1,5 +1,4 @@
 #pragma once
-#ifdef YOPE_EDITOR
 #include <string>
 #include <vector>
 #include <map>
@@ -46,4 +45,3 @@ struct JsonNode {
 // Parse a JSON string. Throws std::runtime_error on parse failure.
 JsonNode parseJson(const char* src);
 JsonNode parseJsonFile(const char* path);
-#endif

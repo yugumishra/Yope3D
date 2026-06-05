@@ -3,8 +3,10 @@
 int main() {
     Engine engine;
 
-    if (!engine.init())
+    if (!engine.init()) {
+        engine.cleanup();   // tear down whatever subsystems came up before the failure
         return -1;
+    }
 
     while (!engine.window->shouldClose()) {
         // pollEvents FIRST so that callbacks (onKey, onMouseMove, etc.) fire

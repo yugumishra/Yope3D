@@ -3,3 +3,4 @@ compiled_shaders/
 vcpkg_installed/
 .cache/
 *.spv
+vendor/

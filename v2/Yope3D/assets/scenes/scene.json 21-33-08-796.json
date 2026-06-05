@@ -1,0 +1,126 @@
+{
+    "version": 1,
+    "gravity": [0, -9.80665, 0],
+    "entities": [
+        {
+            "fileId": 0,
+            "runtimeId": 0,
+            "isFixed": true,
+            "Name":             {
+                "value": "StaticAABB"
+            },
+            "Transform":             {
+                "position": [0, -0.1, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [10, 0.1, 10]
+            },
+            "Hull":             {
+                "mass": 0,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": false,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "AABBForm":             {
+                "extent": [10, 0.1, 10]
+            },
+            "MeshRenderer":             {
+                "color": [0.5, 0.5, 0.55],
+                "primitiveType": 3,
+                "primitiveExtents": [1, 1, 1]
+            }
+        },
+        {
+            "fileId": 1,
+            "runtimeId": 1,
+            "Name":             {
+                "value": "OBB"
+            },
+            "Transform":             {
+                "position": [0, 4.97171, 0],
+                "rotation": [0.338366, 0.0609589, -0.197827, 0.917963],
+                "scale": [0.499997, 0.499996, 0.499996]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": true,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "OBBForm":             {
+                "extent": [0.499997, 0.499996, 0.499996]
+            },
+            "MeshRenderer":             {
+                "color": [1, 0.75, 0.45],
+                "primitiveType": 3,
+                "primitiveExtents": [1, 1, 1]
+            }
+        },
+        {
+            "fileId": 2,
+            "runtimeId": 2,
+            "Name":             {
+                "value": "SpotLight"
+            },
+            "LightSource":             {
+                "type": 2,
+                "color": [0.938053, 0.249041, 0.249041],
+                "intensity": 2,
+                "position": [0, 5, 0],
+                "direction": [0, -1, 0],
+                "constant": 0,
+                "linear": 0.113,
+                "quadratic": 0.066,
+                "innerConeAngle": 0.2,
+                "outerConeAngle": 1.00213
+            }
+        },
+        {
+            "fileId": 3,
+            "runtimeId": 4,
+            "Name":             {
+                "value": "UI Text"
+            },
+            "UITransform":             {
+                "minX": 0.0386503,
+                "minY": 0.0254658,
+                "maxX": 0.652147,
+                "maxY": 0.307867,
+                "depth": 0,
+                "visible": true
+            },
+            "UIText":             {
+                "fontPath": "fonts/monaco.ttf",
+                "text": "Hello World!",
+                "color": [1, 1, 1, 1],
+                "displayPx": 38,
+                "alignment": 0
+            }
+        },
+        {
+            "fileId": 4,
+            "runtimeId": 3,
+            "Name":             {
+                "value": "UI Background"
+            },
+            "UITransform":             {
+                "minX": 0.0349693,
+                "minY": 0.0171843,
+                "maxX": 0.399386,
+                "maxY": 0.158799,
+                "depth": 0,
+                "visible": true
+            },
+            "UIBackground":             {
+                "color": [0.2, 0.2, 0.2, 0.8]
+            }
+        }
+    ]
+}

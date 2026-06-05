@@ -11,6 +11,11 @@
       "name": "imgui",
       "features": ["docking-experimental", "vulkan-binding", "glfw-binding"]
     },
-    "imguizmo"
+    "imguizmo",
+    {
+      "name": "msdfgen",
+      "default-features": false,
+      "features": ["extensions"]
+    }
   ]
 }

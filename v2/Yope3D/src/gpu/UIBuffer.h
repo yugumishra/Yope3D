@@ -25,8 +25,9 @@ struct UIDrawCall {
     uint32_t        indexCount;
     uint32_t        indexOffset;
     int32_t         vertexOffset;  // base vertex added to every index
-    int32_t         state;         // 0=solid 1=textured 2=text
+    int32_t         state;         // 0=solid 1=textured 2=MSDF text
     VkDescriptorSet texture;       // VK_NULL_HANDLE if state==0
+    float           distanceRange = 0.0f;  // MSDF texel range (state==2); feeds shader AA
 };
 
 // ---------------------------------------------------------------------------

@@ -12,14 +12,23 @@ namespace math {
         Vec3& operator*=(float scalar);
         Vec3& operator/=(float scalar);
 
+        //element wise (hadamard) product
+        Vec3& hadamard(const Vec3& other);
+
         //derived from above (does NOT edit the original)
         Vec3 operator+(const Vec3& b) const;
         Vec3 operator-(const Vec3& b) const;
         Vec3 operator*(float scalar) const;
         Vec3 operator/(float scalar) const;
 
+        //element wise (hadamard) product
+        Vec3 hadamard(const Vec3& other) const;
+
         //unary negation (creates copy and stores negative)
-        Vec3 operator-() const;   
+        Vec3 operator-() const;
+        
+        //sign vector creation (creates a vector indicating the signs of each component)
+        Vec3 operator~() const;
         
         //vector utilities
         //dots 2 vectors together using standard dot product
@@ -63,6 +72,13 @@ namespace math {
         return *this;
     }
 
+    Vec3& Vec3::hadamard(const Vec3& other) {
+        x *= other.x;
+        y *= other.y;
+        z *= other.z;
+        return *this;
+    }
+
     Vec3 Vec3::operator+(const Vec3& b) const { 
         Vec3 res = *this;
         return res += b;
@@ -80,8 +96,23 @@ namespace math {
         return res /= scalar;
     }
 
+    Vec3 Vec3::hadamard(const Vec3& other) const {
+        Vec3 res = *this;
+        res.hadamard(other);  // mutating version on the copy
+        return res;
+    }
+
     Vec3 Vec3::operator-() const {
         return {-x, -y, -z};
+    }
+
+    //branchless + super fast sign computation
+    Vec3 Vec3::operator~() const {
+        return {
+            static_cast<float>(x != 0.0f) * std::copysign(1.0f, x),
+            static_cast<float>(y != 0.0f) * std::copysign(1.0f, y),
+            static_cast<float>(z != 0.0f) * std::copysign(1.0f, z)
+        };
     }
 
 

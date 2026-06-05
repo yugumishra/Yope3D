@@ -22,6 +22,7 @@
 #include <array>
 #include <vector>
 #include <cstring>
+#include <iostream>
 
 // ---------------------------------------------------------------------------
 // packLightSource — packs ecs::LightSource into the same float stream as packLight().
@@ -139,6 +140,8 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
     createUIFramebuffers(gpu.device());
     createUIPipeline(gpu.device());
     createUIBuffers(gpu);
+    createText3DPipeline(gpu.device());
+    createText3DBuffers(gpu);
     createCommandPool(gpu);
     allocateCommandBuffers(gpu.device());
     createSyncObjects(gpu.device());
@@ -148,6 +151,7 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
 #ifdef YOPE_EDITOR
     createOffscreenGamePass(gpu);
     createOffscreenRaytracePass(gpu);
+    createOffscreenUIPass(gpu);
 #endif
     std::array<VkBuffer,     2> uboBuffs{},   lightBuffs{};
     std::array<VkDeviceSize, 2> uboSizes{},   lightSizes{};
@@ -199,6 +203,16 @@ void Renderer::waitIdle(GpuDevice& gpu) {
     destroyUIFramebuffers(gpu.device());
     for (auto& ub : uiBuffers) ub.destroy(gpu.device());
     uiRenderPass.reset();
+
+    // 3D text pipeline cleanup
+    vkDestroyPipeline(gpu.device(), text3DPipeline_, nullptr);
+    vkDestroyPipelineLayout(gpu.device(), text3DPipelineLayout_, nullptr);
+    for (auto& tb : text3DBuffers_) tb.destroy(gpu.device());
+
+#ifdef YOPE_EDITOR
+    destroyOffscreenUIFramebuffer(gpu.device());
+    offscreenUIPass_.reset();
+#endif
 
     for (auto& ub : uniformBuffers) ub.destroy(gpu.device());
     for (auto& sb : lightBuffers) sb.destroy(gpu.device());
@@ -692,15 +706,25 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
             }
         }
 
+        // 3D world-space text — depth-tested against the scene, before pass end.
+        recordText3D(cmd);
+
         vkCmdEndRenderPass(cmd);
     }
 
     // ---------------------------------------------------------------------------
     // UI render pass — runs after the 3D pass, loads color, no depth.
+    // Combines UIManager labels (legacy script API) with ECS UI entities.
     // ---------------------------------------------------------------------------
-    if (uiManager_) {
-        const auto& drawCalls = uiManager_->getDrawCalls();
-        if (!drawCalls.empty()) {
+    {
+        std::vector<UIDrawCall> allUICalls;
+        if (uiManager_) {
+            const auto& dc = uiManager_->getDrawCalls();
+            allUICalls.insert(allUICalls.end(), dc.begin(), dc.end());
+        }
+        allUICalls.insert(allUICalls.end(), ecsUIDrawCalls_.begin(), ecsUIDrawCalls_.end());
+
+        if (!allUICalls.empty()) {
             VkRenderPassBeginInfo uiRpbi{};
             uiRpbi.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             uiRpbi.renderPass        = uiRenderPass->get();
@@ -711,6 +735,16 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
 
             vkCmdBeginRenderPass(cmd, &uiRpbi, VK_SUBPASS_CONTENTS_INLINE);
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, uiPipeline);
+
+            // ui.frag statically declares a sampler at set 0 — always bind a
+            // compatible set so solid-color draws (dc.texture==VK_NULL_HANDLE)
+            // don't trigger a validation error from the previous 3D pipeline's set.
+            if (uiManager_) {
+                VkDescriptorSet dummy = uiManager_->dummyDescSet();
+                if (dummy != VK_NULL_HANDLE)
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        uiPipelineLayout, 0, 1, &dummy, 0, nullptr);
+            }
 
             VkViewport viewport{};
             viewport.width    = static_cast<float>(swapchain->extent().width);
@@ -728,13 +762,14 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
             vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
             vkCmdBindIndexBuffer(cmd, ubuf.indexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-            for (const auto& dc : drawCalls) {
+            for (const auto& dc : allUICalls) {
                 if (dc.texture != VK_NULL_HANDLE) {
                     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                         uiPipelineLayout, 0, 1, &dc.texture, 0, nullptr);
                 }
+                struct { int32_t state; float distanceRange; } uipush{ dc.state, dc.distanceRange };
                 vkCmdPushConstants(cmd, uiPipelineLayout,
-                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(int32_t), &dc.state);
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(uipush), &uipush);
                 vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset,
                                  dc.vertexOffset, 0);
             }
@@ -754,6 +789,78 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
 void Renderer::destroyUIFramebuffers(VkDevice device) {
     for (auto fb : uiFramebuffers) vkDestroyFramebuffer(device, fb, nullptr);
     uiFramebuffers.clear();
+}
+
+// ---------------------------------------------------------------------------
+// ECS UI geometry builder
+// ---------------------------------------------------------------------------
+
+void Renderer::buildECSUIGeometry(UIBuffer& buf, World& world, float sw, float sh) {
+    ecsUIDrawCalls_.clear();
+    if (!uiManager_) buf.begin();   // UIManager calls begin(); we must if it's absent
+
+    // Default character height (reference px) for UIText with no explicit displayPx.
+    constexpr int kDefaultUITextPx = 54;
+
+    auto& reg = world.getRegistry();
+
+    // Collect all visible UI entities and sort by depth (ascending = back-to-front).
+    struct UIEntry { ecs::Entity e; int depth; };
+    std::vector<UIEntry> entries;
+    for (auto [e, uiTf] : reg.view<ecs::UITransform>()) {
+        if (uiTf.visible) entries.push_back({e, uiTf.depth});
+    }
+    std::stable_sort(entries.begin(), entries.end(),
+                     [](const UIEntry& a, const UIEntry& b){ return a.depth < b.depth; });
+
+    for (auto& entry : entries) {
+        ecs::Entity e    = entry.e;
+        const auto* uiTf = reg.get<ecs::UITransform>(e);
+        if (!uiTf) continue;
+
+        math::Vec2 mn{uiTf->minX, uiTf->minY};
+        math::Vec2 mx{uiTf->maxX, uiTf->maxY};
+
+        if (const auto* bg = reg.get<ecs::UIBackground>(e)) {
+            Background tmp(mn, mx, {bg->r, bg->g, bg->b, bg->a}, uiTf->depth);
+            tmp.buildMesh(buf, sw, sh);
+            if (tmp.drawCall.indexCount > 0) ecsUIDrawCalls_.push_back(tmp.drawCall);
+
+        } else if (const auto* cbg = reg.get<ecs::UICurvedBackground>(e)) {
+            CurvedBackground tmp(mn, mx, {cbg->r, cbg->g, cbg->b, cbg->a},
+                                 uiTf->depth, cbg->curvature);
+            tmp.buildMesh(buf, sw, sh);
+            if (tmp.drawCall.indexCount > 0) ecsUIDrawCalls_.push_back(tmp.drawCall);
+
+        } else if (const auto* tbg = reg.get<ecs::UITexturedBackground>(e)) {
+            if (tbg->texture) {
+                TexturedBackground tmp(mn, mx,
+                                       {tbg->tintR, tbg->tintG, tbg->tintB, tbg->tintA},
+                                       uiTf->depth, tbg->texture);
+                tmp.buildMesh(buf, sw, sh);
+                if (tmp.drawCall.indexCount > 0) ecsUIDrawCalls_.push_back(tmp.drawCall);
+            }
+
+        } else if (const auto* ut = reg.get<ecs::UIText>(e)) {
+            if (uiManager_ && ut->fontPath[0] && ut->text[0]) {
+                // Bake the atlas at a FIXED reference pixel size, independent of the
+                // render target. TextBox scales glyphs to the actual screen height,
+                // so layout is resolution-independent and the atlas is cached/stable
+                // instead of being re-baked per viewport size (the old sh-derived
+                // size churned a new atlas every time the viewport resized).
+                int displayPx = (ut->displayPx > 0) ? ut->displayPx : kDefaultUITextPx;
+                TextAtlas* atlas = uiManager_->loadAtlas(ut->fontPath, displayPx);
+                if (atlas) {
+                    Background boundsBox(mn, mx, {0,0,0,0}, 0);
+                    TextBox tb(&boundsBox, atlas, ut->text, uiTf->depth,
+                               displayPx, static_cast<Alignment>(ut->alignment));
+                    tb.setColor(ut->cr, ut->cg, ut->cb, ut->ca);
+                    tb.buildMesh(buf, sw, sh);
+                    if (tb.drawCall.indexCount > 0) ecsUIDrawCalls_.push_back(tb.drawCall);
+                }
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -847,14 +954,23 @@ void Renderer::createUIPipeline(VkDevice device) {
     depthStencil.depthWriteEnable = VK_FALSE;
     depthStencil.stencilTestEnable= VK_FALSE;
 
-    // Alpha blending: src_alpha / one_minus_src_alpha
+    // RGB: standard pre-multiplied alpha blend.
+    // Alpha: PRESERVE destination alpha (ONE_MINUS_SRC_ALPHA instead of ZERO) so the
+    // viewport texture alpha stays at 1.0 from the 3D pass.
+    // Without this, text coverage values written to alpha cause empty glyph-box pixels
+    // to be composited against the ImGui window background in the editor, producing
+    // visible dark rectangles around every character cell.
     VkPipelineColorBlendAttachmentState blendAttachment{};
     blendAttachment.blendEnable         = VK_TRUE;
     blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
     blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     blendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;
+    // Alpha channel: output = max(srcAlpha, dstAlpha * (1 - srcAlpha)).
+    // With srcFactor=ONE and dstFactor=ONE_MINUS_SRC_ALPHA the viewport texture
+    // always ends up with alpha=1 where UI is drawn, preventing ImGui from
+    // darkening those pixels when displaying the offscreen texture as an image.
     blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     blendAttachment.alphaBlendOp        = VK_BLEND_OP_ADD;
     blendAttachment.colorWriteMask      =
         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
@@ -865,11 +981,11 @@ void Renderer::createUIPipeline(VkDevice device) {
     colorBlend.attachmentCount = 1;
     colorBlend.pAttachments    = &blendAttachment;
 
-    // Push constant: just int state (4 bytes), fragment stage only.
+    // Push constant: int state + float distanceRange (8 bytes), fragment stage only.
     VkPushConstantRange pushRange{};
     pushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     pushRange.offset     = 0;
-    pushRange.size       = 4;
+    pushRange.size       = 8;
 
     // Set 0 = texture sampler (reuse the same layout as the 3D pipeline's set 1)
     VkDescriptorSetLayout setLayouts[1] = { textureSetLayout->get() };
@@ -904,6 +1020,222 @@ void Renderer::createUIPipeline(VkDevice device) {
 
 void Renderer::createUIBuffers(GpuDevice& gpu) {
     for (auto& ub : uiBuffers) ub.init(gpu);
+}
+
+// ---------------------------------------------------------------------------
+// 3D world-space text
+// ---------------------------------------------------------------------------
+
+void Renderer::createText3DBuffers(GpuDevice& gpu) {
+    for (auto& tb : text3DBuffers_) tb.init(gpu);
+}
+
+void Renderer::createText3DPipeline(VkDevice device) {
+    ShaderModule vert(device, std::string(YOPE_SHADER_DIR) + "/text3d.vert.spv");
+    ShaderModule frag(device, std::string(YOPE_SHADER_DIR) + "/text3d.frag.spv");
+
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vert.get();
+    stages[0].pName  = "main";
+    stages[1].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = frag.get();
+    stages[1].pName  = "main";
+
+    VkVertexInputBindingDescription binding{};
+    binding.binding   = 0;
+    binding.stride    = sizeof(Text3DVertex);
+    binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    VkVertexInputAttributeDescription attrs[3]{};
+    attrs[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT,    offsetof(Text3DVertex, x) };
+    attrs[1] = { 1, 0, VK_FORMAT_R32G32_SFLOAT,       offsetof(Text3DVertex, u) };
+    attrs[2] = { 2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Text3DVertex, r) };
+
+    VkPipelineVertexInputStateCreateInfo vertexInput{};
+    vertexInput.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInput.vertexBindingDescriptionCount   = 1;
+    vertexInput.pVertexBindingDescriptions      = &binding;
+    vertexInput.vertexAttributeDescriptionCount = 3;
+    vertexInput.pVertexAttributeDescriptions    = attrs;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkDynamicState dynStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = 2;
+    dynamicState.pDynamicStates    = dynStates;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount  = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.cullMode    = VK_CULL_MODE_NONE;   // text quads are double-sided
+    rasterizer.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.lineWidth   = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    // Depth: TEST against scene geometry (so text is occluded), but do NOT WRITE —
+    // blended AA fringes would otherwise punch depth and self-occlude into halos.
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable  = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_FALSE;
+    depthStencil.depthCompareOp   = VK_COMPARE_OP_LESS;
+    depthStencil.stencilTestEnable= VK_FALSE;
+
+    // Same blend as the UI pass: premultiplied-alpha color, dst-alpha preserved so
+    // the editor's offscreen viewport texture keeps alpha=1 where text is drawn.
+    VkPipelineColorBlendAttachmentState blendAttachment{};
+    blendAttachment.blendEnable         = VK_TRUE;
+    blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;
+    blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttachment.alphaBlendOp        = VK_BLEND_OP_ADD;
+    blendAttachment.colorWriteMask      =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlend.attachmentCount = 1;
+    colorBlend.pAttachments    = &blendAttachment;
+
+    // Push: mat4 model + float distanceRange + int billboard (72 bytes), both stages.
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushRange.offset     = 0;
+    pushRange.size       = 72;
+
+    // Set 0 = GlobalUBO (shared with the mesh pipeline), Set 1 = MSDF atlas sampler.
+    VkDescriptorSetLayout setLayouts[2] = { uboLayout->get(), textureSetLayout->get() };
+    VkPipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount         = 2;
+    layoutInfo.pSetLayouts            = setLayouts;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges    = &pushRange;
+    if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &text3DPipelineLayout_) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create text3D pipeline layout");
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount          = 2;
+    pipelineInfo.pStages             = stages;
+    pipelineInfo.pVertexInputState   = &vertexInput;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState      = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState   = &multisampling;
+    pipelineInfo.pColorBlendState    = &colorBlend;
+    pipelineInfo.pDepthStencilState  = &depthStencil;
+    pipelineInfo.pDynamicState       = &dynamicState;
+    pipelineInfo.layout              = text3DPipelineLayout_;
+    // Created against the main render pass; reused in the editor's offscreen game
+    // pass too (the two are render-pass-compatible, like the mesh pipeline).
+    pipelineInfo.renderPass          = renderPass->get();
+    pipelineInfo.subpass             = 0;
+    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &text3DPipeline_) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create text3D pipeline");
+}
+
+void Renderer::buildECSText3DGeometry(Text3DBuffer& buf, World& world) {
+    ecsText3DDrawCalls_.clear();
+    buf.begin();
+    if (!uiManager_) return;
+
+    auto& reg = world.getRegistry();
+    std::vector<Text3DVertex> verts;
+    std::vector<uint32_t>     indices;
+
+    for (auto [e, tf, t] : reg.view<Transform, ecs::TextLabel3D>()) {
+        (void)e;
+        if (!t.fontPath[0] || !t.text[0]) continue;
+        TextAtlas* atlas = uiManager_->loadAtlas(t.fontPath);
+        if (!atlas) continue;
+
+        float s = t.sizeMeters;
+
+        // Measure the (single-line) width, then center horizontally on the anchor.
+        float width = 0.0f;
+        for (const char* p = t.text; *p; ++p) {
+            const GlyphInfo* g = atlas->glyph(*p);
+            if (g) width += g->advance * s;
+        }
+        float penX  = -0.5f * width;
+        float baseY = -0.5f * atlas->ascender() * s;   // roughly vertical-center the cap height
+
+        verts.clear();
+        indices.clear();
+        for (const char* p = t.text; *p; ++p) {
+            const GlyphInfo* g = atlas->glyph(*p);
+            if (!g) continue;
+            if (g->hasQuad) {
+                // planeBounds are em, Y-up, baseline origin → local meters, Y-up.
+                float xMin = penX + g->planeL * s;
+                float xMax = penX + g->planeR * s;
+                float yBot = baseY + g->planeB * s;
+                float yTop = baseY + g->planeT * s;   // top → atlas v0
+                uint32_t base = static_cast<uint32_t>(verts.size());
+                verts.push_back({ xMin, yTop, 0.0f, g->u0, g->v0, t.cr, t.cg, t.cb, t.ca });
+                verts.push_back({ xMax, yTop, 0.0f, g->u1, g->v0, t.cr, t.cg, t.cb, t.ca });
+                verts.push_back({ xMax, yBot, 0.0f, g->u1, g->v1, t.cr, t.cg, t.cb, t.ca });
+                verts.push_back({ xMin, yBot, 0.0f, g->u0, g->v1, t.cr, t.cg, t.cb, t.ca });
+                indices.insert(indices.end(), { base, base+1, base+2, base, base+2, base+3 });
+            }
+            penX += g->advance * s;
+        }
+        if (verts.empty()) continue;
+
+        auto r = buf.push(verts.data(), static_cast<uint32_t>(verts.size()),
+                          indices.data(), static_cast<uint32_t>(indices.size()));
+        Text3DDrawCall dc{};
+        dc.indexCount    = r.indexCount;
+        dc.indexOffset   = r.indexOffset;
+        dc.vertexOffset  = r.vertexOffset;
+        dc.atlas         = atlas->descriptorSet();
+        dc.distanceRange = atlas->distanceRange();
+        dc.billboard     = t.billboard;
+        dc.model         = tf.getModelMatrix();
+        ecsText3DDrawCalls_.push_back(dc);
+    }
+}
+
+void Renderer::recordText3D(VkCommandBuffer cmd) {
+    if (ecsText3DDrawCalls_.empty()) return;
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, text3DPipeline_);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, text3DPipelineLayout_,
+        0, 1, &descriptorSets[currentFrame], 0, nullptr);
+
+    VkBuffer     vb  = text3DBuffers_[currentFrame].vertexBuffer();
+    VkDeviceSize off = 0;
+    vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &off);
+    vkCmdBindIndexBuffer(cmd, text3DBuffers_[currentFrame].indexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+    for (const auto& dc : ecsText3DDrawCalls_) {
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, text3DPipelineLayout_,
+            1, 1, &dc.atlas, 0, nullptr);
+        struct { math::Mat4 model; float distanceRange; int32_t billboard; }
+            push{ dc.model, dc.distanceRange, dc.billboard };
+        vkCmdPushConstants(cmd, text3DPipelineLayout_,
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+        vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, dc.vertexOffset, 0);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -964,10 +1296,12 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, W
         raytracer_->prepareFrame(currentFrame, world);
 
     // Build UI geometry for this frame before recording commands.
-    if (uiManager_) {
+    {
         float sw = static_cast<float>(swapchain->extent().width);
         float sh = static_cast<float>(swapchain->extent().height);
-        uiManager_->buildFrame(uiBuffers[currentFrame], sw, sh);
+        if (uiManager_) uiManager_->buildFrame(uiBuffers[currentFrame], sw, sh);
+        buildECSUIGeometry(uiBuffers[currentFrame], world, sw, sh);
+        buildECSText3DGeometry(text3DBuffers_[currentFrame], world);
     }
 
     vkResetCommandBuffer(cmdBuffers[currentFrame], 0);
@@ -1028,6 +1362,62 @@ void Renderer::createOffscreenRaytracePass(GpuDevice& gpu) {
         RenderPass::createOffscreenRaytracePass(gpu.device(), swapchain->imageFormat()));
 }
 
+void Renderer::createOffscreenUIPass(GpuDevice& gpu) {
+    offscreenUIPass_ = std::make_unique<RenderPass>(
+        RenderPass::createOffscreenUIPass(gpu.device(), swapchain->imageFormat()));
+}
+
+void Renderer::destroyOffscreenUIFramebuffer(VkDevice device) {
+    for (int i = 0; i < MAX_FRAMES; ++i) {
+        if (offscreenUIFb_[i] != VK_NULL_HANDLE) {
+            vkDestroyFramebuffer(device, offscreenUIFb_[i], nullptr);
+            offscreenUIFb_[i] = VK_NULL_HANDLE;
+        }
+        offscreenUIView_[i] = VK_NULL_HANDLE;
+    }
+    offscreenUIW_ = 0;
+    offscreenUIH_ = 0;
+}
+
+void Renderer::notifyViewportResizing(VkDevice device) {
+    // EditorApp's resize path syncs the device first, so it's safe to destroy
+    // the framebuffers here; the next beginFrameForEditor recreates them lazily
+    // against the new (post-resize) color views from ViewportTarget.
+    destroyOffscreenUIFramebuffer(device);
+}
+
+void Renderer::recreateOffscreenUIFramebufferIfNeeded(VkDevice device,
+                                                      ViewportTarget& vt) {
+    // Recreate only the current frame's slot, and only when its cached color
+    // view (or the size) changed — so steady-state rendering does no per-frame
+    // framebuffer churn even though vt.colorView() ping-pongs between frames.
+    VkImageView view = vt.colorView();
+    if (offscreenUIFb_[currentFrame] != VK_NULL_HANDLE &&
+        offscreenUIView_[currentFrame] == view &&
+        offscreenUIW_ == vt.width() &&
+        offscreenUIH_ == vt.height()) {
+        return;
+    }
+    if (offscreenUIFb_[currentFrame] != VK_NULL_HANDLE) {
+        vkDestroyFramebuffer(device, offscreenUIFb_[currentFrame], nullptr);
+        offscreenUIFb_[currentFrame] = VK_NULL_HANDLE;
+    }
+
+    VkFramebufferCreateInfo fi{};
+    fi.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fi.renderPass      = offscreenUIPass_->get();
+    fi.attachmentCount = 1;
+    fi.pAttachments    = &view;
+    fi.width           = vt.width();
+    fi.height          = vt.height();
+    fi.layers          = 1;
+    if (vkCreateFramebuffer(device, &fi, nullptr, &offscreenUIFb_[currentFrame]) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create offscreen UI framebuffer");
+    offscreenUIView_[currentFrame] = view;
+    offscreenUIW_ = vt.width();
+    offscreenUIH_ = vt.height();
+}
+
 VkRenderPass Renderer::getOffscreenGamePass() const {
     return offscreenGamePass_ ? offscreenGamePass_->get() : VK_NULL_HANDLE;
 }
@@ -1044,6 +1434,11 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
                                        const Camera& camera, World& world,
                                        AssetManager& assets,
                                        ViewportTarget& vt) {
+    // Select this frame's double-buffered viewport images. Every vt.xxx()
+    // accessor below — plus the IdBufferPass record and the ImGui::Image in the
+    // panel, which run later this tick — resolves to this slot. Waiting on this
+    // slot's fence guarantees its prior use (two ticks ago) has fully retired.
+    vt.setActiveFrame(currentFrame);
     vkWaitForFences(gpu.device(), 1, &inFlightFence[currentFrame], VK_TRUE, UINT64_MAX);
 
     uint32_t imageIndex;
@@ -1085,7 +1480,7 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
     VkCommandBufferBeginInfo bi{};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
-
+    
     if (mode_ == RenderMode::RAYTRACE && raytracer_ && offscreenRaytracePass_
         && vt.raytraceFramebuffer() != VK_NULL_HANDLE) {
         // ---- Raytrace path ----
@@ -1103,7 +1498,7 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
         rpbi.renderArea.extent = {vt.width(), vt.height()};
         rpbi.clearValueCount   = 1;
         rpbi.pClearValues      = &rtClear;
-
+        
         vkCmdBeginRenderPass(cmd, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
 
         VkViewport vp{};
@@ -1118,6 +1513,13 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
         vkCmdEndRenderPass(cmd);
     } else {
         // ---- Raster path ----
+        // Build 3D-text geometry before the pass (under the structure lock, like
+        // the UI build) so play-mode archetype migrations don't race the view.
+        {
+            auto _lk = world.lockStructure();
+            buildECSText3DGeometry(text3DBuffers_[currentFrame], world);
+        }
+
         VkClearValue clearValues[2]{};
         clearValues[0].color        = {0.05f, 0.05f, 0.05f, 1.0f};
         clearValues[1].depthStencil = {1.0f, 0};
@@ -1144,7 +1546,8 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
 
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
             pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
-
+        
+        
         auto& reg = world.getRegistry();
         if (!world.debugPhysics) {
             for (auto [entity, tf, mr] : reg.view<Transform, ecs::MeshRenderer>()) {
@@ -1181,7 +1584,109 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
             }
         }
 
+        // 3D world-space text — depth-tested against the scene, before pass end.
+        recordText3D(cmd);
+
         vkCmdEndRenderPass(cmd);
+    }
+
+    // ---- Offscreen UI pass ----
+    // Builds UIManager + ECS UI geometry and composites onto the viewport texture.
+    if (offscreenUIPass_) {
+        float uw = static_cast<float>(vt.width());
+        float uh = static_cast<float>(vt.height());
+        // Build UI geometry under the structure lock so concurrent archetype
+        // migrations in the physics thread (Sleeping tag additions) don't race
+        // with the view iterator reading archetypes_ during play mode.
+        {
+            auto _lk = world.lockStructure();
+            uiBuffers[currentFrame].begin();
+            if (uiManager_) uiManager_->buildFrame(uiBuffers[currentFrame], uw, uh);
+            buildECSUIGeometry(uiBuffers[currentFrame], world, uw, uh);
+        }
+
+        std::vector<UIDrawCall> allUICalls;
+        if (uiManager_) {
+            const auto& dc = uiManager_->getDrawCalls();
+            allUICalls.insert(allUICalls.end(), dc.begin(), dc.end());
+        }
+        allUICalls.insert(allUICalls.end(), ecsUIDrawCalls_.begin(), ecsUIDrawCalls_.end());
+
+        // Always run the offscreen UI pass — skipping it when allUICalls is
+        // momentarily empty (e.g. first play frame) causes visible flicker.
+        {
+            recreateOffscreenUIFramebufferIfNeeded(gpu.device(), vt);
+
+            VkRenderPassBeginInfo uiRpbi{};
+            uiRpbi.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            uiRpbi.renderPass        = offscreenUIPass_->get();
+            uiRpbi.framebuffer       = offscreenUIFb_[currentFrame];
+            uiRpbi.renderArea.offset = {0, 0};
+            uiRpbi.renderArea.extent = {vt.width(), vt.height()};
+            uiRpbi.clearValueCount   = 0;
+
+            vkCmdBeginRenderPass(cmd, &uiRpbi, VK_SUBPASS_CONTENTS_INLINE);
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, uiPipeline);
+
+            if (uiManager_) {
+                VkDescriptorSet dummy = uiManager_->dummyDescSet();
+                if (dummy != VK_NULL_HANDLE)
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        uiPipelineLayout, 0, 1, &dummy, 0, nullptr);
+            }
+
+            VkViewport uiVp{};
+            uiVp.width    = uw;
+            uiVp.height   = uh;
+            uiVp.minDepth = 0.0f;
+            uiVp.maxDepth = 1.0f;
+            vkCmdSetViewport(cmd, 0, 1, &uiVp);
+            VkRect2D uiSc{{0, 0}, {vt.width(), vt.height()}};
+            vkCmdSetScissor(cmd, 0, 1, &uiSc);
+
+            const UIBuffer& ubuf = uiBuffers[currentFrame];
+            VkBuffer vb         = ubuf.vertexBuffer();
+            VkDeviceSize vbOffset = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &vbOffset);
+            vkCmdBindIndexBuffer(cmd, ubuf.indexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+            for (const auto& dc : allUICalls) {
+                if (dc.texture != VK_NULL_HANDLE) {
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        uiPipelineLayout, 0, 1, &dc.texture, 0, nullptr);
+                }
+                struct { int32_t state; float distanceRange; } uipush{ dc.state, dc.distanceRange };
+                vkCmdPushConstants(cmd, uiPipelineLayout,
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(uipush), &uipush);
+                vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset,
+                                 dc.vertexOffset, 0);
+            }
+
+            vkCmdEndRenderPass(cmd);
+        }
+
+        // Make the offscreen UI pass's color writes available + visible to ImGui's
+        // fragment-shader sample of the same viewport image. The render pass leaves
+        // the image in SHADER_READ_ONLY_OPTIMAL but its implicit exit dependency
+        // doesn't chain the color write to a shader read, so without this barrier
+        // the sample races the UI writes — seen as chunks of the UI blinking in/out
+        // (worse at higher frame rates). Done as an explicit barrier rather than a
+        // render-pass exit dependency because uiPipeline is shared with the swapchain
+        // UI pass and extra dependencies would break render-pass compatibility.
+        VkImageMemoryBarrier uiToSample{};
+        uiToSample.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        uiToSample.srcAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        uiToSample.dstAccessMask       = VK_ACCESS_SHADER_READ_BIT;
+        uiToSample.oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        uiToSample.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        uiToSample.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        uiToSample.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        uiToSample.image               = vt.colorImage();
+        uiToSample.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdPipelineBarrier(cmd,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &uiToSample);
     }
 
     // Command buffer stays open — ImGuiBackend::render() records the ImGui pass next.

@@ -14,9 +14,9 @@ Config Config::load(const std::string& path) {
         if (eq == std::string::npos) continue;
         std::string key = line.substr(0, eq);
         std::string val = line.substr(eq + 1);
-        if (key == "script") cfg.script = val;
-        else if (key == "width")  cfg.width  = std::stoi(val);
-        else if (key == "height") cfg.height = std::stoi(val);
+        if (key == "startupScene") cfg.startupScene = val;
+        else if (key == "width")   cfg.width  = std::stoi(val);
+        else if (key == "height")  cfg.height = std::stoi(val);
     }
     return cfg;
 }

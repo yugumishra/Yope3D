@@ -26,6 +26,11 @@ public:
     // finalLayout = SHADER_READ_ONLY_OPTIMAL so ImGui can sample the result.
     static RenderPass createOffscreenRaytracePass(VkDevice device, VkFormat colorFormat);
 
+    // UI offscreen pass (YOPE_EDITOR): loads existing color (preserves the 3D
+    // game pass underneath), no depth attachment, initialLayout and finalLayout
+    // both SHADER_READ_ONLY_OPTIMAL so the same texture stays consumable by ImGui.
+    static RenderPass createOffscreenUIPass(VkDevice device, VkFormat colorFormat);
+
     ~RenderPass();
 
     VkRenderPass get() const { return renderPass; }

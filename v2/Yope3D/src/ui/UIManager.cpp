@@ -166,13 +166,12 @@ void UIManager::remove(Label* label) {
 }
 
 TextAtlas* UIManager::loadAtlas(const std::string& fontPath, int pixelSize) {
-    // Check cache (same path + size).
+    // MSDF atlases are resolution-independent, so one atlas per font (the
+    // pixelSize arg is kept for call-site compatibility but no longer keys the
+    // cache — keying by font path was the old size-only bug that returned the
+    // wrong atlas in multi-font setups).
     for (auto& a : atlases_) {
-        if (a->pixelSize() == pixelSize) {
-            // We don't store the path in TextAtlas, so just reuse the first matching size.
-            // For correctness in multi-font setups, use a separate atlas per font.
-            return a.get();
-        }
+        if (a->fontPath() == fontPath) return a.get();
     }
     auto atlas = std::make_unique<TextAtlas>();
     if (!atlas->init(*gpu_, commandPool_, uiDescPool_, textureLayout_, fontPath, pixelSize)) {

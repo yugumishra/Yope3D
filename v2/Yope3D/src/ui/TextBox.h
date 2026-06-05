@@ -42,5 +42,12 @@ private:
     bool        visible_   = true;
     float       cr_ = 1, cg_ = 1, cb_ = 1, ca_ = 1;  // text color (white default)
 
-    static constexpr float kPaddingPx = 6.0f;  // padding inside parent bounds
+    // Layout is authored against a 1920×1080 reference. refScale = min(W/1920, H/1080)
+    // drives ALL metrics — glyph size, padding, and wrap width — so em-units-per-line
+    // is constant across resolutions and aspect ratios ≤ 16:9. Ultra-wide displays
+    // (AR > 16:9) get more characters per line (expected: the box is physically wider).
+    static constexpr float kReferenceWidth  = 1920.0f;
+    static constexpr float kReferenceHeight = 1080.0f;
+    static constexpr float kPaddingPx       = 6.0f;   // padding inside parent bounds (reference px)
+    static constexpr int   kDefaultDisplayPx = 32;    // character height when displayPx_==0 (reference px)
 };

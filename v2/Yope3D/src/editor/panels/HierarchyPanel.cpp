@@ -10,6 +10,8 @@
 #include "assets/Primitives.h"
 #include "rendering/Light.h"
 #include <imgui.h>
+#include <algorithm>
+#include <vector>
 #include <cstdio>
 
 void HierarchyPanel::draw(EditorContext& ctx) {
@@ -102,6 +104,32 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                     math::Vec3{10.f, 0.1f, 10.f}));
             ImGui::CloseCurrentPopup();
         }
+        ImGui::Separator();
+        if (ImGui::MenuItem("UI Background")) {
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::UIBackground));
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::MenuItem("UI Curved Background")) {
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::UICurvedBackground));
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::MenuItem("UI Text")) {
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::UIText));
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::MenuItem("Text Label (3D)")) {
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::TextLabel3D, math::Vec3{0.f, 1.f, 0.f},
+                    math::Vec3{1.f, 1.f, 1.f}));
+            ImGui::CloseCurrentPopup();
+        }
         ImGui::EndPopup();
     }
 
@@ -111,18 +139,37 @@ void HierarchyPanel::draw(EditorContext& ctx) {
 
     if (!ctx.registry) { ImGui::End(); return; }
 
+    // Build sorted entity list: non-UI first (ECS order), then UI entities ascending by depth.
+    std::vector<ecs::Entity> nonUI, uiEnts;
     for (auto [e, _sel] : ctx.registry->view<ecs::EditorSelectable>()) {
+        if (ctx.registry->has<ecs::UITransform>(e)) uiEnts.push_back(e);
+        else                                         nonUI.push_back(e);
+    }
+    std::sort(uiEnts.begin(), uiEnts.end(), [&](ecs::Entity a, ecs::Entity b) {
+        auto* ta = ctx.registry->get<ecs::UITransform>(a);
+        auto* tb = ctx.registry->get<ecs::UITransform>(b);
+        return (ta ? ta->depth : 0) < (tb ? tb->depth : 0);
+    });
+
+    // Draw a single entity row with selection and context menu.
+    auto drawRow = [&](ecs::Entity e) {
         char label[96];
+        bool isUI = ctx.registry->has<ecs::UITransform>(e);
         if (auto* n = ctx.registry->get<ecs::Name>(e))
-            std::snprintf(label, sizeof(label), "%s##%u", n->value, e.id);
+            std::snprintf(label, sizeof(label), "%s%s##%u",
+                          isUI ? "[UI] " : "", n->value, e.id);
         else
-            std::snprintf(label, sizeof(label), "Entity #%u##%u", e.id, e.id);
+            std::snprintf(label, sizeof(label), "%sEntity #%u##%u",
+                          isUI ? "[UI] " : "", e.id, e.id);
 
         bool selected = ctx.selection && ctx.selection->contains(e);
         if (ImGui::Selectable(label, selected)) {
-            if (ctx.selection) ctx.selection->set(e);
+            if (ctx.selection) {
+                bool additive = ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift;
+                if (additive) ctx.selection->add(e);
+                else          ctx.selection->set(e);
+            }
         }
-
         if (ImGui::BeginPopupContextItem()) {
             if (ImGui::MenuItem("Delete")) {
                 if (ctx.history)
@@ -130,7 +177,14 @@ void HierarchyPanel::draw(EditorContext& ctx) {
             }
             ImGui::EndPopup();
         }
+    };
+
+    for (auto e : nonUI)  drawRow(e);
+    if (!uiEnts.empty()) {
+        ImGui::Separator();
+        ImGui::TextDisabled("  UI Elements");
     }
+    for (auto e : uiEnts) drawRow(e);
 
     ImGui::End();
 }

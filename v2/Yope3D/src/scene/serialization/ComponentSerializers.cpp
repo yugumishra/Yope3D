@@ -1,5 +1,4 @@
-#include "editor/serialization/ComponentSerializers.h"
-#ifdef YOPE_EDITOR
+#include "scene/serialization/ComponentSerializers.h"
 #include "ecs/Components.h"
 #include "world/Transform.h"
 #include "world/RenderMesh.h"
@@ -230,5 +229,168 @@ bool deserializeAudioSource(const JsonNode& n, void* comp) {
     return true;
 }
 
+// ---- ScriptComponent ----
+// scriptClass is the registered name. paramsBlob is the raw JSON snippet of
+// the script's per-instance params. The live Script* is *not* serialized — it
+// only exists at runtime / play-mode time and is recreated from these strings.
+
+void serializeScriptComponent(const void* comp, JsonWriter& w) {
+    auto* sc = static_cast<const ecs::ScriptComponent*>(comp);
+    if (sc->scriptClass[0]) w.writeString("scriptClass", sc->scriptClass);
+    if (sc->paramsBlob[0])  w.writeString("paramsBlob",  sc->paramsBlob);
+}
+
+bool deserializeScriptComponent(const JsonNode& n, void* comp) {
+    auto* sc = static_cast<ecs::ScriptComponent*>(comp);
+    if (n.contains("scriptClass"))
+        std::strncpy(sc->scriptClass, n["scriptClass"].asString().c_str(),
+                     sizeof(sc->scriptClass) - 1);
+    if (n.contains("paramsBlob"))
+        std::strncpy(sc->paramsBlob, n["paramsBlob"].asString().c_str(),
+                     sizeof(sc->paramsBlob) - 1);
+    sc->instance = nullptr;
+    return true;
+}
+
+// ---- UITransform ----
+
+void serializeUITransform(const void* comp, JsonWriter& w) {
+    auto* t = static_cast<const ecs::UITransform*>(comp);
+    w.writeFloat("minX",    t->minX);
+    w.writeFloat("minY",    t->minY);
+    w.writeFloat("maxX",    t->maxX);
+    w.writeFloat("maxY",    t->maxY);
+    w.writeInt  ("depth",   t->depth);
+    w.writeBool ("visible", t->visible);
+}
+
+bool deserializeUITransform(const JsonNode& n, void* comp) {
+    auto* t = static_cast<ecs::UITransform*>(comp);
+    if (n.contains("minX"))    t->minX    = n["minX"].asFloat();
+    if (n.contains("minY"))    t->minY    = n["minY"].asFloat();
+    if (n.contains("maxX"))    t->maxX    = n["maxX"].asFloat();
+    if (n.contains("maxY"))    t->maxY    = n["maxY"].asFloat();
+    if (n.contains("depth"))   t->depth   = n["depth"].asInt();
+    if (n.contains("visible")) t->visible = n["visible"].asBool();
+    return true;
+}
+
+// ---- UIBackground ----
+
+void serializeUIBackground(const void* comp, JsonWriter& w) {
+    auto* bg = static_cast<const ecs::UIBackground*>(comp);
+    w.writeFloat4("color", bg->r, bg->g, bg->b, bg->a);
+}
+
+bool deserializeUIBackground(const JsonNode& n, void* comp) {
+    auto* bg = static_cast<ecs::UIBackground*>(comp);
+    if (n.contains("color")) {
+        auto& arr = n["color"].asArray();
+        if (arr.size() >= 4) {
+            bg->r = arr[0].asFloat(); bg->g = arr[1].asFloat();
+            bg->b = arr[2].asFloat(); bg->a = arr[3].asFloat();
+        }
+    }
+    return true;
+}
+
+// ---- UITexturedBackground ----
+
+void serializeUITexturedBackground(const void* comp, JsonWriter& w) {
+    auto* bg = static_cast<const ecs::UITexturedBackground*>(comp);
+    if (bg->path[0]) w.writeString("path", bg->path);
+    w.writeFloat4("tint", bg->tintR, bg->tintG, bg->tintB, bg->tintA);
+}
+
+bool deserializeUITexturedBackground(const JsonNode& n, void* comp) {
+    auto* bg = static_cast<ecs::UITexturedBackground*>(comp);
+    if (n.contains("path"))
+        std::strncpy(bg->path, n["path"].asString().c_str(), sizeof(bg->path) - 1);
+    if (n.contains("tint")) {
+        auto& arr = n["tint"].asArray();
+        if (arr.size() >= 4) {
+            bg->tintR = arr[0].asFloat(); bg->tintG = arr[1].asFloat();
+            bg->tintB = arr[2].asFloat(); bg->tintA = arr[3].asFloat();
+        }
+    }
+    // texture* is runtime-only; re-loaded from path at scene load time.
+    return true;
+}
+
+// ---- UICurvedBackground ----
+
+void serializeUICurvedBackground(const void* comp, JsonWriter& w) {
+    auto* bg = static_cast<const ecs::UICurvedBackground*>(comp);
+    w.writeFloat4("color", bg->r, bg->g, bg->b, bg->a);
+    w.writeFloat("curvature", bg->curvature);
+}
+
+bool deserializeUICurvedBackground(const JsonNode& n, void* comp) {
+    auto* bg = static_cast<ecs::UICurvedBackground*>(comp);
+    if (n.contains("color")) {
+        auto& arr = n["color"].asArray();
+        if (arr.size() >= 4) {
+            bg->r = arr[0].asFloat(); bg->g = arr[1].asFloat();
+            bg->b = arr[2].asFloat(); bg->a = arr[3].asFloat();
+        }
+    }
+    if (n.contains("curvature")) bg->curvature = n["curvature"].asFloat();
+    return true;
+}
+
+// ---- UIText ----
+
+void serializeUIText(const void* comp, JsonWriter& w) {
+    auto* ut = static_cast<const ecs::UIText*>(comp);
+    if (ut->fontPath[0]) w.writeString("fontPath",  ut->fontPath);
+    if (ut->text[0])     w.writeString("text",       ut->text);
+    w.writeFloat4("color",       ut->cr, ut->cg, ut->cb, ut->ca);
+    w.writeInt   ("displayPx",   ut->displayPx);
+    w.writeInt   ("alignment",   ut->alignment);
+}
+
+bool deserializeUIText(const JsonNode& n, void* comp) {
+    auto* ut = static_cast<ecs::UIText*>(comp);
+    if (n.contains("fontPath"))
+        std::strncpy(ut->fontPath, n["fontPath"].asString().c_str(), sizeof(ut->fontPath) - 1);
+    if (n.contains("text"))
+        std::strncpy(ut->text, n["text"].asString().c_str(), sizeof(ut->text) - 1);
+    if (n.contains("color")) {
+        auto& arr = n["color"].asArray();
+        if (arr.size() >= 4) {
+            ut->cr = arr[0].asFloat(); ut->cg = arr[1].asFloat();
+            ut->cb = arr[2].asFloat(); ut->ca = arr[3].asFloat();
+        }
+    }
+    if (n.contains("displayPx")) ut->displayPx = n["displayPx"].asInt();
+    if (n.contains("alignment")) ut->alignment  = n["alignment"].asInt();
+    return true;
+}
+
+void serializeTextLabel3D(const void* comp, JsonWriter& w) {
+    auto* t = static_cast<const ecs::TextLabel3D*>(comp);
+    if (t->fontPath[0]) w.writeString("fontPath", t->fontPath);
+    if (t->text[0])     w.writeString("text",     t->text);
+    w.writeFloat4("color",      t->cr, t->cg, t->cb, t->ca);
+    w.writeFloat ("sizeMeters", t->sizeMeters);
+    w.writeInt   ("billboard",  t->billboard);
+}
+bool deserializeTextLabel3D(const JsonNode& n, void* comp) {
+    auto* t = static_cast<ecs::TextLabel3D*>(comp);
+    if (n.contains("fontPath"))
+        std::strncpy(t->fontPath, n["fontPath"].asString().c_str(), sizeof(t->fontPath) - 1);
+    if (n.contains("text"))
+        std::strncpy(t->text, n["text"].asString().c_str(), sizeof(t->text) - 1);
+    if (n.contains("color")) {
+        auto& arr = n["color"].asArray();
+        if (arr.size() >= 4) {
+            t->cr = arr[0].asFloat(); t->cg = arr[1].asFloat();
+            t->cb = arr[2].asFloat(); t->ca = arr[3].asFloat();
+        }
+    }
+    if (n.contains("sizeMeters")) t->sizeMeters = n["sizeMeters"].asFloat();
+    if (n.contains("billboard"))  t->billboard  = n["billboard"].asInt();
+    return true;
+}
+
 } // namespace compser
-#endif

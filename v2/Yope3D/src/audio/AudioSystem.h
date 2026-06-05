@@ -59,6 +59,9 @@ public:
     void pauseAll();
     void resumeAll();
 
+    // Stop all sources without removing them (used on play-mode exit and scene unload).
+    void stopAll();
+
     // Stop and remove a specific source. The pointer becomes invalid after this call.
     void removeSource(Source* src);
 

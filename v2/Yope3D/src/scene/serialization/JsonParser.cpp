@@ -1,5 +1,4 @@
-#include "editor/serialization/JsonParser.h"
-#ifdef YOPE_EDITOR
+#include "scene/serialization/JsonParser.h"
 #include <fstream>
 #include <sstream>
 #include <cctype>
@@ -151,4 +150,3 @@ JsonNode parseJsonFile(const char* path) {
     std::string s = ss.str();
     return parseJson(s.c_str());
 }
-#endif

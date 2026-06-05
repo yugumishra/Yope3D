@@ -27,6 +27,7 @@ struct EditorContext {
     bool*           playMode       = nullptr;   // read: show Play vs Stop label
     std::function<void()>                       onTogglePlay;
     std::function<void(uint32_t, uint32_t)>     onViewportResize;
+    std::function<void(bool)>                   onViewportMaximize;
     std::function<void()>                       onNewScene;
     std::function<void(ecs::Entity)>            onDeleteEntity;
 };

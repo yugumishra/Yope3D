@@ -2,14 +2,28 @@
 #ifdef YOPE_EDITOR
 #include "editor/EditorContext.h"
 #include "editor/commands/SetComponentCommand.h"
+#include "editor/commands/AddSpringConstraintCommand.h"
 #include "ecs/Components.h"
 #include "ecs/Registry.h"
+#include "world/World.h"
 #include <imgui.h>
 #include <cstdio>
 
 void drawSpringConstraintComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
     auto* sc = static_cast<ecs::SpringConstraint*>(comp);
-    if (!ImGui::CollapsingHeader("Spring Constraint")) return;
+    bool removeRequested = false;
+    if (!componentHeader("Spring Constraint", "X##sprrem", &removeRequested)) {
+        if (removeRequested && ctx.history && ctx.world) {
+            ctx.world->removeSpringBetween(e, sc->target);
+            ctx.registry->remove<ecs::SpringConstraint>(e);
+        }
+        return;
+    }
+    if (removeRequested && ctx.history && ctx.world) {
+        ctx.world->removeSpringBetween(e, sc->target);
+        ctx.registry->remove<ecs::SpringConstraint>(e);
+        return;
+    }
 
     static ecs::SpringConstraint before{};
 

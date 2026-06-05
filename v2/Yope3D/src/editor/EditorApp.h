@@ -8,7 +8,7 @@
 #include "editor/EditorPanel.h"
 #include "editor/ImGuiBackend.h"
 #include "editor/EditorTheme.h"
-#include "editor/commands/ComponentSnapshot.h"
+#include "scene/ComponentSnapshot.h"
 #include "editor/picking/IdBufferPass.h"
 #include "editor/panels/AssetBrowserPanel.h"
 #include "platform/FileWatcher.h"
@@ -65,6 +65,11 @@ private:
     bool pendingTogglePlay_ = false;
     bool pendingUndo_       = false;
     bool pendingRedo_       = false;
+    // Open-Scene is requested from inside ImGui rendering (panel callbacks)
+    // — which runs after the command buffer has already recorded draws against
+    // the current registry's RenderMeshes. Loading inline would destroy those
+    // VkBuffers mid-frame. Defer to the next tick, alongside pendingNewScene_.
+    std::string pendingLoadScenePath_;
 
     // Paste offset accumulates per paste so repeated Ctrl+V lands further away.
     // Reset to zero whenever the clipboard is refreshed (copy).
@@ -72,4 +77,5 @@ private:
 
     std::vector<ecs::Entity>    pendingDeleteEntities_;
     std::vector<ClipboardEntry> clipboard_;
+    std::vector<bool>           savedPanelVisibility_;  // saved on viewport maximize
 };

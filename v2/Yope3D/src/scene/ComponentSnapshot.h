@@ -1,5 +1,4 @@
 #pragma once
-#ifdef YOPE_EDITOR
 #include "ecs/Components.h"
 #include "ecs/Registry.h"
 #include "world/Transform.h"
@@ -24,6 +23,8 @@ struct ComponentSnapshot {
     bool hasLight     = false;  ecs::LightSource light;
     bool hasName      = false;  ecs::Name        name;
     bool hasAudio     = false;  ecs::AudioSource audio;   // Source* always null in the snapshot
+    bool hasScript    = false;  ecs::ScriptComponent script;  // instance always null in the snapshot
+    bool hasSpring    = false;  ecs::SpringConstraint spring; // target resolved on restore
 
     // Mesh visual data (stored separately — RenderMesh* is non-owning)
     bool              hasMesh      = false;
@@ -34,11 +35,19 @@ struct ComponentSnapshot {
     std::vector<uint32_t> cpuInds;
     std::string meshSourcePath;  // Absolute .obj path; non-empty only for drag-dropped meshes
 
+    // UI components (Texture*/atlas pointers are never snapshotted)
+    bool hasUITransform          = false;  ecs::UITransform          uiTransform;
+    bool hasUIBackground         = false;  ecs::UIBackground         uiBackground;
+    bool hasUITexturedBackground = false;  ecs::UITexturedBackground uiTexturedBackground;
+    bool hasUICurvedBackground   = false;  ecs::UICurvedBackground   uiCurvedBackground;
+    bool hasUIText               = false;  ecs::UIText               uiText;
+
+    // 3D world-space text (Transform-anchored, not UI).
+    bool hasTextLabel3D          = false;  ecs::TextLabel3D          textLabel3D;
+
     // Reconstruct the entity in the world and return the new entity handle.
     ecs::Entity restore(World& world) const;
 };
 
 // Capture all components of an entity into a snapshot.
 ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world);
-
-#endif

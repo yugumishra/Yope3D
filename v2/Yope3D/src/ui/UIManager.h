@@ -91,7 +91,7 @@ public:
     void remove(Label* label);
 
     // Load (or retrieve cached) a TextAtlas.  fontPath is relative to YOPE_ASSETS_DIR.
-    TextAtlas* loadAtlas(const std::string& fontPath, int pixelSize);
+    TextAtlas* loadAtlas(const std::string& fontPath, int pixelSize = 0);
 
     // ---------------------------------------------------------------------------
     // Layout helpers
