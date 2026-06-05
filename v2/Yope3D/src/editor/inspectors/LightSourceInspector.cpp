@@ -13,7 +13,12 @@ void drawLightSourceComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
                          : ls->type == 1 ? "Directional Light"
                          : ls->type == 2 ? "Spot Light"
                          :                 "Flash Light";
-    if (!ImGui::CollapsingHeader(typeName, ImGuiTreeNodeFlags_DefaultOpen)) return;
+    bool removeLight = false;
+    if (!componentHeader(typeName, "X##ltrem", &removeLight)) {
+        if (removeLight && ctx.registry) ctx.registry->remove<ecs::LightSource>(e);
+        return;
+    }
+    if (removeLight && ctx.registry) { ctx.registry->remove<ecs::LightSource>(e); return; }
 
     static ecs::LightSource before{};
     ImGui::Indent();

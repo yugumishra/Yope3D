@@ -16,12 +16,19 @@ class GpuDevice;
 class Texture {
 public:
     // Load from RGBA8 pixels (width × height).
-    // Generates mipmaps automatically.
+    // generateMipmaps=true (default): generates full mip chain with LINEAR filtering.
+    // generateMipmaps=false: single mip level, NEAREST mipmap mode, CLAMP_TO_EDGE —
+    //   appropriate for font atlases where glyph bleeding across mip levels is undesirable.
+    // srgb=true (default): R8G8B8A8_SRGB (gamma-decoded on sample) — for color textures.
+    // srgb=false: R8G8B8A8_UNORM (linear, raw values) — required for data textures like
+    //   MSDF distance fields, whose channels must NOT be gamma-decoded.
     static Texture load(GpuDevice& gpu,
                        VkCommandPool commandPool,
                        VkDescriptorSetLayout set1Layout,
                        VkDescriptorPool texturePool,
-                       const uint8_t* pixels, int width, int height);
+                       const uint8_t* pixels, int width, int height,
+                       bool generateMipmaps = true,
+                       bool srgb = true);
 
     Texture() = default;
     Texture(Texture&&) noexcept;

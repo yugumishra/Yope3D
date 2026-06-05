@@ -1,6 +1,8 @@
 #include "editor/inspectors/InspectorRegistry.h"
 #ifdef YOPE_EDITOR
 #include "editor/EditorContext.h"
+#include "editor/CommandHistory.h"
+#include "editor/commands/SetAssetCommands.h"
 #include "Engine.h"
 #include "ecs/Components.h"
 #include "audio/AudioSystem.h"
@@ -39,10 +41,11 @@ void drawAudioSourceComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
     if (ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
             const char* absPath = static_cast<const char*>(payload->Data);
-            if (ctx.engine && ctx.engine->audio) {
-                std::string rel = toAssetRelative(absPath);
+            if (ctx.engine && ctx.engine->audio && ctx.history) {
+                std::string before = as->path;
+                std::string rel    = toAssetRelative(absPath);
+                // Apply immediately so the user hears feedback; then record the command.
                 if (auto* sb = ctx.engine->audio->loadSound(rel)) {
-                    // Free the previously bound source, if any.
                     if (as->source) ctx.engine->audio->removeSource(as->source);
                     as->source = ctx.engine->audio->createSource(sb);
                     std::strncpy(as->path, rel.c_str(), sizeof(as->path) - 1);
@@ -52,6 +55,8 @@ void drawAudioSourceComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
                         as->source->setPitch(as->pitch);
                         as->source->enableLooping(as->loop);
                     }
+                    ctx.history->execute(ctx,
+                        std::make_unique<SetAudioSourceCommand>(e, before, rel));
                 }
             }
         }

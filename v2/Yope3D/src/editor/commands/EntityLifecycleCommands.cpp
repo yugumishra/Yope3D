@@ -85,6 +85,24 @@ void CreateEntityCommand::redo(EditorContext& ctx) {
             created_ = w.addAudioSourceEntity(pos);
             break;
         }
+        case EntityKind::UIBackground: {
+            created_ = w.addUIBackground({0.1f, 0.1f}, {0.9f, 0.9f},
+                                          {0.2f, 0.2f, 0.2f, 0.8f}, 0);
+            break;
+        }
+        case EntityKind::UICurvedBackground: {
+            created_ = w.addUICurvedBackground({0.1f, 0.1f}, {0.9f, 0.9f},
+                                                {0.2f, 0.2f, 0.2f, 0.8f}, 0.5f, 0);
+            break;
+        }
+        case EntityKind::UIText: {
+            created_ = w.addUIText(nullptr, "Text", {0.1f, 0.1f}, {0.9f, 0.9f}, 0);
+            break;
+        }
+        case EntityKind::TextLabel3D: {
+            created_ = w.addTextLabel3D("fonts/monaco.ttf", "Text", pos);
+            break;
+        }
     }
     // Auto-select the new entity
     if (ctx.selection && ctx.world->getRegistry().valid(created_))

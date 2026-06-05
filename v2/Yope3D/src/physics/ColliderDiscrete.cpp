@@ -288,7 +288,6 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
 // ============================================================================
 // Sphere — Sphere   (normal convention: from a toward b)
 // ============================================================================
-
 bool detectSphereSphere(const SphereGeom& a, const SphereGeom& b, ContactManifold& m) {
     math::Vec3 diff   = b.getPosition() - a.getPosition();
     float      distSq = diff.dot(diff);
@@ -746,6 +745,158 @@ bool detectOBBOBB(const OBBGeom& a, const OBBGeom& b, ContactManifold& m) {
     }
     return true;
 }
+
+// ============================================================================
+// Sphere — Sphere support
+// ============================================================================
+
+math::Vec3 supportSphereSphere(const SphereGeom& a, const SphereGeom& b, const math::Vec3& dir) {
+    //for any sphere, the farthest point in a direction is simply that direction (scaled by radius)
+    //math::Vec3 supportA = a.getPosition() + dir * a.getRadius();
+    //math::Vec3 supportB = b.getPosition() - dir * b.getRadius(); //invert direction for minkowski difference support calculation
+    //below code is factored version of above
+    return a.getPosition() - b.getPosition() + dir * (a.getRadius() + b.getRadius());
+}
+
+// ============================================================================
+// Sphere — AABB support
+// ============================================================================
+
+math::Vec3 supportSphereAABB(const SphereGeom& a, const AABBGeom& b, const math::Vec3& dir) {
+    //for any sphere, the farthest point in a direction is simply that direction (scaled by radius)
+    math::Vec3 knowns = a.getPosition() + dir * a.getRadius()        - b.getPosition(); //include b.getposition now
+
+
+    //for box shapes, multiple points can be the same furthest distance away
+    //in this case their centroid must be computed
+    //but since this is an aabb, this is easy we can use the sign of the direction vector itself
+    return knowns - (~dir).hadamard(b.getScales());
+    //hadamard (element wise) product takes care of any and all comparisons
+    //any cases with multiple same distance points <==> one of the dir axes is 0 <==> contribution canceled out by zpp
+    //ex: direction is simply x axis <==> yz = 0 for dir <==> contribution is x only (sign already determined by sign of dir.x) (this is what we want, no yz contribution/elements)
+}
+
+
+// ============================================================================
+// Sphere — OBB support
+// ============================================================================
+
+math::Vec3 supportSphereOBB(const SphereGeom& a, const OBBGeom& b, const math::Vec3& dir) {
+    //for any sphere, the farthest point in a direction is simply that direction (scaled by radius)
+    math::Vec3 knowns = a.getPosition() + dir * a.getRadius()        - b.getPosition(); //include b.getposition now
+
+
+    //for box shapes, multiple points can be the same furthest distance away
+    //in this case their centroid must be computed
+    //for obbs this is a bit more complex but we can do it in obb space to reuse aabb technique
+    //thankfully rotation matrices are orthonormal so their inverse is their transpose (makes this computationally light)
+    math::Mat3 inv = b.getRotTransform().transpose();
+    math::Vec3 local = inv * dir;
+    //do aabb computation but in local, obb, space (b.getscales also local)
+    local = ~local.hadamard(b.getScales());
+    return knowns + b.getRotTransform() * local;
+    //hadamard (element wise) product takes care of any and all comparisons
+    //any cases with multiple same distance points <==> one of the dir axes is 0 <==> contribution canceled out by zpp
+    //ex: direction is simply x axis <==> yz = 0 for dir <==> contribution is x only (sign already determined by sign of dir.x) (this is what we want, no yz contribution/elements)
+}
+
+math::Vec3 supportAABBAABB(const AABBGeom& a, const AABBGeom& b, const math::Vec3& dir) {
+    //using the above defined aabb support technique, this can be a oneliner (with some factoring)
+    return a.getPosition() - b.getPosition() + (~dir).hadamard(a.getScales() + b.getScales());
+}
+
+math::Vec3 supportAABBOBB(const AABBGeom& a, const OBBGeom& b, const math::Vec3& dir) {
+    //compute both in wordl space and THEN add
+    //use aabb technique
+    math::Vec3 knowns = a.getPosition() + (~dir).hadamard(a.getScales())        - b.getPosition(); //include b.getposition now
+
+    //for box shapes, multiple points can be the same furthest distance away
+    //in this case their centroid must be computed
+    //for obbs this is a bit more complex but we can do it in obb space to reuse aabb technique
+    //thankfully rotation matrices are orthonormal so their inverse is their transpose (makes this computationally light)
+    math::Mat3 inv = b.getRotTransform().transpose();
+    math::Vec3 local = inv * dir;
+    //do aabb computation but in local, obb, space (b.getscales also local)
+    local = ~local.hadamard(b.getScales());
+    return knowns + b.getRotTransform() * local;
+    //hadamard (element wise) product takes care of any and all comparisons
+    //any cases with multiple same distance points <==> one of the dir axes is 0 <==> contribution canceled out by zpp
+    //ex: direction is simply x axis <==> yz = 0 for dir <==> contribution is x only (sign already determined by sign of dir.x) (this is what we want, no yz contribution/elements)
+}
+
+math::Vec3 supportOBBOBB(const OBBGeom& a, const OBBGeom& b, const math::Vec3& dir) {
+    math::Vec3 support = a.getPosition() - b.getPosition();
+    //use the obb technique twice (no other way than to just convert to world space for both)
+    math::Mat3 invA = a.getRotTransform().transpose();
+    math::Vec3 localA = invA * dir;
+    //this is the point selection (aabb style but in obb space so ti works)
+    localA = (~localA).hadamard(a.getScales());
+    //back to world
+    support += a.getRotTransform() * localA;
+
+    math::Mat3 invB = b.getRotTransform().transpose();
+    math::Vec3 localB = invB * dir;
+    //this is the point selection (aabb style but in obb space so ti works)
+    localB = (~localB).hadamard(b.getScales());
+    //back to world and add both together
+    return support + b.getRotTransform() * localB;
+}
+
+
+void detectGJK(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg,
+            std::vector<ActiveContact>& contacts)
+{
+    auto* hca = reg.get<ecs::Hull>(ea);
+    auto* hcb = reg.get<ecs::Hull>(eb);
+    if (!hca || !hcb) return;
+    if (!hca->tangible || !hcb->tangible) return;
+
+    bool aFixed = reg.has<ecs::Fixed>(ea);
+    bool bFixed = reg.has<ecs::Fixed>(eb);
+    if (aFixed && bFixed) return;
+    if (!(hca->collisionLayer & hcb->collisionMask) || !(hcb->collisionLayer & hca->collisionMask)) return;
+
+    auto* tfa = reg.get<Transform>(ea);
+    auto* tfb = reg.get<Transform>(eb);
+    if (!tfa || !tfb) return;
+
+    auto* sa = reg.get<ecs::SphereForm>(ea);
+    auto* sb = reg.get<ecs::SphereForm>(eb);
+    auto* aa = reg.get<ecs::AABBForm>(ea);
+    auto* ab = reg.get<ecs::AABBForm>(eb);
+    auto* ca = reg.get<ecs::OBBForm>(ea);
+    auto* cb = reg.get<ecs::OBBForm>(eb);
+
+    auto mSph  = [&](ecs::Entity e, float r) -> SphereGeom {
+        return {reg.get<Transform>(e)->position, r};
+    };
+    auto mAABB = [&](ecs::Entity e, math::Vec3 ext) -> AABBGeom {
+        return {reg.get<Transform>(e)->position, ext};
+    };
+    auto mOBB  = [&](ecs::Entity e, math::Vec3 ext) -> OBBGeom {
+        auto* tf = reg.get<Transform>(e);
+        return {tf->position, ext, math::Mat3::rotation(tf->rotation)};
+    };
+
+    ContactManifold m;
+    auto push = [&](ecs::Entity pa, ecs::Entity pb, ContactManifold& cm) {
+        ActiveContact c; c.a = pa; c.b = pb; c.manifold = cm;
+        contacts.push_back(c);
+    };
+
+    
+
+    if (sa && sb) { NPHASE_TIME(NP_SPH_SPH);   if (detectSphereSphere(mSph(ea,sa->radius), mSph(eb,sb->radius), m))    push(ea,eb,m); return; }
+    if (sa && ab) { NPHASE_TIME(NP_SPH_AABB);  if (detectSphereAABB(mSph(ea,sa->radius), mAABB(eb,ab->extent), m))   { m.normal=-m.normal; push(ea,eb,m); } return; }
+    if (aa && sb) { NPHASE_TIME(NP_SPH_AABB);  if (detectSphereAABB(mSph(eb,sb->radius), mAABB(ea,aa->extent), m))     push(ea,eb,m); return; }
+    if (aa && ab) { NPHASE_TIME(NP_AABB_AABB); if (detectAABBAABB(mAABB(ea,aa->extent), mAABB(eb,ab->extent), m))      push(ea,eb,m); return; }
+    if (sa && cb) { NPHASE_TIME(NP_SPH_OBB);   if (detectSphereOBB(mSph(ea,sa->radius), mOBB(eb,cb->extent), m))    { m.normal=-m.normal; push(ea,eb,m); } return; }
+    if (ca && sb) { NPHASE_TIME(NP_SPH_OBB);   if (detectSphereOBB(mSph(eb,sb->radius), mOBB(ea,ca->extent), m))      push(ea,eb,m); return; }
+    if (aa && cb) { NPHASE_TIME(NP_AABB_OBB);  if (detectAABBOBB(mAABB(ea,aa->extent), mOBB(eb,cb->extent), m))       push(ea,eb,m); return; }
+    if (ca && ab) { NPHASE_TIME(NP_AABB_OBB);  if (detectAABBOBB(mAABB(eb,ab->extent), mOBB(ea,ca->extent), m))     { m.normal=-m.normal; push(ea,eb,m); } return; }
+    if (ca && cb) { NPHASE_TIME(NP_OBB_OBB);   if (detectOBBOBB(mOBB(ea,ca->extent), mOBB(eb,cb->extent), m))         push(ea,eb,m); return; }
+}
+
 
 // ============================================================================
 // detect() — ECS-based type dispatch. Reads positions and shapes from Registry.

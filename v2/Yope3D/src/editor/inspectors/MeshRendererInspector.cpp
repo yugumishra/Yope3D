@@ -1,6 +1,8 @@
 #include "editor/inspectors/InspectorRegistry.h"
 #ifdef YOPE_EDITOR
 #include "editor/EditorContext.h"
+#include "editor/CommandHistory.h"
+#include "editor/commands/SetAssetCommands.h"
 #include "ecs/Components.h"
 #include "world/World.h"
 #include "world/RenderMesh.h"
@@ -43,19 +45,19 @@ void drawMeshRendererComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
     if (ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
             const char* absPath = static_cast<const char*>(payload->Data);
+            std::string before = (mr->mesh ? mr->mesh->sourcePath : "");
             try {
                 LoadedMesh loaded = ObjLoader::load(absPath);
                 if (!loaded.vertices.empty() && ctx.world) {
-                    // Use the raw vertex/index overload — this skips setPrimitiveInfo so
-                    // the mesh stays PrimitiveType::Custom and cpuVertices/cpuIndices are
-                    // retained for raytracer triangle intersection regardless of the OBJ's
-                    // internal object name (e.g. Blender exports "o Plane" for any plane).
                     RenderMesh* rm = ctx.world->attachMesh(e, loaded.vertices, loaded.indices);
-                    if (rm) rm->sourcePath = absPath;
+                    if (rm) {
+                        rm->sourcePath = absPath;
+                        if (ctx.history)
+                            ctx.history->execute(ctx,
+                                std::make_unique<SetMeshCommand>(e, before, absPath));
+                    }
                 }
-            } catch (...) {
-                // load failure — leave mesh unchanged
-            }
+            } catch (...) {}
         }
         ImGui::EndDragDropTarget();
     }

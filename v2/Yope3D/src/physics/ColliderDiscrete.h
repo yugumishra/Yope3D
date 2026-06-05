@@ -95,6 +95,18 @@ namespace ColliderDiscrete {
     bool detectAABBOBB     (const AABBGeom&   a, const OBBGeom&    b, ContactManifold& m);
     bool detectOBBOBB      (const OBBGeom&    a, const OBBGeom&    b, ContactManifold& m);
 
+    //support functions for GJK implementation (done pairwise to optimize support calculations)
+    //computes furthest point in the direction specified on the minkowski difference defined by shape a - shape b
+    math::Vec3 supportSphereSphere(const SphereGeom& a, const SphereGeom& b, const math::Vec3& dir);
+    math::Vec3 supportSphereAABB  (const SphereGeom& a, const AABBGeom&   b, const math::Vec3& dir);
+    math::Vec3 supportSphereOBB   (const SphereGeom& a, const OBBGeom&    b, const math::Vec3& dir);
+    math::Vec3 supportAABBAABB    (const AABBGeom&   a, const AABBGeom&   b, const math::Vec3& dir);
+    math::Vec3 supportAABBOBB     (const AABBGeom&   a, const OBBGeom&    b, const math::Vec3& dir);
+    math::Vec3 supportOBBOBB      (const OBBGeom&    a, const OBBGeom&    b, const math::Vec3& dir);
+
+    //gjk detect
+    void detectGJK(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg, std::vector<ActiveContact>& contacts);
+
     // ECS-based detect — used by advance().
     void detect(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg,
                 std::vector<ActiveContact>& contacts);

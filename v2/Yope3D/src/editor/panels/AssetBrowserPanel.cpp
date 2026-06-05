@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <mutex>
+#include <unordered_set>
 
 namespace fs = std::filesystem;
 
@@ -45,6 +46,9 @@ void AssetBrowserPanel::drawDirectory(const std::string& dirPath, EditorContext&
         std::string absPath = entry.path().string();
         std::string filename = entry.path().filename().string();
         if (filename.empty() || filename[0] == '.') continue;
+        // Hide editor-internal directories that aren't user-facing assets.
+        static const std::unordered_set<std::string> kHiddenDirs = { "icons", "fonts" };
+        if (entry.is_directory() && kHiddenDirs.count(filename)) continue;
 
         bool isModified = false;
         {

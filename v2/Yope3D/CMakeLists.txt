@@ -32,11 +32,15 @@ set(SHADER_SOURCES
     "${SHADER_SRC_DIR}/triangle.frag"
     "${SHADER_SRC_DIR}/ui.vert"
     "${SHADER_SRC_DIR}/ui.frag"
+    "${SHADER_SRC_DIR}/text3d.vert"
+    "${SHADER_SRC_DIR}/text3d.frag"
     "${SHADER_SRC_DIR}/raytracer.comp"
     "${SHADER_SRC_DIR}/fullscreen.vert"
     "${SHADER_SRC_DIR}/fullscreen.frag"
     "${SHADER_SRC_DIR}/id_buffer.vert"
     "${SHADER_SRC_DIR}/id_buffer.frag"
+    "${SHADER_SRC_DIR}/id_buffer_ui.vert"
+    "${SHADER_SRC_DIR}/id_buffer_ui.frag"
 )
 
 set(COMPILED_SHADERS "")
@@ -53,6 +57,49 @@ foreach(SHADER ${SHADER_SOURCES})
 endforeach()
 
 add_custom_target(compile_shaders ALL DEPENDS ${COMPILED_SHADERS})
+
+# ---------------------------------------------------------------------------
+# MSDF font atlases — generated OFFLINE by the in-repo baker (tools/msdf_bake.cpp,
+# uses the msdfgen library). The output PNG+JSON live in assets/fonts/generated/
+# and are COMMITTED; the engine only loads them (see src/ui/TextAtlas). The bake
+# is a developer-invoked regeneration step, opt-in via -DYOPE_BAKE_FONTS=ON:
+#     cmake --preset mac-debug -DYOPE_BAKE_FONTS=ON
+#     cmake --build build/mac-debug --target bake_fonts
+# Nothing in the normal build depends on the baker, so msdfgen is never required
+# for an ordinary compile (the committed atlases are picked up by GLOB embed).
+# ---------------------------------------------------------------------------
+
+option(YOPE_BAKE_FONTS "Build the MSDF baker and regenerate font atlases" OFF)
+set(YOPE_MSDF_PX_RANGE  4  CACHE STRING "MSDF distance range in atlas texels")
+set(YOPE_MSDF_BAKE_SIZE 48 CACHE STRING "MSDF glyph bake size (pixels per em)")
+
+if(YOPE_BAKE_FONTS)
+    find_package(msdfgen CONFIG REQUIRED)
+
+    add_executable(msdf_bake tools/msdf_bake.cpp)
+    target_include_directories(msdf_bake PRIVATE "${Stb_INCLUDE_DIR}")
+    target_link_libraries(msdf_bake PRIVATE msdfgen::msdfgen-core msdfgen::msdfgen-ext)
+
+    set(FONT_BAKE_LIST monaco nunito_sans nunito_sans_bold)
+    set(GEN_DIR "${CMAKE_SOURCE_DIR}/assets/fonts/generated")
+    file(MAKE_DIRECTORY "${GEN_DIR}")
+
+    set(BAKED_ATLASES "")
+    foreach(F ${FONT_BAKE_LIST})
+        add_custom_command(
+            OUTPUT  "${GEN_DIR}/${F}.png" "${GEN_DIR}/${F}.json"
+            COMMAND msdf_bake
+                    "${CMAKE_SOURCE_DIR}/assets/fonts/${F}.ttf"
+                    "${GEN_DIR}/${F}.png" "${GEN_DIR}/${F}.json"
+                    ${YOPE_MSDF_BAKE_SIZE} ${YOPE_MSDF_PX_RANGE}
+            DEPENDS msdf_bake "${CMAKE_SOURCE_DIR}/assets/fonts/${F}.ttf"
+            COMMENT "Baking MSDF atlas for ${F}"
+        )
+        list(APPEND BAKED_ATLASES "${GEN_DIR}/${F}.png" "${GEN_DIR}/${F}.json")
+    endforeach()
+
+    add_custom_target(bake_fonts DEPENDS ${BAKED_ATLASES})
+endif()
 
 # ---------------------------------------------------------------------------
 # Embed option — must be declared before the block that uses it
@@ -147,11 +194,19 @@ set(ENGINE_SOURCES
     src/rendering/CameraController.cpp
     src/scripting/ScriptFactory.cpp
     src/scripting/Config.cpp
-    src/scripting/SandboxScript.cpp
-    src/scripting/PlatformerScript.cpp
-    src/scripting/ArchitectScript.cpp
+    src/scripting/EmptyScript.cpp
+    src/scene/ComponentSnapshot.cpp
+    src/scene/SceneManager.cpp
+    src/scene/serialization/JsonWriter.cpp
+    src/scene/serialization/JsonParser.cpp
+    src/scene/serialization/ComponentSerializers.cpp
+    src/scene/serialization/SceneSerializer.cpp
     src/debug/Profiler.cpp
+    # Demo scripts (SandboxScript, PlatformerScript, ArchitectScript) used the
+    # pre-M13 single-script model. Dropped from the build; their .cpp/.h files
+    # remain on disk as reference for re-authoring scene-driven equivalents.
     src/gpu/UIBuffer.cpp
+    src/gpu/Text3DBuffer.cpp
     src/ui/Background.cpp
     src/ui/TexturedBackground.cpp
     src/ui/AnimatedBackground.cpp
@@ -170,11 +225,11 @@ set(EDITOR_SOURCES
     src/editor/ImGuiBackend.cpp
     src/editor/EditorTheme.cpp
     src/rendering/ViewportTarget.cpp
-    src/editor/commands/ComponentSnapshot.cpp
     src/editor/commands/EntityLifecycleCommands.cpp
     src/editor/commands/AddColliderCommand.cpp
     src/editor/commands/RemoveColliderCommand.cpp
     src/editor/commands/AddSpringConstraintCommand.cpp
+    src/editor/commands/SetAssetCommands.cpp
     src/editor/inspectors/InspectorRegistry.cpp
     src/editor/inspectors/TransformInspector.cpp
     src/editor/inspectors/HullInspector.cpp
@@ -184,11 +239,9 @@ set(EDITOR_SOURCES
     src/editor/inspectors/NameInspector.cpp
     src/editor/inspectors/AudioSourceInspector.cpp
     src/editor/inspectors/SpringConstraintInspector.cpp
+    src/editor/inspectors/UITransformInspector.cpp
+    src/editor/inspectors/UIBackgroundInspector.cpp
     src/editor/picking/IdBufferPass.cpp
-    src/editor/serialization/JsonWriter.cpp
-    src/editor/serialization/JsonParser.cpp
-    src/editor/serialization/ComponentSerializers.cpp
-    src/editor/serialization/SceneSerializer.cpp
     src/platform/FileWatcher.cpp
     src/editor/panels/ViewportPanel.cpp
     src/editor/panels/HierarchyPanel.cpp

@@ -26,4 +26,28 @@ private:
     T after_;
     std::string label_;
 };
+
+// Generic remove command: stores the component value before removal so undo can re-add it.
+// NOTE: do NOT use this for components with GPU resources (MeshRenderer, AudioSource) or
+// pointers (ScriptComponent.instance) — those need dedicated teardown logic.
+template<class T>
+struct RemoveComponentCommand : ICommand {
+    RemoveComponentCommand(ecs::Entity entity, T before, const char* lbl = "Remove Component")
+        : entity_(entity), before_(before), label_(lbl) {}
+
+    void redo(EditorContext& ctx) override {
+        if (ctx.registry->has<T>(entity_))
+            ctx.registry->remove<T>(entity_);
+    }
+    void undo(EditorContext& ctx) override {
+        if (!ctx.registry->has<T>(entity_))
+            ctx.registry->add<T>(entity_, before_);
+    }
+    const char* label() const override { return label_; }
+
+private:
+    ecs::Entity entity_;
+    T           before_;
+    const char* label_;
+};
 #endif

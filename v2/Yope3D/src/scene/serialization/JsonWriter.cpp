@@ -1,5 +1,4 @@
-#include "editor/serialization/JsonWriter.h"
-#ifdef YOPE_EDITOR
+#include "scene/serialization/JsonWriter.h"
 #include <cstdio>
 #include <cstdint>
 
@@ -144,4 +143,3 @@ void JsonWriter::writePackedUInts(const char* key, const uint32_t* data, size_t 
     ss_ << "]";
     needComma_ = true;
 }
-#endif

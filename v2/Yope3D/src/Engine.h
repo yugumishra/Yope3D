@@ -13,8 +13,8 @@
 #include "assets/AssetManager.h"
 #include "audio/AudioSystem.h"
 #include "audio/Listener.h"
-#include "scripting/Script.h"
 #include "scripting/ScriptContext.h"
+#include "scene/SceneManager.h"
 #include "ui/UIManager.h"
 
 struct Engine {
@@ -27,7 +27,7 @@ struct Engine {
     std::unique_ptr<AssetManager>  assets;
     std::unique_ptr<AudioSystem>   audio;
     std::unique_ptr<UIManager>     uiManager;
-    std::unique_ptr<Script>        script_;
+    std::unique_ptr<SceneManager>  sceneManager;
 
     ScriptContext scriptCtx_;
 

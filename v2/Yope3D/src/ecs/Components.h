@@ -7,6 +7,8 @@
 
 class RenderMesh;
 class Source;
+class Script;
+class Texture;
 
 namespace ecs {
 
@@ -96,10 +98,78 @@ struct Name {
     char value[64] = {};    // fixed buffer — satisfies trivially-relocatable mandate
 };
 
+// ---- Behavior script attachment ----
+// scriptClass:  registered name (YOPE_REGISTER_SCRIPT). Authoritative, persists across save/load.
+// paramsBlob:   raw JSON snippet for the script's per-instance params. "{}" by default.
+//               (Sized for typical scripts; larger configs should reference external assets.)
+// instance:     live Script*, populated only while play mode is active (editor) or while the
+//               scene is loaded (runtime). null in editor edit mode. Owned externally — Engine
+//               / World / SceneManager are responsible for explicit delete at well-defined points
+//               (entity removal, scene swap, shutdown). Archetype migrations memcpy the pointer.
+struct ScriptComponent {
+    char    scriptClass[64]   = {};
+    char    paramsBlob[2048]  = "{}";
+    Script* instance          = nullptr;
+};
+
 // ---- Tag components (zero-content; presence encodes the condition) ----
 struct Sleeping         {};   // physics: body has entered sleep state
 struct Fixed            {};   // physics: body is stationary / infinite mass
 struct EditorSelectable {};   // editor: show in hierarchy panel (Phase D)
 struct EditorPickable   {};   // editor: render in ID buffer pass (Phase D)
+
+// ---- 2D UI components ----
+// All coordinates in [0,1] screen percentage, (0,0) top-left, Y down.
+// Entities with UITransform are screen-space; they have no 3D Transform.
+
+// Layout bounds + display properties shared by every UI element.
+struct UITransform {
+    float minX    = 0.0f, minY    = 0.0f;
+    float maxX    = 1.0f, maxY    = 1.0f;
+    int   depth   = 0;
+    bool  visible = true;
+};
+
+// Solid-color rectangle. Pair with UITransform.
+struct UIBackground {
+    float r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f;
+};
+
+// Texture-modulated rectangle. Pair with UITransform.
+// texture: runtime-only, loaded from path; path is the serializable state.
+struct UITexturedBackground {
+    char     path[256]  = {};
+    Texture* texture    = nullptr;   // non-owning, runtime only
+    float    tintR = 1.0f, tintG = 1.0f, tintB = 1.0f, tintA = 1.0f;
+};
+
+// Rounded-corner (bottom-arc) rectangle. curvature in [0,1]. Pair with UITransform.
+struct UICurvedBackground {
+    float r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f;
+    float curvature = 0.5f;
+};
+
+// Text label. fontPath selects a TextAtlas; text is the rendered string.
+// displayPx: glyph height in pixels, 0 = native atlas size.
+// alignment: 0 = left/DEFAULT, 1 = CENTERED.
+struct UIText {
+    char  fontPath[256] = {};
+    char  text[1024]    = {};
+    float cr = 1.0f, cg = 1.0f, cb = 1.0f, ca = 1.0f;
+    int   displayPx = 0;
+    int   alignment = 0;
+};
+
+// ---- 3D world-space text ----
+// Pairs with a 3D Transform (the anchor). Rendered as MSDF glyph quads inside
+// the main 3D pass (depth-tested, so occluded by geometry). sizeMeters is the
+// world height of one em; billboard != 0 makes the text always face the camera.
+struct TextLabel3D {
+    char  fontPath[256] = {};
+    char  text[256]     = {};
+    float cr = 1.0f, cg = 1.0f, cb = 1.0f, ca = 1.0f;
+    float sizeMeters    = 1.0f;
+    int   billboard     = 1;
+};
 
 } // namespace ecs

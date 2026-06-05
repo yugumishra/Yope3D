@@ -1,126 +1,108 @@
 #include "TextAtlas.h"
 #include "gpu/GpuDevice.h"
-#include <ft2build.h>
-#include FT_FREETYPE_H
-#include <stb_image_write.h>
-#include <cstring>
-#include <string>
-#include <stdexcept>
+#include "scene/serialization/JsonParser.h"
+#include <stb_image.h>
+#include <filesystem>
 #include <iostream>
 
-static constexpr char kFirstChar = ' ';
-static constexpr char kLastChar  = '~';
+namespace {
+
+// "fonts/monaco.ttf" -> ("fonts/generated/monaco.png", "fonts/generated/monaco.json")
+// relative to YOPE_ASSETS_DIR. The bake step (tools/msdf_bake.cpp) writes the
+// generated atlases into a sibling "generated/" directory keyed by font stem.
+void resolveBakedPaths(const std::string& fontPath,
+                       std::string& outPng, std::string& outJson) {
+    std::filesystem::path p(fontPath);
+    std::string stem = p.stem().string();           // "monaco"
+    std::filesystem::path dir = p.parent_path();     // "fonts"
+    std::filesystem::path gen = dir / "generated";
+    outPng  = (gen / (stem + ".png")).string();
+    outJson = (gen / (stem + ".json")).string();
+}
+
+} // namespace
 
 bool TextAtlas::init(GpuDevice& gpu, VkCommandPool commandPool,
                      VkDescriptorPool descriptorPool, VkDescriptorSetLayout textureLayout,
-                     const std::string& fontPath, int pixelSize)
+                     const std::string& fontPath, int /*pixelSize*/)
 {
-    // ---------------------------------------------------------------------------
-    // 1. Initialize FreeType and load font face
-    // ---------------------------------------------------------------------------
+    fontPath_ = fontPath;
 
-    std::string fullPath = std::string(YOPE_ASSETS_DIR) + "/" + fontPath;
+    std::string pngRel, jsonRel;
+    resolveBakedPaths(fontPath, pngRel, jsonRel);
+    std::string pngPath  = std::string(YOPE_ASSETS_DIR) + "/" + pngRel;
+    std::string jsonPath = std::string(YOPE_ASSETS_DIR) + "/" + jsonRel;
 
-    FT_Library ft;
-    if (FT_Init_FreeType(&ft)) {
-        std::cerr << "[TextAtlas] FreeType init failed\n";
+    // ---------------------------------------------------------------------------
+    // 1. Parse glyph layout JSON
+    // ---------------------------------------------------------------------------
+    JsonNode root;
+    try {
+        root = parseJsonFile(jsonPath.c_str());
+    } catch (const std::exception& e) {
+        std::cerr << "[TextAtlas] Failed to parse '" << jsonPath << "': " << e.what()
+                  << "\n  (did you run the 'bake_fonts' target? see CMakeLists / tools/msdf_bake.cpp)\n";
         return false;
     }
 
-    FT_Face face;
-    if (FT_New_Face(ft, fullPath.c_str(), 0, &face)) {
-        std::cerr << "[TextAtlas] Failed to load font: " << fullPath << "\n";
-        FT_Done_FreeType(ft);
-        return false;
-    }
+    const JsonNode& atlas   = root["atlas"];
+    const JsonNode& metrics = root["metrics"];
+    distanceRange_ = atlas["distanceRange"].asFloat();
+    float atlasW   = atlas["width"].asFloat();
+    float atlasH   = atlas["height"].asFloat();
+    lineHeight_    = metrics["lineHeight"].asFloat();
+    ascender_      = metrics["ascender"].asFloat();
+    descender_     = metrics["descender"].asFloat();
 
-    FT_Set_Pixel_Sizes(face, 0, static_cast<FT_UInt>(pixelSize));
-    pixelSize_  = pixelSize;
-    lineHeight_ = static_cast<int>(face->size->metrics.height    >> 6);
-    ascender_   = static_cast<int>(face->size->metrics.ascender  >> 6);
-
-    // ---------------------------------------------------------------------------
-    // 2. Build atlas pixel buffer (RGBA8, ATLAS_SIZE × ATLAS_SIZE)
-    // ---------------------------------------------------------------------------
-
-    pixels_.assign(kAtlasSize * kAtlasSize * 4, 0);
-    auto& pixels = pixels_;
-
-    int cursorX = 0, cursorY = 0, lineH = 0;
-
-    for (char c = kFirstChar; c <= kLastChar; ++c) {
-        if (FT_Load_Char(face, static_cast<FT_ULong>(c), FT_LOAD_RENDER)) {
-            std::cerr << "[TextAtlas] Failed to load glyph '" << c << "'\n";
-            continue;
-        }
-
-        FT_GlyphSlot g = face->glyph;
-        int w = static_cast<int>(g->bitmap.width);
-        int h = static_cast<int>(g->bitmap.rows);
-
-        if (cursorX + w + 1 > kAtlasSize) {
-            cursorX  = 0;
-            cursorY += lineH + 1;
-            lineH    = 0;
-        }
-        if (cursorY + h > kAtlasSize) {
-            std::cerr << "[TextAtlas] Atlas full — some glyphs omitted\n";
-            break;
-        }
-
-        // Copy grayscale bitmap into RGBA8 atlas: RGB=white, A=coverage.
-        for (int row = 0; row < h; ++row) {
-            for (int col = 0; col < w; ++col) {
-                uint8_t val = g->bitmap.buffer[row * g->bitmap.pitch + col];
-                int idx = ((cursorY + row) * kAtlasSize + (cursorX + col)) * 4;
-                pixels[idx + 0] = 255;
-                pixels[idx + 1] = 255;
-                pixels[idx + 2] = 255;
-                pixels[idx + 3] = val;   // correct: val>0 → visible (old Java had this inverted)
-            }
-        }
+    for (const JsonNode& g : root["glyphs"].asArray()) {
+        int code = g["unicode"].asInt();
+        if (code < 0 || code > 127) continue;     // ASCII-only atlas
 
         GlyphInfo info{};
-        info.atlasX   = cursorX;
-        info.atlasY   = cursorY;
-        info.width    = w;
-        info.rows     = h;
-        info.bearingX = g->bitmap_left;
-        info.bearingY = g->bitmap_top;
-        info.advance  = static_cast<int>(g->advance.x >> 6);
-        glyphs_[c]    = info;
+        info.advance = g["advance"].asFloat();
 
-        lineH    = std::max(lineH, h);
-        cursorX += w + 1;
+        if (g.contains("planeBounds") && g.contains("atlasBounds")) {
+            const JsonNode& pb = g["planeBounds"];
+            info.planeL = pb["left"].asFloat();
+            info.planeB = pb["bottom"].asFloat();
+            info.planeR = pb["right"].asFloat();
+            info.planeT = pb["top"].asFloat();
+
+            const JsonNode& ab = g["atlasBounds"];   // pixels, top-left origin
+            info.u0 = ab["left"].asFloat()   / atlasW;
+            info.u1 = ab["right"].asFloat()  / atlasW;
+            info.v0 = ab["top"].asFloat()    / atlasH;   // v0 = top
+            info.v1 = ab["bottom"].asFloat() / atlasH;   // v1 = bottom
+            info.hasQuad = true;
+        }
+
+        glyphs_[static_cast<char>(code)] = info;
     }
 
-    FT_Done_Face(face);
-    FT_Done_FreeType(ft);
-
     // ---------------------------------------------------------------------------
-    // 3. Upload atlas to GPU via Texture::load
+    // 2. Load MSDF PNG and upload as a LINEAR (non-sRGB), no-mipmap texture
     // ---------------------------------------------------------------------------
+    int w = 0, h = 0, ch = 0;
+    stbi_uc* pixels = stbi_load(pngPath.c_str(), &w, &h, &ch, 4);   // force RGBA
+    if (!pixels) {
+        std::cerr << "[TextAtlas] Failed to load MSDF PNG '" << pngPath << "'\n";
+        return false;
+    }
 
+    // generateMipmaps=false → LINEAR filter + CLAMP_TO_EDGE (correct for distance
+    // fields); srgb=false → raw UNORM distance values (no gamma decode).
     texture_ = std::make_unique<Texture>(
         Texture::load(gpu, commandPool, textureLayout, descriptorPool,
-                      pixels.data(), kAtlasSize, kAtlasSize)
+                      pixels, w, h, /*generateMipmaps=*/false, /*srgb=*/false)
     );
 
-    return true;
-}
+    stbi_image_free(pixels);
 
-bool TextAtlas::exportToPNG(const std::string& path) const {
-    if (pixels_.empty()) {
-        std::cerr << "[TextAtlas] exportToPNG: no pixel data (call after init)\n";
-        return false;
-    }
-    int ok = stbi_write_png(path.c_str(), kAtlasSize, kAtlasSize, 4,
-                            pixels_.data(), kAtlasSize * 4);
-    if (!ok) {
-        std::cerr << "[TextAtlas] exportToPNG: failed to write " << path << "\n";
-        return false;
-    }
-    std::cerr << "[TextAtlas] Exported atlas to " << path << "\n";
+    // Confirmation that the MSDF path (not the old coverage atlas) is in use.
+    std::cerr << "[TextAtlas] MSDF atlas loaded: " << pngRel
+              << " (" << w << "x" << h << "), " << glyphs_.size()
+              << " glyphs, distanceRange=" << distanceRange_
+              << ", lineHeight(em)=" << lineHeight_ << "  [font=" << fontPath << "]\n";
     return true;
 }
 

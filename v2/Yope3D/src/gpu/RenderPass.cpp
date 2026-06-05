@@ -36,12 +36,22 @@ RenderPass::RenderPass(VkDevice device, VkFormat colorFormat, VkFormat depthForm
     subpass.pColorAttachments       = &colorRef;
     subpass.pDepthStencilAttachment = &depthRef;
 
-    // Ensure the attachment output stages wait for the image-available semaphore.
+    // This EXTERNAL dependency serves two roles:
+    //  1. Color: make attachment writes wait on the image-available semaphore.
+    //  2. Depth: the depth buffer is a SINGLE persistent image reused every frame
+    //     and is NOT covered by the present/acquire semaphores. Without a
+    //     write-after-write barrier from the previous frame's depth writes (which
+    //     complete at LATE_FRAGMENT_TESTS) to this frame's clear/layout transition,
+    //     the two race — the SYNC-HAZARD-WRITE-AFTER-WRITE the validation layer
+    //     reports (a genuine hazard, not a false positive). Hence LATE_FRAGMENT_TESTS
+    //     + DEPTH_STENCIL_ATTACHMENT_WRITE on the source.
     VkSubpassDependency dep{};
     dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
     dep.dstSubpass    = 0;
-    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dep.srcAccessMask = 0;
+    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+                      | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                      | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    dep.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
@@ -153,6 +163,56 @@ RenderPass RenderPass::createRaytracePass(VkDevice device, VkFormat colorFormat)
     return RenderPass(device, rp);
 }
 
+RenderPass RenderPass::createOffscreenUIPass(VkDevice device, VkFormat colorFormat) {
+    // Mirrors createUIPass but targets the editor's offscreen viewport color
+    // image instead of a swapchain image, so the layouts stay in
+    // SHADER_READ_ONLY_OPTIMAL (left there by the offscreen game pass; left
+    // there for ImGui sampling).
+    VkAttachmentDescription colorAttachment{};
+    colorAttachment.format         = colorFormat;
+    colorAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
+    colorAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    colorAttachment.finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkAttachmentReference colorRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments    = &colorRef;
+
+    // NOTE: this pass shares its pipeline (uiPipeline) with the swapchain UI pass,
+    // which has one dependency — keep the dependency layout matching so the two
+    // render passes stay pipeline-compatible. The UI-write → ImGui-sample ordering
+    // is instead handled by an explicit image barrier after this pass (see
+    // Renderer::beginFrameForEditor), which doesn't affect render-pass compatibility.
+    VkSubpassDependency dep{};
+    dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
+    dep.dstSubpass    = 0;
+    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    VkRenderPassCreateInfo createInfo{};
+    createInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    createInfo.attachmentCount = 1;
+    createInfo.pAttachments    = &colorAttachment;
+    createInfo.subpassCount    = 1;
+    createInfo.pSubpasses      = &subpass;
+    createInfo.dependencyCount = 1;
+    createInfo.pDependencies   = &dep;
+
+    VkRenderPass rp = VK_NULL_HANDLE;
+    if (vkCreateRenderPass(device, &createInfo, nullptr, &rp) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create offscreen UI render pass");
+    return RenderPass(device, rp);
+}
+
 RenderPass RenderPass::createOffscreenGamePass(VkDevice device, VkFormat colorFormat,
                                                VkFormat depthFormat) {
     // Identical to the main 3D render pass constructor, but finalLayout is
@@ -186,11 +246,17 @@ RenderPass RenderPass::createOffscreenGamePass(VkDevice device, VkFormat colorFo
     subpass.pColorAttachments       = &colorRef;
     subpass.pDepthStencilAttachment = &depthRef;
 
+    // Same persistent-depth-buffer write-after-write barrier as the main pass
+    // (see the constructor): LATE_FRAGMENT_TESTS + DEPTH_STENCIL_ATTACHMENT_WRITE
+    // on the source so this frame's depth clear waits for the previous frame's
+    // depth writes on the shared depth image.
     VkSubpassDependency dep{};
     dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
     dep.dstSubpass    = 0;
-    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dep.srcAccessMask = 0;
+    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+                      | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                      | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    dep.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 

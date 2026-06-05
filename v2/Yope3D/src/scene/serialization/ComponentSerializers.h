@@ -1,7 +1,6 @@
 #pragma once
-#ifdef YOPE_EDITOR
-#include "editor/serialization/JsonWriter.h"
-#include "editor/serialization/JsonParser.h"
+#include "scene/serialization/JsonWriter.h"
+#include "scene/serialization/JsonParser.h"
 #include "ecs/TypeId.h"
 
 class Registry;
@@ -46,5 +45,22 @@ bool deserializeSpringConstraint(const JsonNode& node, void* comp);
 void serializeAudioSource      (const void* comp, JsonWriter& w);
 bool deserializeAudioSource    (const JsonNode& node, void* comp);
 
+// ScriptComponent (scriptClass + paramsBlob; live Script* is runtime-only)
+void serializeScriptComponent  (const void* comp, JsonWriter& w);
+bool deserializeScriptComponent(const JsonNode& node, void* comp);
+
+// UI components (5 types; Texture*/atlas pointers are runtime-only)
+void serializeUITransform           (const void* comp, JsonWriter& w);
+bool deserializeUITransform          (const JsonNode& node, void* comp);
+void serializeUIBackground          (const void* comp, JsonWriter& w);
+bool deserializeUIBackground         (const JsonNode& node, void* comp);
+void serializeUITexturedBackground  (const void* comp, JsonWriter& w);
+bool deserializeUITexturedBackground (const JsonNode& node, void* comp);
+void serializeUICurvedBackground    (const void* comp, JsonWriter& w);
+bool deserializeUICurvedBackground   (const JsonNode& node, void* comp);
+void serializeUIText                (const void* comp, JsonWriter& w);
+bool deserializeUIText               (const JsonNode& node, void* comp);
+void serializeTextLabel3D           (const void* comp, JsonWriter& w);
+bool deserializeTextLabel3D          (const JsonNode& node, void* comp);
+
 } // namespace compser
-#endif

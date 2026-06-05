@@ -1,6 +1,7 @@
 #include "Engine.h"
 #include "scripting/Config.h"
-#include "scripting/ScriptFactory.h"
+#include "scripting/Script.h"
+#include "scene/SceneManager.h"
 #include "physics/PhysicsConstants.h"
 #include "math/Math.h"
 #include "ui/UIManager.h"
@@ -63,20 +64,46 @@ bool Engine::init() {
                     static_cast<float>(screenW), static_cast<float>(screenH));
     renderer->setUIManager(uiManager.get());
 
-    scriptCtx_.world       = world.get();
-    scriptCtx_.camera      = camera.get();
-    scriptCtx_.input       = input.get();
-    scriptCtx_.audio       = audio.get();
-    scriptCtx_.assets      = assets.get();
-    scriptCtx_.window      = window.get();
-    scriptCtx_.ui          = uiManager.get();
-    scriptCtx_.renderMode  = &renderMode_;
+    sceneManager = std::make_unique<SceneManager>(*world, audio.get());
 
-    script_ = ScriptFactory::create(cfg.script);
-#ifndef YOPE_EDITOR
-    // In editor mode EditorApp calls script_->init() when Play is pressed.
-    script_->init(scriptCtx_);
+    scriptCtx_.world         = world.get();
+    scriptCtx_.camera        = camera.get();
+    scriptCtx_.input         = input.get();
+    scriptCtx_.audio         = audio.get();
+    scriptCtx_.assets        = assets.get();
+    scriptCtx_.window        = window.get();
+    scriptCtx_.ui            = uiManager.get();
+    scriptCtx_.renderMode    = &renderMode_;
+    scriptCtx_.sceneManager  = sceneManager.get();
+
+    if (cfg.startupScene.empty()) {
+        std::fprintf(stderr,
+            "Engine: yope.cfg is missing 'startupScene='. Refusing to launch with no scene.\n");
+        return false;
+    }
+    // Resolve relative scene paths against the assets directory so the runtime
+    // works regardless of CWD. Absolute paths and already-prefixed paths are
+    // left untouched.
+    std::string scenePath = cfg.startupScene;
+    if (!scenePath.empty() && scenePath[0] != '/' &&
+        scenePath.rfind("assets/", 0) != 0) {
+        scenePath = std::string(YOPE_ASSETS_DIR) + "/" + scenePath;
+    }
+    // Runtime mode: instantiate + init() scripts immediately.
+    // Editor mode: instantiate is deferred until Play press, but the scene's
+    //              entities still load so the editor can show / edit them.
+    const bool initScriptsOnLoad =
+#ifdef YOPE_EDITOR
+        false;
+#else
+        true;
 #endif
+    std::string loadErr = sceneManager->loadSynchronous(
+        scenePath, scriptCtx_, initScriptsOnLoad);
+    if (!loadErr.empty()) {
+        std::fprintf(stderr, "Engine: startup scene load failed: %s\n", loadErr.c_str());
+        return false;
+    }
 
     YOPE_PROF_INIT("yope_profile.csv");
 
@@ -131,7 +158,28 @@ void Engine::update() {
                                 static_cast<float>(window->getHeight()));
     }
 
-    { YOPE_PROF_SCOPE("script_update", "render"); script_->update(scriptCtx_, dt); }
+    {
+        YOPE_PROF_SCOPE("script_update", "render");
+        // Apply any queued scene swap before scripts run this frame. In editor mode
+        // we don't auto-init the new scripts (Play handles that); in runtime mode
+        // the new scripts get init() inside the flush.
+#ifdef YOPE_EDITOR
+        sceneManager->flush(scriptCtx_, /*initScripts=*/false);
+#else
+        sceneManager->flush(scriptCtx_, /*initScripts=*/true);
+#endif
+        // Collect under the structure lock: view iteration on the render thread
+        // would race with Sleeping-tag archetype migrations on the physics thread.
+        // Scripts execute outside the lock — they call World methods that acquire
+        // it themselves, and may freely create/destroy entities (two-pass pattern).
+        std::vector<std::pair<ecs::Entity, Script*>> active;
+        {
+            auto lock = world->lockStructure();
+            for (auto [e, sc] : world->getRegistry().view<ecs::ScriptComponent>())
+                if (sc.instance) active.push_back({e, sc.instance});
+        }
+        for (auto& [e, inst] : active) inst->update(scriptCtx_, e, dt);
+    }
     { YOPE_PROF_SCOPE("ui_update",     "render"); uiManager->update(dt); }
 
     // Dispatch UI click on LMB press edge (held→not tracked, only the falling edge).
@@ -171,17 +219,21 @@ void Engine::render() {
 }
 
 void Engine::cleanup() {
+    // Be tolerant of partial init: main calls cleanup even on init failure so
+    // every subsystem that came up gets torn down properly.
     stopPhysics_.store(true, std::memory_order_release);
-    physicsThread_.join();
+    if (physicsThread_.joinable()) physicsThread_.join();
 
-    script_.reset();
+    if (sceneManager) sceneManager->shutdown(scriptCtx_);
+    sceneManager.reset();
     audio.reset();
     camera.reset();
-    renderer->waitIdle(*gpu);
-    if (uiManager) { uiManager->cleanup(gpu->device()); uiManager.reset(); }
-    if (assets) { assets->cleanup(gpu->device()); assets.reset(); }
-    world->cleanup();
-    world.reset();   // joins ThreadPool workers → drains their thread-local profiler buffers
+    if (renderer && gpu) renderer->waitIdle(*gpu);
+    if (uiManager && gpu) { uiManager->cleanup(gpu->device()); }
+    uiManager.reset();
+    if (assets && gpu) { assets->cleanup(gpu->device()); }
+    assets.reset();
+    if (world) { world->cleanup(); world.reset(); }
     renderer.reset();
     gpu.reset();
 

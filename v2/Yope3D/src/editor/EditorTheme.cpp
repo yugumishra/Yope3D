@@ -13,10 +13,10 @@ void EditorTheme::apply() {
 
     // Load fonts. If the files are missing, ImGui silently falls back to the
     // built-in proggy font — the editor still works, just unstyled.
-    float uiSize   = 15.0f;
+    float uiSize   = 20.0f;
     float monoSize = 13.0f;
-    const char* uiFontPath   = YOPE_ASSETS_DIR "/fonts/Inter-Regular.ttf";
-    const char* monoFontPath = YOPE_ASSETS_DIR "/fonts/JetBrainsMono-Regular.ttf";
+    const char* uiFontPath   = YOPE_ASSETS_DIR "/fonts/nunito_sans_bold.ttf";
+    const char* monoFontPath = YOPE_ASSETS_DIR "/fonts/monaco.ttf";
 
     // Only load if the file exists — ImGui asserts on missing files.
     auto fileExists = [](const char* path) {

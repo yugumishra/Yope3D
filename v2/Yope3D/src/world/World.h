@@ -9,7 +9,9 @@
 #include "../rendering/Light.h"
 #include "../ecs/Registry.h"
 #include "../assets/ObjLoader.h"
+#include "../math/Vec2.h"
 #include "../math/Vec3.h"
+#include "../math/Vec4.h"
 #include "../physics/Spring.h"
 #include "../physics/BroadphaseSAP.h"
 #include "../physics/IslandDetector.h"
@@ -76,9 +78,25 @@ public:
                                        float coilRadius, float tubeRadius,
                                        int proxyCount, float proxyRadius);
 
+    // Low-level: create the physics::Spring object only (no ECS entity, no component).
+    // Used by the editor command system and scene serializer so the SpringConstraint
+    // component that lives on entity A drives the physics without creating a 3rd entity.
+    void addSpringPhysics(ecs::Entity a, ecs::Entity b, float k, float rest);
+
+    // Remove the first physics::Spring whose endpoints match {a,b} (in either order).
+    // Used by AddSpringConstraintCommand::undo().
+    void removeSpringBetween(ecs::Entity a, ecs::Entity b);
+
     // ---- ECS registry ----
     ecs::Registry&       getRegistry()       { return registry_; }
     const ecs::Registry& getRegistry() const { return registry_; }
+
+    // Returns a scoped lock on the structure mutex. Use to synchronize registry
+    // iteration on the main thread against concurrent archetype migrations
+    // (e.g. Sleeping-tag additions) in World::advance().
+    std::unique_lock<std::recursive_mutex> lockStructure() {
+        return std::unique_lock<std::recursive_mutex>(structureMtx_);
+    }
 
     // ---- Lights ----
     ecs::Entity addLight(const Light& light);
@@ -88,6 +106,19 @@ public:
     // Create an audio-source entity at pos with an empty AudioSource (no Source* bound).
     // The user binds a .wav by dropping it onto the inspector's audio source drop target.
     ecs::Entity addAudioSourceEntity(math::Vec3 pos);
+
+    // ---- UI entities (screen-space, no physics) ----
+    // Coordinates are in [0,1] screen percentage, top-left origin.
+    ecs::Entity addUIBackground        (math::Vec2 min, math::Vec2 max,
+                                        math::Vec4 color, int depth = 0);
+    ecs::Entity addUITexturedBackground(math::Vec2 min, math::Vec2 max,
+                                        math::Vec4 tint, const char* texPath, int depth = 0);
+    ecs::Entity addUICurvedBackground  (math::Vec2 min, math::Vec2 max,
+                                        math::Vec4 color, float curvature = 0.5f, int depth = 0);
+    ecs::Entity addUIText              (const char* fontPath, const char* text,
+                                        math::Vec2 min, math::Vec2 max, int depth = 0);
+    // 3D world-space text: Transform (anchor) + ecs::TextLabel3D.
+    ecs::Entity addTextLabel3D         (const char* fontPath, const char* text, math::Vec3 pos);
 
     // Wire the AudioSystem so removeEntity can deallocate orphaned OpenAL sources.
     void setAudioSystem(class AudioSystem* a) { audio_ = a; }

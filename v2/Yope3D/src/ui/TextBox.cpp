@@ -1,7 +1,7 @@
 #include "TextBox.h"
 #include "Background.h"
+#include <algorithm>
 #include <vector>
-#include <cstring>
 
 TextBox::TextBox(Background* parent, TextAtlas* atlas, const std::string& text,
                  int depth, int displayPx, Alignment align)
@@ -17,19 +17,31 @@ void TextBox::buildMesh(UIBuffer& buf, float screenW, float screenH) {
     float bMaxX = parent_ ? parent_->getMax().x * screenW : screenW;
     float bMaxY = parent_ ? parent_->getMax().y * screenH : screenH;
 
-    float pad   = kPaddingPx;
+    // Uniform scale driven by whichever axis is more constrained relative to the
+    // 1920×1080 reference. Because this single factor scales glyph size, padding,
+    // AND the effective wrap width (advances), em-units-per-line stays constant
+    // across any resolution or aspect ratio ≤ 16:9 — text wraps identically in
+    // the editor viewport and in the runtime window regardless of their sizes.
+    // Ultra-wide ARs (>16:9) become height-constrained: text is the same height
+    // but the box is physically wider, so more characters fit per line (correct).
+    float refScale = std::min(screenW / kReferenceWidth, screenH / kReferenceHeight);
+
+    float pad   = kPaddingPx * refScale;
     float areaW = bMaxX - bMinX - pad * 2.0f;
     float areaH = bMaxY - bMinY - pad * 2.0f;
     if (areaW <= 0.0f || areaH <= 0.0f) { drawCall = {}; return; }
 
-    int   natSize = atlas_->pixelSize();
-    float scale   = (displayPx_ > 0) ? static_cast<float>(displayPx_) / natSize : 1.0f;
-    // Auto-fit: if the ascender would overflow areaH, scale down so text is
-    // visible rather than silently clipped (happens on low-DPI / small windows).
-    if (atlas_->ascender() > 0 && atlas_->ascender() * scale > areaH)
-        scale = areaH / static_cast<float>(atlas_->ascender());
-    float lineH   = atlas_->lineHeight() * scale;
-    float asc     = atlas_->ascender()   * scale;
+    float basePx  = (displayPx_ > 0) ? static_cast<float>(displayPx_)
+                                     : static_cast<float>(kDefaultDisplayPx);
+    float targetPx = basePx * refScale;
+    // Auto-fit: if the ascender would overflow the box vertically, scale down so
+    // text stays visible rather than silently clipped (small boxes / extreme aspect).
+    float asc_em = atlas_->ascender();
+    if (asc_em > 0.0f && asc_em * targetPx > areaH)
+        targetPx = areaH / asc_em;
+
+    float lineH = atlas_->lineHeight() * targetPx;
+    float asc   = asc_em * targetPx;
 
     // ---------------------------------------------------------------------------
     // First pass (CENTERED only): measure total text extents.
@@ -41,7 +53,7 @@ void TextBox::buildMesh(UIBuffer& buf, float screenW, float screenH) {
             if (c == '\n') { totalW = std::max(totalW, rowW); rowW = 0; totalH += lineH; continue; }
             const GlyphInfo* g = atlas_->glyph(c);
             if (!g) continue;
-            float adv = g->advance * scale;
+            float adv = g->advance * targetPx;
             if (rowW + adv > areaW) { totalW = std::max(totalW, rowW); rowW = 0; totalH += lineH; }
             rowW += adv;
         }
@@ -60,56 +72,48 @@ void TextBox::buildMesh(UIBuffer& buf, float screenW, float screenH) {
     }
 
     float penX = originX;
-    float penY = originY + asc;
+    float penY = originY + asc;   // penY tracks the text baseline (screen Y-down)
 
-    float atlasF = static_cast<float>(TextAtlas::kAtlasSize);
     std::vector<UIVertex> verts;
     std::vector<uint32_t> indices;
     verts.reserve(text_.size() * 4);
     indices.reserve(text_.size() * 6);
 
+    // Convert screen-pixel positions to NDC.
+    auto ndcX = [&](float x) { return x / screenW * 2.0f - 1.0f; };
+    auto ndcY = [&](float y) { return y / screenH * 2.0f - 1.0f; };
+
     for (char c : text_) {
         if (c == '\n') { penX = originX; penY += lineH; continue; }
-        if (c == ' ') {
-            const GlyphInfo* sp = atlas_->glyph(' ');
-            penX += sp ? sp->advance * scale : natSize * 0.25f * scale;
-            continue;
-        }
 
         const GlyphInfo* g = atlas_->glyph(c);
         if (!g) continue;
 
-        float adv = g->advance * scale;
-        float gW  = g->width   * scale;
-        float gH  = g->rows    * scale;
+        float adv = g->advance * targetPx;
 
-        // Word-wrap: if this glyph overflows, move to next line.
+        // Word-wrap: if this glyph overflows the right edge, move to next line.
         if (penX + adv > bMaxX - pad) {
             penX  = originX;
             penY += lineH;
         }
-        if (penY > bMaxY - pad) break;  // past bottom of bounds
+        if (penY > bMaxY - pad) break;  // baseline past bottom of bounds
 
-        float xMin = penX + g->bearingX * scale;
-        float xMax = xMin + gW;
-        float yMin = penY - g->bearingY * scale;
-        float yMax = yMin + gH;
+        if (g->hasQuad) {
+            // planeBounds are em, Y-up, baseline at origin → screen is Y-down,
+            // baseline at penY: a point planeT em above baseline sits higher
+            // (smaller screen y).
+            float xMin = penX + g->planeL * targetPx;
+            float xMax = penX + g->planeR * targetPx;
+            float yTop = penY - g->planeT * targetPx;   // pair with v0 (atlas top)
+            float yBot = penY - g->planeB * targetPx;   // pair with v1 (atlas bottom)
 
-        // Convert screen-pixel positions to NDC.
-        auto ndcX = [&](float x) { return x / screenW * 2.0f - 1.0f; };
-        auto ndcY = [&](float y) { return y / screenH * 2.0f - 1.0f; };
-
-        float u0 = g->atlasX / atlasF;
-        float u1 = (g->atlasX + g->width) / atlasF;
-        float v0 = g->atlasY / atlasF;
-        float v1 = (g->atlasY + g->rows)  / atlasF;
-
-        uint32_t base = static_cast<uint32_t>(verts.size());
-        verts.push_back({ ndcX(xMin), ndcY(yMin),  u0, v0,  cr_, cg_, cb_, ca_ });
-        verts.push_back({ ndcX(xMax), ndcY(yMin),  u1, v0,  cr_, cg_, cb_, ca_ });
-        verts.push_back({ ndcX(xMax), ndcY(yMax),  u1, v1,  cr_, cg_, cb_, ca_ });
-        verts.push_back({ ndcX(xMin), ndcY(yMax),  u0, v1,  cr_, cg_, cb_, ca_ });
-        indices.insert(indices.end(), { base, base+1, base+2, base, base+2, base+3 });
+            uint32_t base = static_cast<uint32_t>(verts.size());
+            verts.push_back({ ndcX(xMin), ndcY(yTop),  g->u0, g->v0,  cr_, cg_, cb_, ca_ });
+            verts.push_back({ ndcX(xMax), ndcY(yTop),  g->u1, g->v0,  cr_, cg_, cb_, ca_ });
+            verts.push_back({ ndcX(xMax), ndcY(yBot),  g->u1, g->v1,  cr_, cg_, cb_, ca_ });
+            verts.push_back({ ndcX(xMin), ndcY(yBot),  g->u0, g->v1,  cr_, cg_, cb_, ca_ });
+            indices.insert(indices.end(), { base, base+1, base+2, base, base+2, base+3 });
+        }
 
         penX += adv;
     }
@@ -119,5 +123,5 @@ void TextBox::buildMesh(UIBuffer& buf, float screenW, float screenH) {
     auto range = buf.push(verts.data(), static_cast<uint32_t>(verts.size()),
                           indices.data(), static_cast<uint32_t>(indices.size()));
     drawCall = { range.indexCount, range.indexOffset, range.vertexOffset,
-                 2, atlas_->descriptorSet() };
+                 2, atlas_->descriptorSet(), atlas_->distanceRange() };
 }

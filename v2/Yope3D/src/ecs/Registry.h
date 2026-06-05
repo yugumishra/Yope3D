@@ -46,6 +46,16 @@ public:
     size_t   archetypeCount()          const { return archetypes_.size(); }
     uint64_t archetypeMigrationCount() const { return migrationCount_; }
 
+    // Type-erased component access. Used by both the scene serializer (runtime)
+    // and the editor inspector (editor-only consumer).
+    void* getRaw(Entity e, TypeId tid) {
+        if (!valid(e)) return nullptr;
+        auto& rec = records_[e.id];
+        int ci = archetypes_[rec.archetype].colIndex(tid);
+        if (ci < 0) return nullptr;
+        return archetypes_[rec.archetype].cols[ci].at(rec.row);
+    }
+
 #ifdef YOPE_EDITOR
     // Deep-copy of all registry state. Used by World::snapshotForPlay/restoreFromPlay.
     struct Snapshot {
@@ -59,15 +69,6 @@ public:
     };
     Snapshot takeSnapshot() const;
     void     restoreSnapshot(const Snapshot& snap);
-
-    // Type-erased component access for inspector dispatch.
-    void* getRaw(Entity e, TypeId tid) {
-        if (!valid(e)) return nullptr;
-        auto& rec = records_[e.id];
-        int ci = archetypes_[rec.archetype].colIndex(tid);
-        if (ci < 0) return nullptr;
-        return archetypes_[rec.archetype].cols[ci].at(rec.row);
-    }
 
     // Returns all TypeIds present on entity (used by InspectorPanel to enumerate components).
     std::vector<TypeId> componentTypes(Entity e) const {

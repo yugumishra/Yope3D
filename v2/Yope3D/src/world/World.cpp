@@ -7,6 +7,7 @@
 #include "../physics/ThreadPool.h"
 #include "../physics/PhysicsConstants.h"
 #include "../ecs/Components.h"
+#include "../scripting/Script.h"
 #include "../debug/Profiler.h"
 #include <cmath>
 #include <cfloat>
@@ -347,6 +348,14 @@ void World::removeEntity(ecs::Entity e) {
     RenderMesh* mesh = nullptr;
     if (auto* mr = registry_.get<ecs::MeshRenderer>(e)) mesh = mr->mesh;
 
+    // Delete any attached script instance. onUnload is NOT called here — that
+    // hook requires a ScriptContext and runs only for orderly scene-level
+    // teardown via SceneManager. Mid-frame entity removal is best-effort.
+    if (auto* sc = registry_.get<ecs::ScriptComponent>(e); sc && sc->instance) {
+        delete sc->instance;
+        sc->instance = nullptr;
+    }
+
     // Free the bound OpenAL Source if the entity owned one.
     if (audio_) {
         if (auto* as = registry_.get<ecs::AudioSource>(e); as && as->source) {
@@ -494,6 +503,20 @@ physics::Spring* World::addSpringWithMesh(ecs::Entity a, ecs::Entity b,
     return s;
 }
 
+void World::addSpringPhysics(ecs::Entity a, ecs::Entity b, float k, float rest) {
+    std::lock_guard lk(structureMtx_);
+    springs_.push_back(std::make_unique<physics::Spring>(a, b, k, rest));
+}
+
+void World::removeSpringBetween(ecs::Entity a, ecs::Entity b) {
+    std::lock_guard lk(structureMtx_);
+    springs_.erase(std::remove_if(springs_.begin(), springs_.end(),
+        [&](const std::unique_ptr<physics::Spring>& s) {
+            return (s->first_ == a && s->second_ == b) ||
+                   (s->first_ == b && s->second_ == a);
+        }), springs_.end());
+}
+
 // ---- Lights ----
 
 ecs::Entity World::addLight(const Light& light) {
@@ -551,6 +574,96 @@ ecs::Entity World::addAudioSourceEntity(math::Vec3 pos) {
     return e;
 }
 
+ecs::Entity World::addUIBackground(math::Vec2 min, math::Vec2 max, math::Vec4 color, int depth) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    ecs::UITransform uiTf{};
+    uiTf.minX = min.x; uiTf.minY = min.y;
+    uiTf.maxX = max.x; uiTf.maxY = max.y;
+    uiTf.depth = depth;
+    registry_.add<ecs::UITransform>(e, uiTf);
+    ecs::UIBackground bg{};
+    bg.r = color.x; bg.g = color.y; bg.b = color.z; bg.a = color.w;
+    registry_.add<ecs::UIBackground>(e, bg);
+#ifdef YOPE_EDITOR
+    finalizeEntity(e, "UI Background");
+#endif
+    return e;
+}
+
+ecs::Entity World::addUITexturedBackground(math::Vec2 min, math::Vec2 max,
+                                            math::Vec4 tint, const char* texPath, int depth) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    ecs::UITransform uiTf{};
+    uiTf.minX = min.x; uiTf.minY = min.y;
+    uiTf.maxX = max.x; uiTf.maxY = max.y;
+    uiTf.depth = depth;
+    registry_.add<ecs::UITransform>(e, uiTf);
+    ecs::UITexturedBackground bg{};
+    if (texPath) std::strncpy(bg.path, texPath, sizeof(bg.path) - 1);
+    bg.tintR = tint.x; bg.tintG = tint.y; bg.tintB = tint.z; bg.tintA = tint.w;
+    registry_.add<ecs::UITexturedBackground>(e, bg);
+#ifdef YOPE_EDITOR
+    finalizeEntity(e, "UI Textured BG");
+#endif
+    return e;
+}
+
+ecs::Entity World::addUICurvedBackground(math::Vec2 min, math::Vec2 max,
+                                          math::Vec4 color, float curvature, int depth) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    ecs::UITransform uiTf{};
+    uiTf.minX = min.x; uiTf.minY = min.y;
+    uiTf.maxX = max.x; uiTf.maxY = max.y;
+    uiTf.depth = depth;
+    registry_.add<ecs::UITransform>(e, uiTf);
+    ecs::UICurvedBackground bg{};
+    bg.r = color.x; bg.g = color.y; bg.b = color.z; bg.a = color.w;
+    bg.curvature = curvature;
+    registry_.add<ecs::UICurvedBackground>(e, bg);
+#ifdef YOPE_EDITOR
+    finalizeEntity(e, "UI Curved BG");
+#endif
+    return e;
+}
+
+ecs::Entity World::addTextLabel3D(const char* fontPath, const char* text, math::Vec3 pos) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    Transform tf{};
+    tf.position = pos;
+    registry_.add<Transform>(e, tf);
+    ecs::TextLabel3D t{};
+    if (fontPath) std::strncpy(t.fontPath, fontPath, sizeof(t.fontPath) - 1);
+    if (text)     std::strncpy(t.text, text, sizeof(t.text) - 1);
+    registry_.add<ecs::TextLabel3D>(e, t);
+#ifdef YOPE_EDITOR
+    finalizeEntity(e, "Text Label");
+#endif
+    return e;
+}
+
+ecs::Entity World::addUIText(const char* fontPath, const char* text,
+                              math::Vec2 min, math::Vec2 max, int depth) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    ecs::UITransform uiTf{};
+    uiTf.minX = min.x; uiTf.minY = min.y;
+    uiTf.maxX = max.x; uiTf.maxY = max.y;
+    uiTf.depth = depth;
+    registry_.add<ecs::UITransform>(e, uiTf);
+    ecs::UIText ut{};
+    if (fontPath) std::strncpy(ut.fontPath, fontPath, sizeof(ut.fontPath) - 1);
+    if (text)     std::strncpy(ut.text, text, sizeof(ut.text) - 1);
+    registry_.add<ecs::UIText>(e, ut);
+#ifdef YOPE_EDITOR
+    finalizeEntity(e, "UI Text");
+#endif
+    return e;
+}
+
 void World::removeLight(int index) {
     if (index >= 0 && index < static_cast<int>(lightEntities_.size())) {
         registry_.destroy(lightEntities_[index]);
@@ -565,6 +678,13 @@ void World::resetPhysics() {
     if (gpu_) gpu_->syncDevice();
 
     destroyDebugMeshes();
+
+    // Free any live script instances before the registry is rebuilt.
+    // SceneManager calls destroyAllInstances first (so onUnload runs) — this
+    // is the safety net for direct callers (e.g. editor "new scene" action).
+    for (auto [e, sc] : registry_.view<ecs::ScriptComponent>()) {
+        if (sc.instance) { delete sc.instance; sc.instance = nullptr; }
+    }
 
     for (auto& m : meshPool_)
         if (m) m->destroy(gpu_->device());
@@ -582,20 +702,8 @@ void World::resetPhysics() {
     }
     newSnapshotReady_.store(false, std::memory_order_release);
 
-    // Preserve lights across physics resets.
-    std::vector<ecs::LightSource> savedLights;
-    savedLights.reserve(lightEntities_.size());
-    for (auto e : lightEntities_)
-        if (auto* ls = registry_.get<ecs::LightSource>(e)) savedLights.push_back(*ls);
-
     registry_ = ecs::Registry{};
     lightEntities_.clear();
-
-    for (auto& ls : savedLights) {
-        ecs::Entity e = registry_.create();
-        registry_.add<ecs::LightSource>(e, ls);
-        lightEntities_.push_back(e);
-    }
 }
 
 // ---- cleanup ----
@@ -603,6 +711,9 @@ void World::resetPhysics() {
 void World::cleanup() {
     std::lock_guard lk(structureMtx_);
     destroyDebugMeshes();
+    for (auto [e, sc] : registry_.view<ecs::ScriptComponent>()) {
+        if (sc.instance) { delete sc.instance; sc.instance = nullptr; }
+    }
     for (auto& m : meshPool_)
         if (m) m->destroy(gpu_->device());
     meshPool_.clear();

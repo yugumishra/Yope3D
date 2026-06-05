@@ -6,10 +6,10 @@
 #include "editor/panels/StatsPanel.h"
 #include "editor/panels/WorldSettingsPanel.h"
 #include "editor/panels/ConsolePanel.h"
-#include "editor/commands/ComponentSnapshot.h"
+#include "scene/ComponentSnapshot.h"
 #include "editor/commands/EntityLifecycleCommands.h"
 #include "editor/inspectors/InspectorRegistry.h"
-#include "editor/serialization/SceneSerializer.h"
+#include "scene/serialization/SceneSerializer.h"
 #include "platform/FileWatcher.h"
 #include "gpu/Swapchain.h"
 #include <ImGuizmo.h>
@@ -19,6 +19,7 @@
 #include <imgui.h>
 #include <GLFW/glfw3.h>
 #include <string_view>
+#include <vector>
 
 bool EditorApp::init() {
     if (!engine_.init()) return false;
@@ -28,6 +29,8 @@ bool EditorApp::init() {
 
     imguiPass_ = std::make_unique<RenderPass>(
         RenderPass::createImGuiPass(engine_.gpu->device(), sc.imageFormat()));
+
+    
 
     imguiBackend_.init(*engine_.gpu, *engine_.window,
                        imguiPass_->get(),
@@ -55,6 +58,20 @@ bool EditorApp::init() {
     ctx_.playMode      = &playMode_;
     ctx_.onTogglePlay  = [this]() { requestTogglePlay(); };
     ctx_.onViewportResize = [this](uint32_t w, uint32_t h) { pendingVpW_ = w; pendingVpH_ = h; };
+    ctx_.onViewportMaximize = [this](bool max) {
+        if (max) {
+            savedPanelVisibility_.clear();
+            for (size_t i = 1; i < panels_.size(); ++i) {
+                savedPanelVisibility_.push_back(panels_[i]->visible);
+                panels_[i]->visible = false;
+            }
+        } else {
+            for (size_t i = 1; i < panels_.size(); ++i)
+                if (i - 1 < savedPanelVisibility_.size())
+                    panels_[i]->visible = savedPanelVisibility_[i - 1];
+            savedPanelVisibility_.clear();
+        }
+    };
     ctx_.onNewScene    = [this]() { pendingNewScene_ = true; };
     ctx_.onDeleteEntity = [this](ecs::Entity e) { pendingDeleteEntities_.push_back(e); };
 
@@ -86,6 +103,7 @@ bool EditorApp::init() {
     fileWatcher_.watch(assetsDir, [this](const std::string& p) {
         if (engine_.assets) engine_.assets->onFileChanged(p);
         if (assetBrowser_) assetBrowser_->onAssetModified(p);
+        Console::log("Asset changed: " + p, LogSeverity::Info);
     });
 
     lastTime_   = glfwGetTime();
@@ -115,8 +133,37 @@ void EditorApp::tick() {
 
     if (pendingNewScene_) {
         pendingNewScene_ = false;
-        if (playMode_) { engine_.world->restoreFromPlay(); playMode_ = false; }
+        if (playMode_) {
+            engine_.sceneManager->teardownAllScripts(engine_.scriptCtx_);
+            engine_.audio->stopAll();
+            engine_.world->restoreFromPlay();
+            playMode_ = false;
+        }
+        // Drop the live scripts before the registry is rebuilt.
+        engine_.sceneManager->teardownAllScripts(engine_.scriptCtx_);
+        engine_.audio->stopAll();
         engine_.world->resetPhysics();
+    }
+
+    if (!pendingLoadScenePath_.empty()) {
+        std::string path = std::move(pendingLoadScenePath_);
+        pendingLoadScenePath_.clear();
+        if (playMode_) {
+            engine_.sceneManager->teardownAllScripts(engine_.scriptCtx_);
+            engine_.world->restoreFromPlay();
+            playMode_ = false;
+        }
+        // syncDevice before the load so any in-flight frame using the old
+        // RenderMeshes is fully retired before resetPhysics destroys them.
+        engine_.gpu->syncDevice();
+        auto err = engine_.sceneManager->loadSynchronous(
+            path, engine_.scriptCtx_, /*initScripts=*/false);
+        if (err.empty()) {
+            currentSceneFile_ = path;
+            selection_.clear();
+        } else {
+            Console::log("Scene load failed: " + err, LogSeverity::Error);
+        }
     }
 
     for (auto e : pendingDeleteEntities_) {
@@ -135,6 +182,10 @@ void EditorApp::tick() {
     // --- Pending viewport resize ---
     if (pendingVpW_ != viewportTarget_.width() || pendingVpH_ != viewportTarget_.height()) {
         engine_.gpu->syncDevice();
+        // The offscreen UI framebuffer references the OLD colorView; destroy it
+        // before vt.resize() releases that view, then the next beginFrameForEditor
+        // recreates it against the new view.
+        engine_.renderer->notifyViewportResizing(engine_.gpu->device());
         viewportTarget_.resize(*engine_.gpu, pendingVpW_, pendingVpH_);
         idBufferPass_.resize(*engine_.gpu, viewportTarget_.depthView(), pendingVpW_, pendingVpH_);
         engine_.camera->WindowChanged(static_cast<int>(pendingVpW_),
@@ -197,11 +248,22 @@ void EditorApp::tick() {
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_C, ImGuiInputFlags_RouteGlobal)) copySelected();
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_V, ImGuiInputFlags_RouteGlobal)) pasteClipboard();
     if (ImGui::Shortcut(ImGuiKey_Escape, ImGuiInputFlags_RouteGlobal)) selection_.clear();
-    if (ImGui::Shortcut(ImGuiKey_Delete, ImGuiInputFlags_RouteGlobal)) {
-        if (ctx_.selection && ctx_.onDeleteEntity) {
-            for (auto e : ctx_.selection->get())
-                ctx_.onDeleteEntity(e);
-            ctx_.selection->clear();
+    {
+        // ImGuiKey_Delete  = forward-delete (fn+Del on Mac, Del on PC).
+        // ImGuiKey_Backspace = "Delete" key on Apple keyboards — guard with
+        // IsAnyItemActive so it doesn't fire while editing a text input field.
+        bool wantDelete =
+            ImGui::Shortcut(ImGuiKey_Delete, ImGuiInputFlags_RouteGlobal) ||
+            (!ImGui::IsAnyItemActive() &&
+             ImGui::Shortcut(ImGuiKey_Backspace, ImGuiInputFlags_RouteGlobal));
+        if (wantDelete && !playMode_ && ctx_.selection && !ctx_.selection->get().empty()) {
+            // Route through the command system so delete is undoable (Ctrl+Z restores).
+            // Copy the selection first — executing a command may clear/modify it.
+            std::vector<ecs::Entity> toDelete(ctx_.selection->get().begin(),
+                                              ctx_.selection->get().end());
+            for (auto e : toDelete)
+                history_.execute(ctx_, std::make_unique<DeleteEntityCommand>(e));
+            selection_.clear();
         }
     }
     if (!playMode_) {
@@ -234,7 +296,7 @@ void EditorApp::tick() {
     }
 
     for (auto& panel : panels_)
-        panel->draw(ctx_);
+        if (panel->visible) panel->draw(ctx_);
 
     imguiBackend_.render(engine_.renderer->currentCmdBuffer(), imageIndex);
 
@@ -284,6 +346,19 @@ void EditorApp::buildMenuBar() {
         ImGui::Text("Yope3D Editor — Phase 1 MVP");
         ImGui::EndMenu();
     }
+
+    // Right-aligned status strip: current scene + FPS
+    {
+        std::string scene = currentSceneFile_.empty() ? "(no scene)" : currentSceneFile_;
+        std::string status = scene + "  |  " + std::to_string(engine_.displayFps) + " fps";
+        float statusW = ImGui::CalcTextSize(status.c_str()).x + 16.f;
+        float cursorX = ImGui::GetCursorPosX();
+        float avail   = ImGui::GetContentRegionAvail().x;
+        if (avail > statusW)
+            ImGui::SetCursorPosX(cursorX + avail - statusW);
+        ImGui::TextDisabled("%s", status.c_str());
+    }
+
     ImGui::EndMenuBar();
 
     // ---- Dialogs: opened at dockspace-window scope (after EndMenuBar) ----
@@ -316,14 +391,9 @@ void EditorApp::buildMenuBar() {
         ImGui::InputText("##openpath", openPath, sizeof(openPath));
         ImGui::Spacing();
         if (ImGui::Button("Load", ImVec2(120, 0))) {
-            if (playMode_) { engine_.world->restoreFromPlay(); playMode_ = false; }
-            auto err = SceneSerializer::load(openPath, *ctx_.registry, *ctx_.world, engine_.audio.get());
-            if (err.empty()) {
-                currentSceneFile_ = openPath;
-                selection_.clear();
-            } else {
-                Console::log("Scene load failed: " + err, LogSeverity::Error);
-            }
+            // Defer — the actual load runs at the top of the next tick where
+            // it's safe to destroy GPU resources. See pendingLoadScenePath_.
+            pendingLoadScenePath_ = openPath;
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
@@ -344,9 +414,21 @@ void EditorApp::cleanup() {
 
 void EditorApp::doTogglePlay() {
     if (!playMode_) {
+        // Snapshot is taken with all ScriptComponent.instance == nullptr (edit-mode
+        // invariant). Then we instantiate + init the live scripts.
         engine_.world->snapshotForPlay();
+        engine_.sceneManager->instantiateAndInitAllScripts(engine_.scriptCtx_);
+        // Start AudioSources marked autoplay — they were intentionally held silent
+        // during edit-mode scene load (SceneSerializer::load with startAudio=false).
+        for (auto [e, as] : engine_.world->getRegistry().view<ecs::AudioSource>())
+            if (as.autoplay && as.source) as.source->play();
         playMode_ = true;
     } else {
+        // Tear down scripts first (deletes Script* and nulls instance pointers)
+        // so the registry snapshot restore — which memcpys the snapshot's
+        // ScriptComponent rows with instance==nullptr — leaves no dangling state.
+        engine_.sceneManager->teardownAllScripts(engine_.scriptCtx_);
+        engine_.audio->stopAll();
         engine_.world->restoreFromPlay();
         playMode_ = false;
         selection_.clear();  // play-mode entities no longer exist after restore

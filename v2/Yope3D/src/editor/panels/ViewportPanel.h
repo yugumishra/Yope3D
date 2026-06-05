@@ -6,6 +6,8 @@
 #include "ecs/Components.h"
 #include <imgui.h>
 #include <ImGuizmo.h>
+#include <utility>
+#include <vector>
 
 class ViewportPanel : public EditorPanel {
 public:
@@ -17,7 +19,12 @@ public:
     float speed       = 5.0f;
 
 private:
+    void drawContent(EditorContext& ctx);
+
+    bool isMaximized_ = false;
+
     bool   prevTabDown_  = false;
+    int    skipDeltaFrames_ = 0;  // zero delta for N frames after a cursor mode switch
     double prevCursorX_  = 0.0;
     double prevCursorY_  = 0.0;
 
@@ -47,4 +54,21 @@ private:
     void* iconLight_   = nullptr;
     void* iconSpeaker_ = nullptr;
     bool  iconsLoaded_ = false;
+
+    // Multi-select gizmo: positions of all selected entities at drag start,
+    // keyed by entity. Used to apply a uniform translate delta to the whole group.
+    std::vector<std::pair<ecs::Entity, Transform>> multiDragStarts_;
+    math::Vec3 multiCentroidStart_{};
+
+    // ---- 2D UI gizmo state ----
+    // Active drag handle index (see UIHandleIndex enum in .cpp) or -1 if none.
+    int             uiDragHandle_   = -1;
+    ecs::Entity     uiDragEntity_   = ecs::NullEntity;
+    ecs::UITransform uiDragStart_  {};
+    // Mouse position in viewport-normalised [0,1] coords at drag start.
+    float           uiDragOriginX_ = 0.f;
+    float           uiDragOriginY_ = 0.f;
+    // Bounds snapshot at drag start for delta computation.
+    float           uiDragMinX_    = 0.f, uiDragMinY_ = 0.f;
+    float           uiDragMaxX_    = 0.f, uiDragMaxY_ = 0.f;
 };

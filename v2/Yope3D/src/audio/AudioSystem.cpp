@@ -106,6 +106,10 @@ void AudioSystem::resumeAll() {
     }
 }
 
+void AudioSystem::stopAll() {
+    for (auto& src : sources_) src->stop();
+}
+
 void AudioSystem::removeSource(Source* src) {
     auto it = std::find_if(sources_.begin(), sources_.end(),
         [src](const std::unique_ptr<Source>& p){ return p.get() == src; });

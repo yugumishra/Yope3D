@@ -50,24 +50,33 @@ void IdBufferPass::init(GpuDevice& gpu,
     createRenderPass(device_, depthFormat);
     createStagingBuffer(gpu);
     createPipeline(device_, uboSetLayout);
+    createUIPipeline(device_);
 }
 
 void IdBufferPass::resize(GpuDevice& gpu, VkImageView sharedDepthView, uint32_t w, uint32_t h) {
     vkDeviceWaitIdle(device_);
-    if (framebuffer_) { vkDestroyFramebuffer(device_, framebuffer_, nullptr); framebuffer_ = VK_NULL_HANDLE; }
+    for (int i = 0; i < kFbCache; ++i) {
+        if (framebuffers_[i]) { vkDestroyFramebuffer(device_, framebuffers_[i], nullptr); framebuffers_[i] = VK_NULL_HANDLE; }
+        fbDepthViews_[i] = VK_NULL_HANDLE;
+    }
     destroyIdImageResources(device_);
     w_ = w; h_ = h;
     createIdImage(gpu, w, h);
-    if (sharedDepthView) createFramebuffer(device_, sharedDepthView, w, h);
+    if (sharedDepthView) ensureFramebuffer(sharedDepthView, w, h);
 }
 
 void IdBufferPass::destroy(VkDevice device) {
-    if (framebuffer_)   { vkDestroyFramebuffer(device, framebuffer_, nullptr);    framebuffer_ = VK_NULL_HANDLE; }
-    if (pipeline_)      { vkDestroyPipeline(device, pipeline_, nullptr);           pipeline_ = VK_NULL_HANDLE; }
-    if (pipelineLayout_){ vkDestroyPipelineLayout(device, pipelineLayout_, nullptr); pipelineLayout_ = VK_NULL_HANDLE; }
-    if (renderPass_)    { vkDestroyRenderPass(device, renderPass_, nullptr);        renderPass_ = VK_NULL_HANDLE; }
-    if (stagingBuf_)    { vkDestroyBuffer(device, stagingBuf_, nullptr);            stagingBuf_ = VK_NULL_HANDLE; }
-    if (stagingMem_)    { vkFreeMemory(device, stagingMem_, nullptr);               stagingMem_ = VK_NULL_HANDLE; }
+    for (int i = 0; i < kFbCache; ++i) {
+        if (framebuffers_[i]) { vkDestroyFramebuffer(device, framebuffers_[i], nullptr); framebuffers_[i] = VK_NULL_HANDLE; }
+        fbDepthViews_[i] = VK_NULL_HANDLE;
+    }
+    if (uiPipeline_)      { vkDestroyPipeline(device, uiPipeline_, nullptr);           uiPipeline_ = VK_NULL_HANDLE; }
+    if (uiPipelineLayout_){ vkDestroyPipelineLayout(device, uiPipelineLayout_, nullptr); uiPipelineLayout_ = VK_NULL_HANDLE; }
+    if (pipeline_)        { vkDestroyPipeline(device, pipeline_, nullptr);             pipeline_ = VK_NULL_HANDLE; }
+    if (pipelineLayout_)  { vkDestroyPipelineLayout(device, pipelineLayout_, nullptr); pipelineLayout_ = VK_NULL_HANDLE; }
+    if (renderPass_)      { vkDestroyRenderPass(device, renderPass_, nullptr);         renderPass_ = VK_NULL_HANDLE; }
+    if (stagingBuf_)      { vkDestroyBuffer(device, stagingBuf_, nullptr);             stagingBuf_ = VK_NULL_HANDLE; }
+    if (stagingMem_)      { vkFreeMemory(device, stagingMem_, nullptr);                stagingMem_ = VK_NULL_HANDLE; }
     destroyIdImageResources(device);
 }
 
@@ -127,7 +136,11 @@ void IdBufferPass::createRenderPass(VkDevice device, VkFormat depthFormat) {
     colorAttach.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     colorAttach.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     colorAttach.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorAttach.finalLayout    = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    // Leave the image in COLOR_ATTACHMENT_OPTIMAL; the readback copy path does an
+    // EXPLICIT barrier to TRANSFER_SRC_OPTIMAL (see record()), which the sync
+    // validator can track — a render-pass finalLayout transition to TRANSFER_SRC
+    // is not sufficiently synchronized against the following vkCmdCopyImageToBuffer.
+    colorAttach.finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     // Depth: shared with game pass — load existing contents, don't store
     VkAttachmentDescription depthAttach{};
@@ -149,13 +162,24 @@ void IdBufferPass::createRenderPass(VkDevice device, VkFormat depthFormat) {
     subpass.pColorAttachments       = &colorRef;
     subpass.pDepthStencilAttachment = &depthRef;
 
-    VkSubpassDependency dep{};
-    dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
-    dep.dstSubpass    = 0;
-    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dep.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+    VkSubpassDependency deps[2]{};
+    // [0] Entry: wait for the prior game pass's depth writes (shared depth buffer).
+    deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[0].dstSubpass    = 0;
+    deps[0].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    deps[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    deps[0].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+    // [1] Exit: "export" the color writes so the post-pass explicit barrier (which
+    //     transitions COLOR_ATTACHMENT_OPTIMAL → TRANSFER_SRC for the readback copy)
+    //     has something to chain against. Without this the barrier's layout
+    //     transition races the render pass color writes (SYNC-HAZARD-WAW).
+    deps[1].srcSubpass    = 0;
+    deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[1].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[1].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
     VkAttachmentDescription attachments[2] = {colorAttach, depthAttach};
     VkRenderPassCreateInfo  rpci{};
@@ -164,17 +188,29 @@ void IdBufferPass::createRenderPass(VkDevice device, VkFormat depthFormat) {
     rpci.pAttachments    = attachments;
     rpci.subpassCount    = 1;
     rpci.pSubpasses      = &subpass;
-    rpci.dependencyCount = 1;
-    rpci.pDependencies   = &dep;
+    rpci.dependencyCount = 2;
+    rpci.pDependencies   = deps;
 
     if (vkCreateRenderPass(device, &rpci, nullptr, &renderPass_) != VK_SUCCESS)
         throw std::runtime_error("IdBufferPass: failed to create render pass");
 }
 
-// ---- createFramebuffer ----
+// ---- ensureFramebuffer ----
 
-void IdBufferPass::createFramebuffer(VkDevice device, VkImageView sharedDepthView,
-                                     uint32_t w, uint32_t h) {
+VkFramebuffer IdBufferPass::ensureFramebuffer(VkImageView sharedDepthView,
+                                              uint32_t w, uint32_t h) {
+    // Hit: a framebuffer already bound to this depth view.
+    for (int i = 0; i < kFbCache; ++i)
+        if (fbDepthViews_[i] == sharedDepthView && framebuffers_[i])
+            return framebuffers_[i];
+
+    // Miss: claim a free slot and create. There are only kFrames distinct depth
+    // views, and the cache is cleared on resize, so a free slot always exists.
+    int slot = -1;
+    for (int i = 0; i < kFbCache; ++i)
+        if (framebuffers_[i] == VK_NULL_HANDLE) { slot = i; break; }
+    if (slot < 0) return VK_NULL_HANDLE;   // defensive: shouldn't happen
+
     VkImageView attachments[2] = {idView_, sharedDepthView};
     VkFramebufferCreateInfo fbi{};
     fbi.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -184,8 +220,10 @@ void IdBufferPass::createFramebuffer(VkDevice device, VkImageView sharedDepthVie
     fbi.width           = w;
     fbi.height          = h;
     fbi.layers          = 1;
-    if (vkCreateFramebuffer(device, &fbi, nullptr, &framebuffer_) != VK_SUCCESS)
+    if (vkCreateFramebuffer(device_, &fbi, nullptr, &framebuffers_[slot]) != VK_SUCCESS)
         throw std::runtime_error("IdBufferPass: failed to create framebuffer");
+    fbDepthViews_[slot] = sharedDepthView;
+    return framebuffers_[slot];
 }
 
 // ---- createStagingBuffer ----
@@ -338,24 +376,134 @@ void IdBufferPass::createPipeline(VkDevice device, VkDescriptorSetLayout uboSetL
     vkDestroyShaderModule(device, fragMod, nullptr);
 }
 
+// ---- createUIPipeline ----
+// Renders screen-space quads for UI entities. No vertex buffer is bound;
+// the vertex shader generates a unit quad from gl_VertexIndex and
+// positions it using push constants {minX, minY, maxX, maxY, entityId}.
+
+void IdBufferPass::createUIPipeline(VkDevice device) {
+    // Push constant: 4 floats (bounds) + 1 uint (entity id) = 20 bytes
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushRange.offset     = 0;
+    pushRange.size       = 20;  // 4×float + 1×uint
+
+    VkPipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount         = 0;   // no descriptor sets needed
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges    = &pushRange;
+    if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &uiPipelineLayout_) != VK_SUCCESS)
+        throw std::runtime_error("IdBufferPass: failed to create UI pipeline layout");
+
+    const char* shaderDir = std::getenv("YOPE_SHADER_DIR");
+    std::string vertPath = shaderDir ? (std::string(shaderDir) + "/id_buffer_ui.vert.spv")
+                                     : "compiled_shaders/id_buffer_ui.vert.spv";
+    std::string fragPath = shaderDir ? (std::string(shaderDir) + "/id_buffer_ui.frag.spv")
+                                     : "compiled_shaders/id_buffer_ui.frag.spv";
+
+    auto vertCode = loadSpirv(vertPath.c_str());
+    auto fragCode = loadSpirv(fragPath.c_str());
+    VkShaderModule vertMod = createShaderModule(device, vertCode);
+    VkShaderModule fragMod = createShaderModule(device, fragCode);
+
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vertMod;
+    stages[0].pName  = "main";
+    stages[1].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = fragMod;
+    stages[1].pName  = "main";
+
+    // No vertex buffer — quad generated from gl_VertexIndex
+    VkPipelineVertexInputStateCreateInfo vertexInput{};
+    vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount  = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.cullMode    = VK_CULL_MODE_NONE;   // UI quads face camera
+    rasterizer.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.lineWidth   = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineColorBlendAttachmentState blendAttach{};
+    blendAttach.colorWriteMask = VK_COLOR_COMPONENT_R_BIT;
+    blendAttach.blendEnable    = VK_FALSE;
+
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlend.attachmentCount = 1;
+    colorBlend.pAttachments    = &blendAttach;
+
+    // Depth test disabled — UI is always on top in the picking buffer
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable  = VK_FALSE;
+    depthStencil.depthWriteEnable = VK_FALSE;
+
+    VkDynamicState dynStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = 2;
+    dynamicState.pDynamicStates    = dynStates;
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount          = 2;
+    pipelineInfo.pStages             = stages;
+    pipelineInfo.pVertexInputState   = &vertexInput;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState      = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState   = &multisampling;
+    pipelineInfo.pColorBlendState    = &colorBlend;
+    pipelineInfo.pDepthStencilState  = &depthStencil;
+    pipelineInfo.pDynamicState       = &dynamicState;
+    pipelineInfo.layout              = uiPipelineLayout_;
+    pipelineInfo.renderPass          = renderPass_;
+    pipelineInfo.subpass             = 0;
+
+    vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &uiPipeline_);
+
+    vkDestroyShaderModule(device, vertMod, nullptr);
+    vkDestroyShaderModule(device, fragMod, nullptr);
+}
+
 // ---- record ----
 
 void IdBufferPass::record(VkCommandBuffer cmd, ecs::Registry& reg,
                           VkDescriptorSet globalDescSet,
                           VkImageView sharedDepthView,
                           uint32_t vpW, uint32_t vpH) {
-    if (!renderPass_ || !pipeline_) return;
+    if (!renderPass_ || !pipeline_ || !sharedDepthView) return;
 
-    // Recreate framebuffer if we don't have one (or dimensions changed)
-    if (!framebuffer_ && sharedDepthView)
-        createFramebuffer(device_, sharedDepthView, w_, h_);
+    // Pick (or lazily create) the framebuffer bound to this frame's depth view.
+    VkFramebuffer framebuffer = ensureFramebuffer(sharedDepthView, w_, h_);
+    if (!framebuffer) return;
 
-    if (!framebuffer_) return;
-
-    // Transition ID image: UNDEFINED → COLOR_ATTACHMENT
+    // Transition ID image: UNDEFINED → COLOR_ATTACHMENT. idImage_ is a SINGLE
+    // persistent image reused every frame, so this transition (a write) must
+    // synchronize against the PREVIOUS frame's color writes to it — hence
+    // srcStage=COLOR_ATTACHMENT_OUTPUT / srcAccess=COLOR_ATTACHMENT_WRITE rather
+    // than TOP_OF_PIPE/0 (which left a cross-frame write-after-write hazard).
     VkImageMemoryBarrier barrier{};
     barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.srcAccessMask       = 0;
+    barrier.srcAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.dstAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
     barrier.newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -363,8 +511,11 @@ void IdBufferPass::record(VkCommandBuffer cmd, ecs::Registry& reg,
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image               = idImage_;
     barrier.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    // Wait for everything the PREVIOUS frame did to idImage_: its color writes
+    // (COLOR_ATTACHMENT_OUTPUT, write-after-write) and its readback copy read
+    // (TRANSFER, write-after-read — execution dependency only).
     vkCmdPipelineBarrier(cmd,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
         0, 0, nullptr, 0, nullptr, 1, &barrier);
 
@@ -376,7 +527,7 @@ void IdBufferPass::record(VkCommandBuffer cmd, ecs::Registry& reg,
     VkRenderPassBeginInfo rpbi{};
     rpbi.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rpbi.renderPass      = renderPass_;
-    rpbi.framebuffer     = framebuffer_;
+    rpbi.framebuffer     = framebuffer;
     rpbi.renderArea      = {{0, 0}, {w_, h_}};
     rpbi.clearValueCount = 2;
     rpbi.pClearValues    = clears;
@@ -408,11 +559,46 @@ void IdBufferPass::record(VkCommandBuffer cmd, ecs::Registry& reg,
         mr.mesh->draw(cmd);
     }
 
+    // ---- 2D UI entity picking ----
+    // Draw screen-space quads for all pickable UITransform entities.
+    if (uiPipeline_) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, uiPipeline_);
+
+        struct UIPushData { float minX, minY, maxX, maxY; uint32_t entityId; };
+
+        for (auto [e, pick, uiTf] : reg.view<ecs::EditorPickable, ecs::UITransform>()) {
+            if (!uiTf.visible) continue;
+            UIPushData pd{uiTf.minX, uiTf.minY, uiTf.maxX, uiTf.maxY, e.id};
+            vkCmdPushConstants(cmd, uiPipelineLayout_,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                               0, sizeof(UIPushData), &pd);
+            vkCmdDraw(cmd, 6, 1, 0, 0);   // 2 triangles = 6 verts, generated from gl_VertexIndex
+        }
+    }
+
     vkCmdEndRenderPass(cmd);
 
     // Readback: if a click was scheduled last frame, copy the pixel
     if (readbackReady_) {
-        // Image is now TRANSFER_SRC_OPTIMAL (final layout of renderPass_)
+        // The render pass left the ID image in COLOR_ATTACHMENT_OPTIMAL. Explicitly
+        // transition it to TRANSFER_SRC_OPTIMAL and synchronize the color writes
+        // against the transfer read — without this barrier the copy races the
+        // render pass's writes (SYNC-HAZARD-READ-AFTER-WRITE on every pick).
+        VkImageMemoryBarrier toXfer{};
+        toXfer.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        toXfer.srcAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        toXfer.dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT;
+        toXfer.oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        toXfer.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        toXfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toXfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toXfer.image               = idImage_;
+        toXfer.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdPipelineBarrier(cmd,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &toXfer);
+
         uint32_t x = std::min(clickX_, w_ - 1);
         uint32_t y = std::min(clickY_, h_ - 1);
 
@@ -440,10 +626,11 @@ void IdBufferPass::record(VkCommandBuffer cmd, ecs::Registry& reg,
 
 // ---- scheduleReadback ----
 
-void IdBufferPass::scheduleReadback(uint32_t x, uint32_t y) {
-    pendingReadback_ = true;
-    clickX_ = x;
-    clickY_ = y;
+void IdBufferPass::scheduleReadback(uint32_t x, uint32_t y, bool additive) {
+    pendingReadback_  = true;
+    clickX_           = x;
+    clickY_           = y;
+    additiveSelect_   = additive;
 }
 
 // ---- pollResult ----
@@ -477,7 +664,8 @@ void IdBufferPass::pollResult(ecs::Registry& reg, Selection& sel) {
                 // Find the entity with this id
                 for (auto [e, pick] : reg.view<ecs::EditorPickable>()) {
                     if (e.id == entityId) {
-                        sel.set(e);
+                        if (additiveSelect_) sel.add(e);
+                        else                sel.set(e);
                         break;
                     }
                 }

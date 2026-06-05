@@ -14,12 +14,6 @@ ViewportTarget::ViewportTarget(GpuDevice& gpu,
 }
 
 void ViewportTarget::create(GpuDevice& gpu, VkRenderPass offscreenGamePass,
-                            VkFormat colorFormat, VkFormat depthFormat,
-                            uint32_t w, uint32_t h) {
-    create(gpu, offscreenGamePass, VK_NULL_HANDLE, colorFormat, depthFormat, w, h);
-}
-
-void ViewportTarget::create(GpuDevice& gpu, VkRenderPass offscreenGamePass,
                             VkRenderPass offscreenRaytracePass,
                             VkFormat colorFormat, VkFormat depthFormat,
                             uint32_t w, uint32_t h) {
@@ -58,35 +52,7 @@ void ViewportTarget::create(GpuDevice& gpu, VkRenderPass offscreenGamePass,
         vkBindImageMemory(device_, img, mem, 0);
     };
 
-    // Color image (sampled by ImGui::Image)
-    allocImage(colorFormat_,
-               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-               colorImage_, colorMem_);
-
-    VkImageViewCreateInfo cvi{};
-    cvi.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    cvi.image    = colorImage_;
-    cvi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    cvi.format   = colorFormat_;
-    cvi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    if (vkCreateImageView(device_, &cvi, nullptr, &colorView_) != VK_SUCCESS)
-        throw std::runtime_error("ViewportTarget: failed to create color image view");
-
-    // Depth image
-    allocImage(depthFormat_,
-               VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-               depthImage_, depthMem_);
-
-    VkImageViewCreateInfo dvi{};
-    dvi.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    dvi.image    = depthImage_;
-    dvi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    dvi.format   = depthFormat_;
-    dvi.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-    if (vkCreateImageView(device_, &dvi, nullptr, &depthView_) != VK_SUCCESS)
-        throw std::runtime_error("ViewportTarget: failed to create depth image view");
-
-    // Sampler for ImGui::Image
+    // Sampler for ImGui::Image — shared by every frame's descriptor set.
     VkSamplerCreateInfo si{};
     si.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     si.magFilter    = VK_FILTER_LINEAR;
@@ -99,36 +65,66 @@ void ViewportTarget::create(GpuDevice& gpu, VkRenderPass offscreenGamePass,
     if (vkCreateSampler(device_, &si, nullptr, &sampler_) != VK_SUCCESS)
         throw std::runtime_error("ViewportTarget: failed to create sampler");
 
-    // Framebuffer (against the offscreen game pass)
-    VkImageView attachments[2] = {colorView_, depthView_};
-    VkFramebufferCreateInfo fbi{};
-    fbi.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    fbi.renderPass      = gamePass_;
-    fbi.attachmentCount = 2;
-    fbi.pAttachments    = attachments;
-    fbi.width           = w_;
-    fbi.height          = h_;
-    fbi.layers          = 1;
-    if (vkCreateFramebuffer(device_, &fbi, nullptr, &framebuffer_) != VK_SUCCESS)
-        throw std::runtime_error("ViewportTarget: failed to create framebuffer");
+    for (auto& f : frames_) {
+        // Color image (sampled by ImGui::Image)
+        allocImage(colorFormat_,
+                   VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                   f.colorImage, f.colorMem);
 
-    // Color-only framebuffer for raytrace pass (no depth attachment)
-    if (raytracePass_ != VK_NULL_HANDLE) {
-        VkFramebufferCreateInfo rtfbi{};
-        rtfbi.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        rtfbi.renderPass      = raytracePass_;
-        rtfbi.attachmentCount = 1;
-        rtfbi.pAttachments    = &colorView_;
-        rtfbi.width           = w_;
-        rtfbi.height          = h_;
-        rtfbi.layers          = 1;
-        if (vkCreateFramebuffer(device_, &rtfbi, nullptr, &raytraceFramebuffer_) != VK_SUCCESS)
-            throw std::runtime_error("ViewportTarget: failed to create raytrace framebuffer");
+        VkImageViewCreateInfo cvi{};
+        cvi.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        cvi.image    = f.colorImage;
+        cvi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        cvi.format   = colorFormat_;
+        cvi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        if (vkCreateImageView(device_, &cvi, nullptr, &f.colorView) != VK_SUCCESS)
+            throw std::runtime_error("ViewportTarget: failed to create color image view");
+
+        // Depth image
+        allocImage(depthFormat_,
+                   VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                   f.depthImage, f.depthMem);
+
+        VkImageViewCreateInfo dvi{};
+        dvi.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        dvi.image    = f.depthImage;
+        dvi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        dvi.format   = depthFormat_;
+        dvi.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+        if (vkCreateImageView(device_, &dvi, nullptr, &f.depthView) != VK_SUCCESS)
+            throw std::runtime_error("ViewportTarget: failed to create depth image view");
+
+        // Framebuffer (against the offscreen game pass)
+        VkImageView attachments[2] = {f.colorView, f.depthView};
+        VkFramebufferCreateInfo fbi{};
+        fbi.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fbi.renderPass      = gamePass_;
+        fbi.attachmentCount = 2;
+        fbi.pAttachments    = attachments;
+        fbi.width           = w_;
+        fbi.height          = h_;
+        fbi.layers          = 1;
+        if (vkCreateFramebuffer(device_, &fbi, nullptr, &f.framebuffer) != VK_SUCCESS)
+            throw std::runtime_error("ViewportTarget: failed to create framebuffer");
+
+        // Color-only framebuffer for raytrace pass (no depth attachment)
+        if (raytracePass_ != VK_NULL_HANDLE) {
+            VkFramebufferCreateInfo rtfbi{};
+            rtfbi.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            rtfbi.renderPass      = raytracePass_;
+            rtfbi.attachmentCount = 1;
+            rtfbi.pAttachments    = &f.colorView;
+            rtfbi.width           = w_;
+            rtfbi.height          = h_;
+            rtfbi.layers          = 1;
+            if (vkCreateFramebuffer(device_, &rtfbi, nullptr, &f.raytraceFramebuffer) != VK_SUCCESS)
+                throw std::runtime_error("ViewportTarget: failed to create raytrace framebuffer");
+        }
+
+        // ImGui descriptor set for ImGui::Image()
+        f.imguiDescSet = ImGui_ImplVulkan_AddTexture(
+            sampler_, f.colorView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
-
-    // ImGui descriptor set for ImGui::Image()
-    imguiDescSet_ = ImGui_ImplVulkan_AddTexture(
-        sampler_, colorView_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
 void ViewportTarget::resize(GpuDevice& gpu, uint32_t w, uint32_t h) {
@@ -141,19 +137,12 @@ void ViewportTarget::resize(GpuDevice& gpu, uint32_t w, uint32_t h) {
 ViewportTarget::ViewportTarget(ViewportTarget&& o) noexcept
     : device_(o.device_), gamePass_(o.gamePass_), raytracePass_(o.raytracePass_),
       colorFormat_(o.colorFormat_), depthFormat_(o.depthFormat_),
-      colorImage_(o.colorImage_), colorMem_(o.colorMem_), colorView_(o.colorView_),
-      sampler_(o.sampler_),
-      depthImage_(o.depthImage_), depthMem_(o.depthMem_), depthView_(o.depthView_),
-      framebuffer_(o.framebuffer_), raytraceFramebuffer_(o.raytraceFramebuffer_),
-      imguiDescSet_(o.imguiDescSet_),
+      sampler_(o.sampler_), frames_(o.frames_), activeFrame_(o.activeFrame_),
       w_(o.w_), h_(o.h_) {
-    o.device_               = VK_NULL_HANDLE;
-    o.raytracePass_         = VK_NULL_HANDLE;
-    o.colorImage_  = VK_NULL_HANDLE; o.colorMem_  = VK_NULL_HANDLE; o.colorView_  = VK_NULL_HANDLE;
-    o.sampler_     = VK_NULL_HANDLE;
-    o.depthImage_  = VK_NULL_HANDLE; o.depthMem_  = VK_NULL_HANDLE; o.depthView_  = VK_NULL_HANDLE;
-    o.framebuffer_ = VK_NULL_HANDLE; o.raytraceFramebuffer_ = VK_NULL_HANDLE;
-    o.imguiDescSet_ = VK_NULL_HANDLE;
+    o.device_       = VK_NULL_HANDLE;
+    o.raytracePass_ = VK_NULL_HANDLE;
+    o.sampler_      = VK_NULL_HANDLE;
+    o.frames_       = {};
 }
 
 ViewportTarget& ViewportTarget::operator=(ViewportTarget&& o) noexcept {
@@ -165,18 +154,17 @@ ViewportTarget& ViewportTarget::operator=(ViewportTarget&& o) noexcept {
 }
 
 void ViewportTarget::destroy(VkDevice device) {
-    if (imguiDescSet_ != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(imguiDescSet_);
-        imguiDescSet_ = VK_NULL_HANDLE;
+    for (auto& f : frames_) {
+        if (f.imguiDescSet        != VK_NULL_HANDLE) { ImGui_ImplVulkan_RemoveTexture(f.imguiDescSet); f.imguiDescSet = VK_NULL_HANDLE; }
+        if (f.raytraceFramebuffer != VK_NULL_HANDLE) { vkDestroyFramebuffer(device, f.raytraceFramebuffer, nullptr); f.raytraceFramebuffer = VK_NULL_HANDLE; }
+        if (f.framebuffer         != VK_NULL_HANDLE) { vkDestroyFramebuffer(device, f.framebuffer, nullptr); f.framebuffer = VK_NULL_HANDLE; }
+        if (f.colorView           != VK_NULL_HANDLE) { vkDestroyImageView(device, f.colorView, nullptr); f.colorView = VK_NULL_HANDLE; }
+        if (f.colorImage          != VK_NULL_HANDLE) { vkDestroyImage(device, f.colorImage, nullptr); f.colorImage = VK_NULL_HANDLE; }
+        if (f.colorMem            != VK_NULL_HANDLE) { vkFreeMemory(device, f.colorMem, nullptr); f.colorMem = VK_NULL_HANDLE; }
+        if (f.depthView           != VK_NULL_HANDLE) { vkDestroyImageView(device, f.depthView, nullptr); f.depthView = VK_NULL_HANDLE; }
+        if (f.depthImage          != VK_NULL_HANDLE) { vkDestroyImage(device, f.depthImage, nullptr); f.depthImage = VK_NULL_HANDLE; }
+        if (f.depthMem            != VK_NULL_HANDLE) { vkFreeMemory(device, f.depthMem, nullptr); f.depthMem = VK_NULL_HANDLE; }
     }
-    if (raytraceFramebuffer_ != VK_NULL_HANDLE) { vkDestroyFramebuffer(device, raytraceFramebuffer_, nullptr); raytraceFramebuffer_ = VK_NULL_HANDLE; }
-    if (framebuffer_ != VK_NULL_HANDLE) { vkDestroyFramebuffer(device, framebuffer_, nullptr); framebuffer_ = VK_NULL_HANDLE; }
-    if (sampler_     != VK_NULL_HANDLE) { vkDestroySampler    (device, sampler_,     nullptr); sampler_     = VK_NULL_HANDLE; }
-    if (colorView_   != VK_NULL_HANDLE) { vkDestroyImageView  (device, colorView_,   nullptr); colorView_   = VK_NULL_HANDLE; }
-    if (colorImage_  != VK_NULL_HANDLE) { vkDestroyImage      (device, colorImage_,  nullptr); colorImage_  = VK_NULL_HANDLE; }
-    if (colorMem_    != VK_NULL_HANDLE) { vkFreeMemory         (device, colorMem_,    nullptr); colorMem_    = VK_NULL_HANDLE; }
-    if (depthView_   != VK_NULL_HANDLE) { vkDestroyImageView  (device, depthView_,   nullptr); depthView_   = VK_NULL_HANDLE; }
-    if (depthImage_  != VK_NULL_HANDLE) { vkDestroyImage      (device, depthImage_,  nullptr); depthImage_  = VK_NULL_HANDLE; }
-    if (depthMem_    != VK_NULL_HANDLE) { vkFreeMemory         (device, depthMem_,    nullptr); depthMem_    = VK_NULL_HANDLE; }
+    if (sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device, sampler_, nullptr); sampler_ = VK_NULL_HANDLE; }
 }
 #endif

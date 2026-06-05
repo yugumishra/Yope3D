@@ -7,7 +7,7 @@
 #include <cstring>
 
 const std::vector<const char*> PhysicalDevice::requiredExtensions = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 };
 
 PhysicalDevice::PhysicalDevice(VkInstance instance, VkSurfaceKHR surface) {

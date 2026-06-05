@@ -1,5 +1,4 @@
 #pragma once
-#ifdef YOPE_EDITOR
 #include <string>
 #include <sstream>
 #include <cstdint>
@@ -39,4 +38,3 @@ private:
     int  depth_     = 0;
     bool needComma_ = false;
 };
-#endif

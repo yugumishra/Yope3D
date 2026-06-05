@@ -1,9 +1,8 @@
-#include "editor/serialization/SceneSerializer.h"
-#ifdef YOPE_EDITOR
-#include "editor/serialization/JsonWriter.h"
-#include "editor/serialization/JsonParser.h"
-#include "editor/serialization/ComponentSerializers.h"
-#include "editor/commands/ComponentSnapshot.h"
+#include "scene/serialization/SceneSerializer.h"
+#include "scene/serialization/JsonWriter.h"
+#include "scene/serialization/JsonParser.h"
+#include "scene/serialization/ComponentSerializers.h"
+#include "scene/ComponentSnapshot.h"
 #include "ecs/Registry.h"
 #include "ecs/Components.h"
 #include "ecs/TypeId.h"
@@ -12,6 +11,9 @@
 #include "audio/AudioSystem.h"
 #include "audio/Source.h"
 #include "Engine.h"
+#ifdef YOPE_EDITOR
+#include "editor/panels/ConsolePanel.h"
+#endif
 #include <fstream>
 #include <stdexcept>
 #include <cstring>
@@ -28,16 +30,23 @@ struct CompSerEntry {
 
 static std::vector<CompSerEntry> buildSerTable() {
     return {
-        { ecs::typeId<ecs::Name>(),             "Name",             compser::serializeName,             compser::deserializeName             },
-        { ecs::typeId<Transform>(),             "Transform",        compser::serializeTransform,        compser::deserializeTransform        },
-        { ecs::typeId<ecs::Hull>(),             "Hull",             compser::serializeHull,             compser::deserializeHull             },
-        { ecs::typeId<ecs::SphereForm>(),       "SphereForm",       compser::serializeSphereForm,       compser::deserializeSphereForm       },
-        { ecs::typeId<ecs::AABBForm>(),         "AABBForm",         compser::serializeAABBForm,         compser::deserializeAABBForm         },
-        { ecs::typeId<ecs::OBBForm>(),          "OBBForm",          compser::serializeOBBForm,          compser::deserializeOBBForm          },
-        { ecs::typeId<ecs::MeshRenderer>(),     "MeshRenderer",     compser::serializeMeshRenderer,     compser::deserializeMeshRenderer     },
-        { ecs::typeId<ecs::LightSource>(),      "LightSource",      compser::serializeLightSource,      compser::deserializeLightSource      },
-        { ecs::typeId<ecs::SpringConstraint>(), "SpringConstraint", compser::serializeSpringConstraint, compser::deserializeSpringConstraint },
-        { ecs::typeId<ecs::AudioSource>(),      "AudioSource",      compser::serializeAudioSource,      compser::deserializeAudioSource      },
+        { ecs::typeId<ecs::Name>(),                  "Name",                  compser::serializeName,                  compser::deserializeName                  },
+        { ecs::typeId<Transform>(),                  "Transform",             compser::serializeTransform,             compser::deserializeTransform             },
+        { ecs::typeId<ecs::Hull>(),                  "Hull",                  compser::serializeHull,                  compser::deserializeHull                  },
+        { ecs::typeId<ecs::SphereForm>(),            "SphereForm",            compser::serializeSphereForm,            compser::deserializeSphereForm            },
+        { ecs::typeId<ecs::AABBForm>(),              "AABBForm",              compser::serializeAABBForm,              compser::deserializeAABBForm              },
+        { ecs::typeId<ecs::OBBForm>(),               "OBBForm",               compser::serializeOBBForm,               compser::deserializeOBBForm               },
+        { ecs::typeId<ecs::MeshRenderer>(),          "MeshRenderer",          compser::serializeMeshRenderer,          compser::deserializeMeshRenderer          },
+        { ecs::typeId<ecs::LightSource>(),           "LightSource",           compser::serializeLightSource,           compser::deserializeLightSource           },
+        { ecs::typeId<ecs::SpringConstraint>(),      "SpringConstraint",      compser::serializeSpringConstraint,      compser::deserializeSpringConstraint      },
+        { ecs::typeId<ecs::AudioSource>(),           "AudioSource",           compser::serializeAudioSource,           compser::deserializeAudioSource           },
+        { ecs::typeId<ecs::ScriptComponent>(),       "ScriptComponent",       compser::serializeScriptComponent,       compser::deserializeScriptComponent       },
+        { ecs::typeId<ecs::UITransform>(),           "UITransform",           compser::serializeUITransform,           compser::deserializeUITransform           },
+        { ecs::typeId<ecs::UIBackground>(),          "UIBackground",          compser::serializeUIBackground,          compser::deserializeUIBackground          },
+        { ecs::typeId<ecs::UITexturedBackground>(),  "UITexturedBackground",  compser::serializeUITexturedBackground,  compser::deserializeUITexturedBackground  },
+        { ecs::typeId<ecs::UICurvedBackground>(),    "UICurvedBackground",    compser::serializeUICurvedBackground,    compser::deserializeUICurvedBackground    },
+        { ecs::typeId<ecs::UIText>(),                "UIText",                compser::serializeUIText,                compser::deserializeUIText                },
+        { ecs::typeId<ecs::TextLabel3D>(),           "TextLabel3D",           compser::serializeTextLabel3D,           compser::deserializeTextLabel3D           },
     };
 }
 
@@ -101,10 +110,13 @@ bool save(const char* path, ecs::Registry& reg, World& world) {
     std::ofstream f(path);
     if (!f.is_open()) return false;
     f << w.str();
+#ifdef YOPE_EDITOR
+    Console::log(std::string("Saved scene: ") + path, LogSeverity::Info);
+#endif
     return true;
 }
 
-std::string load(const char* path, ecs::Registry& reg, World& world, AudioSystem* audio) {
+std::string load(const char* path, ecs::Registry& reg, World& world, AudioSystem* audio, bool startAudio) {
     JsonNode root;
     try {
         root = parseJsonFile(path);
@@ -167,6 +179,40 @@ std::string load(const char* path, ecs::Registry& reg, World& world, AudioSystem
             snap.hasAudio = true;
             compser::deserializeAudioSource(entNode["AudioSource"], &snap.audio);
         }
+        if (entNode.contains("ScriptComponent")) {
+            snap.hasScript = true;
+            compser::deserializeScriptComponent(entNode["ScriptComponent"], &snap.script);
+        }
+        if (entNode.contains("UITransform")) {
+            snap.hasUITransform = true;
+            compser::deserializeUITransform(entNode["UITransform"], &snap.uiTransform);
+        }
+        if (entNode.contains("UIBackground")) {
+            snap.hasUIBackground = true;
+            compser::deserializeUIBackground(entNode["UIBackground"], &snap.uiBackground);
+        }
+        if (entNode.contains("UITexturedBackground")) {
+            snap.hasUITexturedBackground = true;
+            compser::deserializeUITexturedBackground(entNode["UITexturedBackground"], &snap.uiTexturedBackground);
+        }
+        if (entNode.contains("UICurvedBackground")) {
+            snap.hasUICurvedBackground = true;
+            compser::deserializeUICurvedBackground(entNode["UICurvedBackground"], &snap.uiCurvedBackground);
+        }
+        if (entNode.contains("UIText")) {
+            snap.hasUIText = true;
+            compser::deserializeUIText(entNode["UIText"], &snap.uiText);
+        }
+        if (entNode.contains("TextLabel3D")) {
+            snap.hasTextLabel3D = true;
+            compser::deserializeTextLabel3D(entNode["TextLabel3D"], &snap.textLabel3D);
+        }
+        if (entNode.contains("SpringConstraint")) {
+            snap.hasSpring = true;
+            compser::deserializeSpringConstraint(entNode["SpringConstraint"], &snap.spring);
+            // snap.spring.target is left invalid here; the second pass resolves it
+            // via the fileId cross-reference and then calls addSpringPhysics.
+        }
         if (entNode.contains("MeshRenderer")) {
             snap.hasMesh = true;
             const auto& mr = entNode["MeshRenderer"];
@@ -228,6 +274,15 @@ std::string load(const char* path, ecs::Registry& reg, World& world, AudioSystem
         ++fid;
     }
 
+    // Reconstruct physics springs from SpringConstraint components.
+    // The component stores the logical relationship; physics::Spring objects in
+    // World::springs_ do the actual simulation. After cross-ref resolution above
+    // we know target is a valid entity, so we can create the spring objects now.
+    for (auto [e, sc] : reg.view<ecs::SpringConstraint>()) {
+        if (reg.valid(sc.target))
+            world.addSpringPhysics(e, sc.target, sc.k, sc.restLength);
+    }
+
     // Rebind AudioSource OpenAL handles from the saved path.
     if (audio) {
         for (auto [e, as] : reg.view<ecs::AudioSource>()) {
@@ -238,14 +293,16 @@ std::string load(const char* path, ecs::Registry& reg, World& world, AudioSystem
                     as.source->setGain(as.gain);
                     as.source->setPitch(as.pitch);
                     as.source->enableLooping(as.loop);
-                    if (as.autoplay) as.source->play();
+                    if (as.autoplay && startAudio) as.source->play();
                 }
             }
         }
     }
 
+#ifdef YOPE_EDITOR
+    Console::log(std::string("Loaded scene: ") + path, LogSeverity::Info);
+#endif
     return "";
 }
 
 } // namespace SceneSerializer
-#endif

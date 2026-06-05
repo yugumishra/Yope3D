@@ -1,7 +1,7 @@
 #pragma once
 #ifdef YOPE_EDITOR
 #include "editor/CommandHistory.h"
-#include "editor/commands/ComponentSnapshot.h"
+#include "scene/ComponentSnapshot.h"
 #include "ecs/Entity.h"
 #include "math/Vec3.h"
 #include "rendering/Light.h"
@@ -14,8 +14,12 @@ enum class EntityKind {
     PointLight,
     DirLight,
     SpotLight,
-    RenderObject,   // visual-only: Transform + MeshRenderer, no physics
-    AudioSource,    // Transform + ecs::AudioSource (no Source* until user drops a .wav)
+    RenderObject,          // visual-only: Transform + MeshRenderer, no physics
+    AudioSource,           // Transform + ecs::AudioSource (no Source* until user drops a .wav)
+    UIBackground,          // UITransform + UIBackground
+    UICurvedBackground,    // UITransform + UICurvedBackground
+    UIText,                // UITransform + UIText
+    TextLabel3D,           // Transform + TextLabel3D (world-space MSDF text)
 };
 
 // Creates a new entity. redo() calls the World factory + attaches default mesh.
@@ -29,6 +33,9 @@ struct CreateEntityCommand : ICommand {
     ecs::LightSource lightParams{};   // used for light kinds
 
     ecs::Entity created_ = ecs::NullEntity;
+
+    explicit CreateEntityCommand(EntityKind k)
+        : kind(k) {}
 
     CreateEntityCommand(EntityKind k, math::Vec3 pos,
                         math::Vec3 ext = {0.5f, 0.5f, 0.5f},
