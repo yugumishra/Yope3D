@@ -24,6 +24,10 @@ void serializeAABBForm         (const void* comp, JsonWriter& w);
 bool deserializeAABBForm       (const JsonNode& node, void* comp);
 void serializeOBBForm          (const void* comp, JsonWriter& w);
 bool deserializeOBBForm        (const JsonNode& node, void* comp);
+void serializeCapsuleForm      (const void* comp, JsonWriter& w);
+bool deserializeCapsuleForm    (const JsonNode& node, void* comp);
+void serializeCylinderForm     (const void* comp, JsonWriter& w);
+bool deserializeCylinderForm   (const JsonNode& node, void* comp);
 
 // MeshRenderer (stores color; mesh path stored separately via cpuVerts/primType)
 void serializeMeshRenderer     (const void* comp, JsonWriter& w);

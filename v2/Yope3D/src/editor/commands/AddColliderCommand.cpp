@@ -24,6 +24,13 @@ void AddColliderCommand::redo(EditorContext& ctx) {
         case Shape::OBB:
             ctx.world->attachOBBCollider(entity_, mass_, extent_, isStatic_);
             break;
+        case Shape::Capsule:
+            // extent_.x = radius, extent_.y = halfHeight
+            ctx.world->attachCapsuleCollider(entity_, mass_, extent_.x, extent_.y, isStatic_);
+            break;
+        case Shape::Cylinder:
+            ctx.world->attachCylinderCollider(entity_, mass_, extent_.x, extent_.y, isStatic_);
+            break;
     }
 }
 

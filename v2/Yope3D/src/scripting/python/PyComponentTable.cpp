@@ -17,6 +17,8 @@ void build() {
         { "SphereForm",       ecs::typeId<ecs::SphereForm>(),        [](void* p) { return py::cast(static_cast<ecs::SphereForm*>(p),        rv::reference); } },
         { "AABBForm",         ecs::typeId<ecs::AABBForm>(),          [](void* p) { return py::cast(static_cast<ecs::AABBForm*>(p),          rv::reference); } },
         { "OBBForm",          ecs::typeId<ecs::OBBForm>(),           [](void* p) { return py::cast(static_cast<ecs::OBBForm*>(p),           rv::reference); } },
+        { "CapsuleForm",      ecs::typeId<ecs::CapsuleForm>(),       [](void* p) { return py::cast(static_cast<ecs::CapsuleForm*>(p),       rv::reference); } },
+        { "CylinderForm",     ecs::typeId<ecs::CylinderForm>(),      [](void* p) { return py::cast(static_cast<ecs::CylinderForm*>(p),      rv::reference); } },
         { "LightSource",      ecs::typeId<ecs::LightSource>(),       [](void* p) { return py::cast(static_cast<ecs::LightSource*>(p),       rv::reference); } },
         { "Name",             ecs::typeId<ecs::Name>(),              [](void* p) { return py::cast(static_cast<ecs::Name*>(p),              rv::reference); } },
         { "SpringConstraint", ecs::typeId<ecs::SpringConstraint>(),  [](void* p) { return py::cast(static_cast<ecs::SpringConstraint*>(p),  rv::reference); } },

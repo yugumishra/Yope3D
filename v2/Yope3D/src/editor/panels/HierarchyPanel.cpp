@@ -56,6 +56,20 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                     math::Vec3{0.5f, 0.5f, 0.5f}, 1.0f));
             ImGui::CloseCurrentPopup();
         }
+        if (ImGui::MenuItem("Capsule")) {
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::Capsule, math::Vec3{0.f, 2.f, 0.f},
+                    math::Vec3{0.4f, 0.8f, 0.4f}, 1.0f));  // ext.x=radius, ext.y=halfHeight
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::MenuItem("Cylinder")) {
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::Cylinder, math::Vec3{0.f, 2.f, 0.f},
+                    math::Vec3{0.4f, 0.8f, 0.4f}, 1.0f));  // ext.x=radius, ext.y=halfHeight
+            ImGui::CloseCurrentPopup();
+        }
         ImGui::Separator();
         if (ImGui::MenuItem("Point Light")) {
             ecs::LightSource lp{};

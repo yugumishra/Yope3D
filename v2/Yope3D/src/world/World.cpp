@@ -1,5 +1,6 @@
 #include "World.h"
 #include "../gpu/GpuDevice.h"
+#include "../assets/Primitives.h"
 #include <cstring>
 #include "../audio/AudioSystem.h"
 #include "../physics/ColliderDiscrete.h"
@@ -66,6 +67,23 @@ static void setPrimitiveInfo(RenderMesh* rm, const LoadedMesh& mesh) {
         for (const auto& v : mesh.vertices)
             hx = std::max(hx, std::abs(v.position[0]));
         rm->primitiveExtents = {hx, 0.f, 0.f};
+    } else if (mesh.name == "Capsule") {
+        rm->primitiveType = PrimitiveType::Capsule;
+        float maxXZ2 = 0.f, maxY = 0.f;
+        for (const auto& v : mesh.vertices) {
+            maxXZ2 = std::max(maxXZ2, v.position[0]*v.position[0] + v.position[2]*v.position[2]);
+            maxY   = std::max(maxY,   std::abs(v.position[1]));
+        }
+        float r = std::sqrt(maxXZ2);
+        rm->primitiveExtents = {r, maxY - r, 0.f};  // {radius, halfHeight, 0}
+    } else if (mesh.name == "Cylinder") {
+        rm->primitiveType = PrimitiveType::Cylinder;
+        float maxXZ2 = 0.f, maxY = 0.f;
+        for (const auto& v : mesh.vertices) {
+            maxXZ2 = std::max(maxXZ2, v.position[0]*v.position[0] + v.position[2]*v.position[2]);
+            maxY   = std::max(maxY,   std::abs(v.position[1]));
+        }
+        rm->primitiveExtents = {std::sqrt(maxXZ2), maxY, 0.f};  // {radius, halfHeight, 0}
     }
 
     if (rm->primitiveType != PrimitiveType::Custom) {
@@ -249,17 +267,95 @@ void World::attachOBBCollider(ecs::Entity e, float mass, math::Vec3 extent, bool
     if (debugPhysics) rebuildDebugMeshes();
 }
 
+void World::attachCapsuleCollider(ecs::Entity e, float mass, float radius, float halfHeight, bool isStatic) {
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(e)) return;
+    if (registry_.has<ecs::Hull>(e)) return;
+
+    ecs::Hull h = makeHull(isStatic ? 0.0f : mass);
+    if (!isStatic && mass > 0.0f && radius > 0.0f && halfHeight > 0.0f) {
+        float I = mass * (radius * radius * 0.25f + halfHeight * halfHeight / 3.0f);
+        float invI = (I > 0.0f) ? 1.0f / I : 0.0f;
+        h.inverseInertia = math::Mat3::scale({invI, invI, invI});
+    }
+    registry_.add<ecs::Hull>(e, h);
+    registry_.add<ecs::CapsuleForm>(e, {radius, halfHeight});
+    if (isStatic) registry_.add<ecs::Fixed>(e);
+    if (debugPhysics) rebuildDebugMeshes();
+}
+
+void World::attachCylinderCollider(ecs::Entity e, float mass, float radius, float halfHeight, bool isStatic) {
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(e)) return;
+    if (registry_.has<ecs::Hull>(e)) return;
+
+    ecs::Hull h = makeHull(isStatic ? 0.0f : mass);
+    if (!isStatic && mass > 0.0f && radius > 0.0f && halfHeight > 0.0f) {
+        float I = mass * (radius * radius * 0.25f + halfHeight * halfHeight / 3.0f);
+        float invI = (I > 0.0f) ? 1.0f / I : 0.0f;
+        h.inverseInertia = math::Mat3::scale({invI, invI, invI});
+    }
+    registry_.add<ecs::Hull>(e, h);
+    registry_.add<ecs::CylinderForm>(e, {radius, halfHeight});
+    if (isStatic) registry_.add<ecs::Fixed>(e);
+    if (debugPhysics) rebuildDebugMeshes();
+}
+
 void World::detachPhysicsBody(ecs::Entity e) {
     std::lock_guard lk(structureMtx_);
     if (!registry_.valid(e)) return;
-    if (registry_.has<ecs::Hull>(e))       registry_.remove<ecs::Hull>(e);
-    if (registry_.has<ecs::SphereForm>(e)) registry_.remove<ecs::SphereForm>(e);
-    if (registry_.has<ecs::AABBForm>(e))   registry_.remove<ecs::AABBForm>(e);
-    if (registry_.has<ecs::OBBForm>(e))    registry_.remove<ecs::OBBForm>(e);
-    if (registry_.has<ecs::Fixed>(e))      registry_.remove<ecs::Fixed>(e);
-    if (registry_.has<ecs::Sleeping>(e))   registry_.remove<ecs::Sleeping>(e);
+    if (registry_.has<ecs::Hull>(e))         registry_.remove<ecs::Hull>(e);
+    if (registry_.has<ecs::SphereForm>(e))   registry_.remove<ecs::SphereForm>(e);
+    if (registry_.has<ecs::AABBForm>(e))     registry_.remove<ecs::AABBForm>(e);
+    if (registry_.has<ecs::OBBForm>(e))      registry_.remove<ecs::OBBForm>(e);
+    if (registry_.has<ecs::CapsuleForm>(e))  registry_.remove<ecs::CapsuleForm>(e);
+    if (registry_.has<ecs::CylinderForm>(e)) registry_.remove<ecs::CylinderForm>(e);
+    if (registry_.has<ecs::Fixed>(e))        registry_.remove<ecs::Fixed>(e);
+    if (registry_.has<ecs::Sleeping>(e))     registry_.remove<ecs::Sleeping>(e);
     // Stale ContactCache entries are harmless — entity is no longer in Hull view
     if (debugPhysics) rebuildDebugMeshes();
+}
+
+ecs::Entity World::addCapsule(float radius, float halfHeight, float mass, math::Vec3 pos) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {1.0f, 1.0f, 1.0f}});
+    ecs::Hull hc;
+    hc.mass        = mass;
+    hc.inverseMass = (mass > 0.0f) ? 1.0f / mass : 0.0f;
+    if (mass > 0.0f && radius > 0.0f && halfHeight > 0.0f) {
+        // Approximate solid capsule inertia (about Y principal, uniform for all axes here)
+        float I = mass * (radius * radius * 0.25f + halfHeight * halfHeight / 3.0f);
+        float invI = (I > 0.0f) ? 1.0f / I : 0.0f;
+        hc.inverseInertia = math::Mat3::scale({invI, invI, invI});
+    }
+    registry_.add<ecs::Hull>(e, hc);
+    registry_.add<ecs::CapsuleForm>(e, {radius, halfHeight});
+#ifdef YOPE_EDITOR
+    finalizeEntity(e, "Capsule");
+#endif
+    return e;
+}
+
+ecs::Entity World::addCylinder(float radius, float halfHeight, float mass, math::Vec3 pos) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {1.0f, 1.0f, 1.0f}});
+    ecs::Hull hc;
+    hc.mass        = mass;
+    hc.inverseMass = (mass > 0.0f) ? 1.0f / mass : 0.0f;
+    if (mass > 0.0f && radius > 0.0f && halfHeight > 0.0f) {
+        // Approximate solid cylinder inertia (about Y axis; uniform here)
+        float I = mass * (radius * radius * 0.25f + halfHeight * halfHeight / 3.0f);
+        float invI = (I > 0.0f) ? 1.0f / I : 0.0f;
+        hc.inverseInertia = math::Mat3::scale({invI, invI, invI});
+    }
+    registry_.add<ecs::Hull>(e, hc);
+    registry_.add<ecs::CylinderForm>(e, {radius, halfHeight});
+#ifdef YOPE_EDITOR
+    finalizeEntity(e, "Cylinder");
+#endif
+    return e;
 }
 
 ecs::Entity World::addOBBFromMesh(const LoadedMesh& loadedMesh, float mass) {
@@ -422,6 +518,41 @@ void World::flushPendingGpuDestroys() {
     for (auto& m : pendingGpuDestroy_)
         if (m) m->destroy(gpu_->device());
     pendingGpuDestroy_.clear();
+}
+
+// ---- Capsule render-mesh rebuild ----
+
+void World::rebuildCapsuleMesh(ecs::Entity e) {
+    if (!registry_.valid(e) || !gpu_) return;
+    auto* cf = registry_.get<ecs::CapsuleForm>(e);
+    if (!cf) return;
+
+    LoadedMesh mesh = Primitives::capsule(cf->radius, cf->halfHeight);
+
+    // Save old mesh color, then queue old GPU buffers for deferred destruction.
+    float col[3] = {1.f, 1.f, 1.f};
+    if (auto* mr = registry_.get<ecs::MeshRenderer>(e)) {
+        if (mr->mesh) {
+            col[0] = mr->mesh->color[0]; col[1] = mr->mesh->color[1]; col[2] = mr->mesh->color[2];
+            auto it = std::find_if(meshPool_.begin(), meshPool_.end(),
+                [mr](const auto& p) { return p.get() == mr->mesh; });
+            if (it != meshPool_.end()) {
+                meshToEntity_.erase(mr->mesh);
+                pendingGpuDestroy_.push_back(std::move(*it));
+                meshPool_.erase(it);
+            }
+        }
+    }
+
+    auto rm = std::make_unique<RenderMesh>(*gpu_, pool_, mesh.vertices, mesh.indices);
+    RenderMesh* raw = rm.get();
+    raw->color[0] = col[0]; raw->color[1] = col[1]; raw->color[2] = col[2];
+    raw->transformReady = true;
+    setPrimitiveInfo(raw, mesh);
+    meshPool_.push_back(std::move(rm));
+    if (auto* mr = registry_.get<ecs::MeshRenderer>(e)) mr->mesh = raw;
+    else registry_.add<ecs::MeshRenderer>(e, {raw});
+    meshToEntity_[raw] = e;
 }
 
 // ---- Springs ----
@@ -999,8 +1130,11 @@ void World::syncRenderMeshesFromFront() {
 
 void World::rebuildDebugMeshes() {
     destroyDebugMeshes();
+    // Sphere, AABB/OBB, cylinder: shared unit meshes scaled per-entity in syncDebugMeshes.
+    // Capsule: baked per-entity (can't non-uniformly scale hemispherical caps correctly).
     auto [boxV, boxI] = DebugShapes::makeBox();
     auto [sphV, sphI] = DebugShapes::makeSphere();
+    auto [cylV, cylI] = DebugShapes::makeCylinder(1.0f, 1.0f);
     debugEntities_.clear();
 
     for (auto [e, hc] : registry_.view<ecs::Hull>()) {
@@ -1009,10 +1143,17 @@ void World::rebuildDebugMeshes() {
             debugMeshes_.push_back(nullptr);
             continue;
         }
-        if (registry_.has<ecs::SphereForm>(e))
+        if (registry_.has<ecs::SphereForm>(e)) {
             debugMeshes_.push_back(std::make_unique<RenderMesh>(*gpu_, pool_, sphV, sphI));
-        else
+        } else if (auto* cf = registry_.get<ecs::CapsuleForm>(e)) {
+            // Baked at actual dims; syncDebugMeshes applies identity scale so no distortion.
+            auto [cv, ci] = DebugShapes::makeCapsule(cf->radius, cf->halfHeight);
+            debugMeshes_.push_back(std::make_unique<RenderMesh>(*gpu_, pool_, cv, ci));
+        } else if (registry_.has<ecs::CylinderForm>(e)) {
+            debugMeshes_.push_back(std::make_unique<RenderMesh>(*gpu_, pool_, cylV, cylI));
+        } else {
             debugMeshes_.push_back(std::make_unique<RenderMesh>(*gpu_, pool_, boxV, boxI));
+        }
     }
     syncDebugMeshes();
 }
@@ -1024,6 +1165,10 @@ void World::syncDebugMeshes() {
         auto* tf = registry_.get<Transform>(e);
         if (!tf) continue;
 
+        // Scale the debug mesh to match the render mesh:
+        //   Capsule  → baked debug mesh, identity scale (same as baked render mesh).
+        //   Cylinder → unit debug mesh scaled by {r,h,r} (same as unit render mesh).
+        //   Others   → unit debug mesh scaled by their respective extents.
         math::Vec3 ext{1, 1, 1};
         if (auto* sf = registry_.get<ecs::SphereForm>(e))
             ext = {sf->radius, sf->radius, sf->radius};
@@ -1031,6 +1176,9 @@ void World::syncDebugMeshes() {
             ext = af->extent;
         else if (auto* of = registry_.get<ecs::OBBForm>(e))
             ext = of->extent;
+        // CapsuleForm: debug mesh already baked at correct dims → keep ext={1,1,1}.
+        else if (auto* cf = registry_.get<ecs::CylinderForm>(e))
+            ext = {cf->radius, cf->halfHeight, cf->radius};
 
         math::Mat4 T;
         T.m[12] = tf->position.x;

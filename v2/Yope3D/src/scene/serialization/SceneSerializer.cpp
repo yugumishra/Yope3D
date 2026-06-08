@@ -36,6 +36,8 @@ static std::vector<CompSerEntry> buildSerTable() {
         { ecs::typeId<ecs::SphereForm>(),            "SphereForm",            compser::serializeSphereForm,            compser::deserializeSphereForm            },
         { ecs::typeId<ecs::AABBForm>(),              "AABBForm",              compser::serializeAABBForm,              compser::deserializeAABBForm              },
         { ecs::typeId<ecs::OBBForm>(),               "OBBForm",               compser::serializeOBBForm,               compser::deserializeOBBForm               },
+        { ecs::typeId<ecs::CapsuleForm>(),           "CapsuleForm",           compser::serializeCapsuleForm,           compser::deserializeCapsuleForm           },
+        { ecs::typeId<ecs::CylinderForm>(),          "CylinderForm",          compser::serializeCylinderForm,          compser::deserializeCylinderForm          },
         { ecs::typeId<ecs::MeshRenderer>(),          "MeshRenderer",          compser::serializeMeshRenderer,          compser::deserializeMeshRenderer          },
         { ecs::typeId<ecs::LightSource>(),           "LightSource",           compser::serializeLightSource,           compser::deserializeLightSource           },
         { ecs::typeId<ecs::SpringConstraint>(),      "SpringConstraint",      compser::serializeSpringConstraint,      compser::deserializeSpringConstraint      },
@@ -166,6 +168,14 @@ std::string load(const char* path, ecs::Registry& reg, World& world, AudioSystem
         if (entNode.contains("OBBForm")) {
             snap.hasOBB = true;
             compser::deserializeOBBForm(entNode["OBBForm"], &snap.obb);
+        }
+        if (entNode.contains("CapsuleForm")) {
+            snap.hasCapsule = true;
+            compser::deserializeCapsuleForm(entNode["CapsuleForm"], &snap.capsule);
+        }
+        if (entNode.contains("CylinderForm")) {
+            snap.hasCylinder = true;
+            compser::deserializeCylinderForm(entNode["CylinderForm"], &snap.cylinder);
         }
         if (entNode.contains("LightSource")) {
             snap.hasLight = true;

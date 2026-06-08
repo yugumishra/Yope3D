@@ -60,12 +60,21 @@ void drawTransformComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
     }
 
     // ---- Scale ----
-    // Uniform if entity has SphereForm. applyScaleRatio inside the anchor
-    // pipeline scales any present collider proportionally to its pre-edit
-    // size, so a snapped (5, 0.1, 5) OBB on a custom mesh stays correctly
-    // fitted as the user drags scale (e.g. 2× → (10, 0.2, 10)) instead of
-    // collapsing back to tf.scale.
+    // Sphere   → single uniform DragFloat.
+    // Capsule  → two DragFloats reading from CapsuleForm directly; scale stays {1,1,1}
+    //            (baked mesh approach — mesh rebuilt on commit via commit()).
+    // Cylinder → two DragFloats reading from tf->scale; scale={r,h,r} (unit+scale approach).
+    // Others   → standard DragFloat3.
     bool uniformScale = ctx.registry && ctx.registry->has<ecs::SphereForm>(e);
+    bool isCapsule    = ctx.registry && ctx.registry->has<ecs::CapsuleForm>(e);
+    bool isCylinder   = ctx.registry && ctx.registry->has<ecs::CylinderForm>(e);
+
+    auto wakeIfSleeping = [&]() {
+        if (ctx.registry->has<ecs::Fixed>(e) || !ctx.registry->has<ecs::Sleeping>(e)) return;
+        ctx.registry->remove<ecs::Sleeping>(e);
+        if (auto* h = ctx.registry->get<ecs::Hull>(e)) { h->sleepFrames = 0; h->velocity = {}; h->omega = {}; }
+    };
+
     if (uniformScale) {
         float s = tf->scale.x;
         ImGui::DragFloat("Scale", &s, 0.02f, 0.001f, 1000.f);
@@ -74,8 +83,64 @@ void drawTransformComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
             tf->scale = { s, s, s };
             transform_edit::applyScaleRatio(anchor, e, *ctx.registry);
             transform_edit::commit(anchor, e, ctx, "Edit Scale");
+            wakeIfSleeping();
         } else if (ImGui::IsItemActive()) {
             tf->scale = { s, s, s };
+            transform_edit::applyScaleRatio(anchor, e, *ctx.registry);
+        }
+    } else if (isCapsule) {
+        // Reads directly from CapsuleForm; scale is permanently {1,1,1} for capsules.
+        // commit() calls rebuildCapsuleMesh so the baked mesh matches after each edit.
+        auto* cf = ctx.registry->get<ecs::CapsuleForm>(e);
+        float r = cf ? cf->radius     : 0.5f;
+        float h = cf ? cf->halfHeight : 1.0f;
+
+        ImGui::DragFloat("Radius##scale",      &r, 0.02f, 0.001f, 1000.f);
+        if (ImGui::IsItemActivated()) transform_edit::begin(anchor, e, *ctx.registry);
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            if (cf) cf->radius = std::max(0.01f, r);
+            transform_edit::commit(anchor, e, ctx, "Edit Scale");
+            wakeIfSleeping();
+        } else if (ImGui::IsItemActive()) {
+            if (cf) cf->radius = std::max(0.01f, r);
+        }
+
+        ImGui::DragFloat("Half Height##scale", &h, 0.02f, 0.001f, 1000.f);
+        if (ImGui::IsItemActivated()) transform_edit::begin(anchor, e, *ctx.registry);
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            if (cf) cf->halfHeight = std::max(0.01f, h);
+            transform_edit::commit(anchor, e, ctx, "Edit Scale");
+            wakeIfSleeping();
+        } else if (ImGui::IsItemActive()) {
+            if (cf) cf->halfHeight = std::max(0.01f, h);
+        }
+    } else if (isCylinder) {
+        // Reads from tf->scale (scale={r,h,r} for cylinders); applyScaleRatio keeps
+        // CylinderForm in sync every drag frame.
+        float r = tf->scale.x;
+        float h = tf->scale.y;
+
+        ImGui::DragFloat("Radius##scale",      &r, 0.02f, 0.001f, 1000.f);
+        if (ImGui::IsItemActivated()) transform_edit::begin(anchor, e, *ctx.registry);
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            tf->scale = { r, h, r };
+            transform_edit::applyScaleRatio(anchor, e, *ctx.registry);
+            transform_edit::commit(anchor, e, ctx, "Edit Scale");
+            wakeIfSleeping();
+        } else if (ImGui::IsItemActive()) {
+            tf->scale = { r, h, r };
+            transform_edit::applyScaleRatio(anchor, e, *ctx.registry);
+        }
+
+        ImGui::DragFloat("Half Height##scale", &h, 0.02f, 0.001f, 1000.f);
+        if (ImGui::IsItemActivated()) transform_edit::begin(anchor, e, *ctx.registry);
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            tf->scale = { r, h, r };
+            transform_edit::applyScaleRatio(anchor, e, *ctx.registry);
+            transform_edit::commit(anchor, e, ctx, "Edit Scale");
+            wakeIfSleeping();
+        } else if (ImGui::IsItemActive()) {
+            tf->scale = { r, h, r };
             transform_edit::applyScaleRatio(anchor, e, *ctx.registry);
         }
     } else {
@@ -86,17 +151,10 @@ void drawTransformComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
             tf->scale = { sc[0], sc[1], sc[2] };
             transform_edit::applyScaleRatio(anchor, e, *ctx.registry);
             transform_edit::commit(anchor, e, ctx, "Edit Scale");
+            wakeIfSleeping();
         } else if (ImGui::IsItemActive()) {
             tf->scale = { sc[0], sc[1], sc[2] };
             transform_edit::applyScaleRatio(anchor, e, *ctx.registry);
-        }
-    }
-
-    // Wake sleeping entity on Transform edit (only on edit commit).
-    if (!ctx.registry->has<ecs::Fixed>(e) && ctx.registry->has<ecs::Sleeping>(e)) {
-        if (ImGui::IsItemDeactivatedAfterEdit()) {
-            ctx.registry->remove<ecs::Sleeping>(e);
-            if (auto* h = ctx.registry->get<ecs::Hull>(e)) { h->sleepFrames = 0; h->velocity = {}; h->omega = {}; }
         }
     }
 }

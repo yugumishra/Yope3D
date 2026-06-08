@@ -51,6 +51,16 @@ struct OBBForm {
     math::Vec3 extent {};   // half-extents; rotation lives in Transform
 };
 
+struct CapsuleForm {
+    float radius     = 0.5f;
+    float halfHeight = 1.0f;  // half the cylinder section length; axis +Y
+};
+
+struct CylinderForm {
+    float radius     = 0.5f;
+    float halfHeight = 1.0f;  // axis +Y
+};
+
 // ---- Visual ----
 struct MeshRenderer {
     RenderMesh* mesh = nullptr;   // non-owning; World still owns the RenderMesh

@@ -40,6 +40,9 @@ public:
     ecs::Entity addAABB      (math::Vec3 extent, float mass, math::Vec3 pos = {});
     ecs::Entity addStaticAABB(math::Vec3 pos, math::Vec3 extent);
     ecs::Entity addOBBFromMesh(const LoadedMesh& mesh, float mass);
+    // GJK-only primitives (axis +Y; dims baked into mesh, Transform.scale stays {1,1,1})
+    ecs::Entity addCapsule   (float radius, float halfHeight, float mass, math::Vec3 pos = {});
+    ecs::Entity addCylinder  (float radius, float halfHeight, float mass, math::Vec3 pos = {});
 
     // Visual-only entity (mesh, no physics body).
     ecs::Entity addRenderObject(const std::vector<Vertex>&   vertices,
@@ -57,15 +60,23 @@ public:
 
     // Add / remove a physics body on an existing entity (editor "Add Component").
     // Silently no-ops if the entity already has a collider (or is invalid).
-    void attachSphereCollider(ecs::Entity e, float mass, float radius, bool isStatic = false);
-    void attachAABBCollider  (ecs::Entity e, float mass, math::Vec3 extent, bool isStatic = false);
-    void attachOBBCollider   (ecs::Entity e, float mass, math::Vec3 extent, bool isStatic = false);
+    void attachSphereCollider  (ecs::Entity e, float mass, float radius, bool isStatic = false);
+    void attachAABBCollider    (ecs::Entity e, float mass, math::Vec3 extent, bool isStatic = false);
+    void attachOBBCollider     (ecs::Entity e, float mass, math::Vec3 extent, bool isStatic = false);
+    void attachCapsuleCollider (ecs::Entity e, float mass, float radius, float halfHeight, bool isStatic = false);
+    void attachCylinderCollider(ecs::Entity e, float mass, float radius, float halfHeight, bool isStatic = false);
     // Remove all physics components (Hull + shape + Fixed/Sleeping tags).
     void detachPhysicsBody(ecs::Entity e);
 
     // Call once per editor tick, before the Vulkan command buffer is opened.
     // Syncs the device and destroys any RenderMeshes queued by removeEntity().
     void flushPendingGpuDestroys();
+
+    // Swap the capsule entity's render mesh for a freshly baked one at its current
+    // CapsuleForm dims. Old GPU buffers are freed on the next flushPendingGpuDestroys().
+    // Only needed for capsules (baked+identity-scale approach); cylinders use unit+scale.
+    void rebuildCapsuleMesh(ecs::Entity e);
+
 
     int getHullCount();
 

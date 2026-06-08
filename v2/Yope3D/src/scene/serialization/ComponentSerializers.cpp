@@ -108,6 +108,36 @@ bool deserializeOBBForm(const JsonNode& n, void* comp) {
     return true;
 }
 
+// ---- CapsuleForm ----
+
+void serializeCapsuleForm(const void* comp, JsonWriter& w) {
+    auto* c = static_cast<const ecs::CapsuleForm*>(comp);
+    w.writeFloat("radius",     c->radius);
+    w.writeFloat("halfHeight", c->halfHeight);
+}
+
+bool deserializeCapsuleForm(const JsonNode& n, void* comp) {
+    auto* c = static_cast<ecs::CapsuleForm*>(comp);
+    if (n.contains("radius"))     c->radius     = n["radius"].asFloat();
+    if (n.contains("halfHeight")) c->halfHeight = n["halfHeight"].asFloat();
+    return true;
+}
+
+// ---- CylinderForm ----
+
+void serializeCylinderForm(const void* comp, JsonWriter& w) {
+    auto* c = static_cast<const ecs::CylinderForm*>(comp);
+    w.writeFloat("radius",     c->radius);
+    w.writeFloat("halfHeight", c->halfHeight);
+}
+
+bool deserializeCylinderForm(const JsonNode& n, void* comp) {
+    auto* c = static_cast<ecs::CylinderForm*>(comp);
+    if (n.contains("radius"))     c->radius     = n["radius"].asFloat();
+    if (n.contains("halfHeight")) c->halfHeight = n["halfHeight"].asFloat();
+    return true;
+}
+
 // ---- MeshRenderer ----
 // Known primitives: store type + extents so they can be regenerated on load.
 // Custom meshes (drag-dropped OBJs): store just the source file path — the

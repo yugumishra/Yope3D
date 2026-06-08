@@ -17,6 +17,10 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
         e = world.addStaticAABB(pos, aabb.extent);
     } else if (hasAABB && hasHull) {
         e = world.addAABB(aabb.extent, hull.mass, pos);
+    } else if (hasCapsule && hasHull) {
+        e = world.addCapsule(capsule.radius, capsule.halfHeight, hull.mass, pos);
+    } else if (hasCylinder && hasHull) {
+        e = world.addCylinder(cylinder.radius, cylinder.halfHeight, hull.mass, pos);
     }
     // ---- Light entities ----
     else if (hasLight) {
@@ -197,6 +201,10 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
                 case PrimitiveType::Rect:
                 case PrimitiveType::Plane:
                     rm = world.attachMesh(e, Primitives::rect(primExtents)); break;
+                case PrimitiveType::Capsule:
+                    rm = world.attachMesh(e, Primitives::capsule(primExtents.x, primExtents.y)); break;
+                case PrimitiveType::Cylinder:
+                    rm = world.attachMesh(e, Primitives::cylinder(primExtents.x, primExtents.y)); break;
                 default: break;
             }
         }
@@ -279,9 +287,11 @@ ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world
     if (auto* tf = reg.get<Transform>(e))        { s.hasTransform = true; s.transform = *tf; }
     if (auto* h  = reg.get<ecs::Hull>(e))        { s.hasHull = true;      s.hull = *h; }
     if (             reg.has<ecs::Fixed>(e))       { s.hasFixed = true; }
-    if (auto* sf = reg.get<ecs::SphereForm>(e))  { s.hasSphere = true;   s.sphere = *sf; }
-    if (auto* af = reg.get<ecs::AABBForm>(e))    { s.hasAABB = true;     s.aabb = *af; }
-    if (auto* of = reg.get<ecs::OBBForm>(e))     { s.hasOBB = true;      s.obb = *of; }
+    if (auto* sf = reg.get<ecs::SphereForm>(e))   { s.hasSphere = true;    s.sphere = *sf; }
+    if (auto* af = reg.get<ecs::AABBForm>(e))    { s.hasAABB = true;      s.aabb = *af; }
+    if (auto* of = reg.get<ecs::OBBForm>(e))     { s.hasOBB = true;       s.obb = *of; }
+    if (auto* cf = reg.get<ecs::CapsuleForm>(e)) { s.hasCapsule = true;   s.capsule = *cf; }
+    if (auto* cf = reg.get<ecs::CylinderForm>(e)){ s.hasCylinder = true;  s.cylinder = *cf; }
     if (auto* ls = reg.get<ecs::LightSource>(e)) { s.hasLight = true;    s.light = *ls; }
     if (auto* n  = reg.get<ecs::Name>(e))        { s.hasName = true;     s.name = *n; }
     if (auto* as = reg.get<ecs::AudioSource>(e)) {

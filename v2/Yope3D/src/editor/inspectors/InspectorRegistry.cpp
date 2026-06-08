@@ -12,6 +12,8 @@ void drawHullComponent                   (void*, EditorContext&, ecs::Entity);
 void drawSphereFormComponent             (void*, EditorContext&, ecs::Entity);
 void drawAABBFormComponent               (void*, EditorContext&, ecs::Entity);
 void drawOBBFormComponent                (void*, EditorContext&, ecs::Entity);
+void drawCapsuleFormComponent            (void*, EditorContext&, ecs::Entity);
+void drawCylinderFormComponent           (void*, EditorContext&, ecs::Entity);
 void drawMeshRendererComponent           (void*, EditorContext&, ecs::Entity);
 void drawLightSourceComponent            (void*, EditorContext&, ecs::Entity);
 void drawAudioSourceComponent            (void*, EditorContext&, ecs::Entity);
@@ -35,6 +37,8 @@ void registerAllInspectors() {
         { ecs::typeId<ecs::SphereForm>(),            drawSphereFormComponent            },
         { ecs::typeId<ecs::AABBForm>(),              drawAABBFormComponent              },
         { ecs::typeId<ecs::OBBForm>(),               drawOBBFormComponent               },
+        { ecs::typeId<ecs::CapsuleForm>(),           drawCapsuleFormComponent           },
+        { ecs::typeId<ecs::CylinderForm>(),          drawCylinderFormComponent          },
         { ecs::typeId<ecs::MeshRenderer>(),          drawMeshRendererComponent          },
         { ecs::typeId<ecs::LightSource>(),           drawLightSourceComponent           },
         { ecs::typeId<ecs::AudioSource>(),           drawAudioSourceComponent           },

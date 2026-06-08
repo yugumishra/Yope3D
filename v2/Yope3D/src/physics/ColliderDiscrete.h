@@ -89,6 +89,31 @@ namespace ColliderDiscrete {
         }
     };
 
+    // Capsule: sphere-swept segment, local axis +Y.
+    // The cylindrical body spans [-halfHeight, +halfHeight]; hemisphere caps at each end.
+    struct CapsuleGeom {
+        math::Vec3 pos;         // world-space center
+        float      radius;
+        float      halfHeight;  // half the cylinder section length
+        math::Mat3 rot;         // rotation (local +Y → world axis)
+        math::Vec3 getPosition()     const { return pos; }
+        math::Mat3 getRotTransform() const { return rot; }
+        float      getRadius()       const { return radius; }
+        float      getHalfHeight()   const { return halfHeight; }
+    };
+
+    // Cylinder: disk-capped cylinder, local axis +Y.
+    struct CylinderGeom {
+        math::Vec3 pos;         // world-space center
+        float      radius;
+        float      halfHeight;
+        math::Mat3 rot;         // rotation (local +Y → world axis)
+        math::Vec3 getPosition()     const { return pos; }
+        math::Mat3 getRotTransform() const { return rot; }
+        float      getRadius()       const { return radius; }
+        float      getHalfHeight()   const { return halfHeight; }
+    }; 
+
     // Low-level detection — geometry-struct based (no Hull dependency).
     bool detectSphereSphere(const SphereGeom& a, const SphereGeom& b, ContactManifold& m);
     bool detectSphereAABB  (const SphereGeom& a, const AABBGeom&   b, ContactManifold& m);
@@ -99,26 +124,54 @@ namespace ColliderDiscrete {
 
     //support functions for GJK implementation (done pairwise to optimize support calculations)
     //computes furthest point in the direction specified on the minkowski difference defined by shape a - shape b
-    math::Vec3 supportSphereSphere(const SphereGeom& a, const SphereGeom& b, const math::Vec3& dir);
-    math::Vec3 supportSphereAABB  (const SphereGeom& a, const AABBGeom&   b, const math::Vec3& dir);
-    math::Vec3 supportSphereOBB   (const SphereGeom& a, const OBBGeom&    b, const math::Vec3& dir);
-    math::Vec3 supportAABBAABB    (const AABBGeom&   a, const AABBGeom&   b, const math::Vec3& dir);
-    math::Vec3 supportAABBOBB     (const AABBGeom&   a, const OBBGeom&    b, const math::Vec3& dir);
-    math::Vec3 supportOBBOBB      (const OBBGeom&    a, const OBBGeom&    b, const math::Vec3& dir);
+    math::Vec3 supportSphereSphere  (const SphereGeom&   a, const SphereGeom&   b, const math::Vec3& dir);
+    math::Vec3 supportSphereAABB    (const SphereGeom&   a, const AABBGeom&     b, const math::Vec3& dir);
+    math::Vec3 supportSphereOBB     (const SphereGeom&   a, const OBBGeom&      b, const math::Vec3& dir);
+    math::Vec3 supportAABBAABB      (const AABBGeom&     a, const AABBGeom&     b, const math::Vec3& dir);
+    math::Vec3 supportAABBOBB       (const AABBGeom&     a, const OBBGeom&      b, const math::Vec3& dir);
+    math::Vec3 supportOBBOBB        (const OBBGeom&      a, const OBBGeom&      b, const math::Vec3& dir);
+    // New per-pair stubs — bodies left empty; user implements support math.
+    math::Vec3 supportSphereCapsule  (const SphereGeom&   a, const CapsuleGeom&  b, const math::Vec3& dir);
+    math::Vec3 supportSphereCylinder (const SphereGeom&   a, const CylinderGeom& b, const math::Vec3& dir);
+    math::Vec3 supportAABBCapsule    (const AABBGeom&     a, const CapsuleGeom&  b, const math::Vec3& dir);
+    math::Vec3 supportAABBCylinder   (const AABBGeom&     a, const CylinderGeom& b, const math::Vec3& dir);
+    math::Vec3 supportOBBCapsule     (const OBBGeom&      a, const CapsuleGeom&  b, const math::Vec3& dir);
+    math::Vec3 supportOBBCylinder    (const OBBGeom&      a, const CylinderGeom& b, const math::Vec3& dir);
+    math::Vec3 supportCapsuleCapsule (const CapsuleGeom&  a, const CapsuleGeom&  b, const math::Vec3& dir);
+    math::Vec3 supportCapsuleCylinder(const CapsuleGeom&  a, const CylinderGeom& b, const math::Vec3& dir);
+    math::Vec3 supportCylinderCylinder(const CylinderGeom& a, const CylinderGeom& b, const math::Vec3& dir);
 
-    // Unified overload set — lets std::visit dispatch by type automatically
-    math::Vec3 support(const SphereGeom& a, const SphereGeom& b, const math::Vec3& d);
-    math::Vec3 support(const SphereGeom& a, const AABBGeom&   b, const math::Vec3& d);
-    math::Vec3 support(const SphereGeom& a, const OBBGeom&    b, const math::Vec3& d);
-    math::Vec3 support(const AABBGeom&   a, const SphereGeom& b, const math::Vec3& d);
-    math::Vec3 support(const AABBGeom&   a, const AABBGeom&   b, const math::Vec3& d);
-    math::Vec3 support(const AABBGeom&   a, const OBBGeom&    b, const math::Vec3& d);
-    math::Vec3 support(const OBBGeom&    a, const SphereGeom& b, const math::Vec3& d);
-    math::Vec3 support(const OBBGeom&    a, const AABBGeom&   b, const math::Vec3& d);
-    math::Vec3 support(const OBBGeom&    a, const OBBGeom&    b, const math::Vec3& d);
+    // Unified overload set — lets std::visit dispatch by type automatically (25 ordered combos for 5 shapes)
+    math::Vec3 support(const SphereGeom&   a, const SphereGeom&   b, const math::Vec3& d);
+    math::Vec3 support(const SphereGeom&   a, const AABBGeom&     b, const math::Vec3& d);
+    math::Vec3 support(const SphereGeom&   a, const OBBGeom&      b, const math::Vec3& d);
+    math::Vec3 support(const AABBGeom&     a, const SphereGeom&   b, const math::Vec3& d);
+    math::Vec3 support(const AABBGeom&     a, const AABBGeom&     b, const math::Vec3& d);
+    math::Vec3 support(const AABBGeom&     a, const OBBGeom&      b, const math::Vec3& d);
+    math::Vec3 support(const OBBGeom&      a, const SphereGeom&   b, const math::Vec3& d);
+    math::Vec3 support(const OBBGeom&      a, const AABBGeom&     b, const math::Vec3& d);
+    math::Vec3 support(const OBBGeom&      a, const OBBGeom&      b, const math::Vec3& d);
+    // Capsule overloads
+    math::Vec3 support(const SphereGeom&   a, const CapsuleGeom&  b, const math::Vec3& d);
+    math::Vec3 support(const CapsuleGeom&  a, const SphereGeom&   b, const math::Vec3& d);
+    math::Vec3 support(const AABBGeom&     a, const CapsuleGeom&  b, const math::Vec3& d);
+    math::Vec3 support(const CapsuleGeom&  a, const AABBGeom&     b, const math::Vec3& d);
+    math::Vec3 support(const OBBGeom&      a, const CapsuleGeom&  b, const math::Vec3& d);
+    math::Vec3 support(const CapsuleGeom&  a, const OBBGeom&      b, const math::Vec3& d);
+    math::Vec3 support(const CapsuleGeom&  a, const CapsuleGeom&  b, const math::Vec3& d);
+    // Cylinder overloads
+    math::Vec3 support(const SphereGeom&   a, const CylinderGeom& b, const math::Vec3& d);
+    math::Vec3 support(const CylinderGeom& a, const SphereGeom&   b, const math::Vec3& d);
+    math::Vec3 support(const AABBGeom&     a, const CylinderGeom& b, const math::Vec3& d);
+    math::Vec3 support(const CylinderGeom& a, const AABBGeom&     b, const math::Vec3& d);
+    math::Vec3 support(const OBBGeom&      a, const CylinderGeom& b, const math::Vec3& d);
+    math::Vec3 support(const CylinderGeom& a, const OBBGeom&      b, const math::Vec3& d);
+    math::Vec3 support(const CapsuleGeom&  a, const CylinderGeom& b, const math::Vec3& d);
+    math::Vec3 support(const CylinderGeom& a, const CapsuleGeom&  b, const math::Vec3& d);
+    math::Vec3 support(const CylinderGeom& a, const CylinderGeom& b, const math::Vec3& d);
 
     //non virtual dispatch
-    using ShapeVariant = std::variant<SphereGeom, AABBGeom, OBBGeom>;
+    using ShapeVariant = std::variant<SphereGeom, AABBGeom, OBBGeom, CapsuleGeom, CylinderGeom>;
     ShapeVariant makeShapeVariant(ecs::Entity& e, ecs::Registry& reg);
 
     //struct returned by gjk that is the simplex it generates (used by epa)

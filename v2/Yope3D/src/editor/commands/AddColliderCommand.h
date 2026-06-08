@@ -9,7 +9,7 @@
 // Undo restores the entity to its physics-free state and rolls back the
 // Transform scale change that attach writes.
 struct AddColliderCommand : ICommand {
-    enum class Shape { Sphere, AABB, OBB };
+    enum class Shape { Sphere, AABB, OBB, Capsule, Cylinder };
 
     AddColliderCommand(Shape shape, ecs::Entity entity,
                        float mass, math::Vec3 extent, bool isStatic = false)
