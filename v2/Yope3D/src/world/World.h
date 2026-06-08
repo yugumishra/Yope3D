@@ -19,6 +19,7 @@
 #include "../physics/ContactCache.h"
 #include "../physics/CollisionLayers.h"
 #include "../physics/DebugShapes.h"
+#include "../rendering/DebugLine.h"
 
 class GpuDevice;
 class ThreadPool;
@@ -152,6 +153,20 @@ public:
     void destroyDebugMeshes();
     const std::vector<std::unique_ptr<RenderMesh>>& getDebugMeshes() const { return debugMeshes_; }
 
+    // Per-entity debug-overlay color override (used by the GJK oracle to paint
+    // collision verdicts). syncDebugMeshes() applies these on top of the default
+    // green; entities with no override stay green. Keyed by entity id.
+    void setDebugColor(ecs::Entity e, math::Vec3 color);
+    void clearDebugColors();
+    size_t debugMeshCount() const { return debugMeshes_.size(); }
+
+    // ---- Debug line overlay (GJK CSO / simplex visualizer) ----
+    // Producer (the editor GJK stepper) sets a world-space LINE_LIST; the Renderer
+    // uploads + draws it inside the 3D pass, independent of debugPhysics.
+    void setDebugLines(std::vector<DebugLineVertex> lines) { debugLines_ = std::move(lines); }
+    void clearDebugLines() { debugLines_.clear(); }
+    const std::vector<DebugLineVertex>& getDebugLines() const { return debugLines_; }
+
     void toggleProxies(bool enabled);
 
 #ifdef YOPE_EDITOR
@@ -160,6 +175,11 @@ public:
     // and meshPool_/springs_ entries added during play are cleaned up on restore.
     void snapshotForPlay();
     void restoreFromPlay();
+
+    // Scene Script panel: same mesh-pool + registry capture as snapshotForPlay
+    // but does NOT change the physics-paused state (physics stays paused in edit mode).
+    void takeScriptSnapshot();
+    void restoreScriptSnapshot();
 #endif
 
     World(const World&) = delete;
@@ -215,6 +235,8 @@ private:
     int                                                  lastIslandCount_ = 0;
     std::vector<std::unique_ptr<RenderMesh>>             debugMeshes_;
     std::vector<ecs::Entity>                             debugEntities_;
+    std::unordered_map<uint32_t, math::Vec3>            debugColorOverrides_;  // entity.id -> overlay color
+    std::vector<DebugLineVertex>                        debugLines_;           // GJK CSO / simplex viz
 
 #ifdef YOPE_EDITOR
     // Called at the end of every public factory method to stamp editor-visible tags.

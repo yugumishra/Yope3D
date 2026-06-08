@@ -6,6 +6,9 @@
 #include "editor/panels/StatsPanel.h"
 #include "editor/panels/WorldSettingsPanel.h"
 #include "editor/panels/ConsolePanel.h"
+#include "editor/panels/SceneScriptPanel.h"
+#include "editor/panels/GJKTestPanel.h"
+#include "editor/panels/GJKStepperPanel.h"
 #include "scene/ComponentSnapshot.h"
 #include "editor/commands/EntityLifecycleCommands.h"
 #include "editor/inspectors/InspectorRegistry.h"
@@ -97,6 +100,9 @@ bool EditorApp::init() {
     panels_.push_back(std::make_unique<StatsPanel>());
     panels_.push_back(std::make_unique<WorldSettingsPanel>());
     panels_.push_back(std::make_unique<ConsolePanel>());
+    panels_.push_back(std::make_unique<SceneScriptPanel>());
+    panels_.push_back(std::make_unique<GJKTestPanel>());
+    panels_.push_back(std::make_unique<GJKStepperPanel>());
 
     // Start FileWatcher on assets directory
     std::string assetsDir = YOPE_ASSETS_DIR;

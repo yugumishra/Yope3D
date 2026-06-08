@@ -16,6 +16,7 @@ find_package(Vulkan   REQUIRED)
 find_package(Stb      REQUIRED)         # header-only; provides Stb_INCLUDE_DIR
 find_package(imgui    CONFIG REQUIRED)  # docking-experimental + vulkan-binding + glfw-binding
 find_package(imguizmo CONFIG REQUIRED)
+find_package(pybind11 CONFIG REQUIRED)  # embedded Python scripting
 
 # ---------------------------------------------------------------------------
 # Shader compilation — GLSL → SPIR-V via glslc (bundled in the Vulkan SDK)
@@ -34,6 +35,8 @@ set(SHADER_SOURCES
     "${SHADER_SRC_DIR}/ui.frag"
     "${SHADER_SRC_DIR}/text3d.vert"
     "${SHADER_SRC_DIR}/text3d.frag"
+    "${SHADER_SRC_DIR}/line3d.vert"
+    "${SHADER_SRC_DIR}/line3d.frag"
     "${SHADER_SRC_DIR}/raytracer.comp"
     "${SHADER_SRC_DIR}/fullscreen.vert"
     "${SHADER_SRC_DIR}/fullscreen.frag"
@@ -202,11 +205,13 @@ set(ENGINE_SOURCES
     src/scene/serialization/ComponentSerializers.cpp
     src/scene/serialization/SceneSerializer.cpp
     src/debug/Profiler.cpp
+    src/debug/Console.cpp
     # Demo scripts (SandboxScript, PlatformerScript, ArchitectScript) used the
     # pre-M13 single-script model. Dropped from the build; their .cpp/.h files
     # remain on disk as reference for re-authoring scene-driven equivalents.
     src/gpu/UIBuffer.cpp
     src/gpu/Text3DBuffer.cpp
+    src/gpu/LineBuffer.cpp
     src/ui/Background.cpp
     src/ui/TexturedBackground.cpp
     src/ui/AnimatedBackground.cpp
@@ -250,13 +255,28 @@ set(EDITOR_SOURCES
     src/editor/panels/StatsPanel.cpp
     src/editor/panels/WorldSettingsPanel.cpp
     src/editor/panels/ConsolePanel.cpp
+    src/editor/panels/SceneScriptPanel.cpp
+    src/editor/panels/GJKTestPanel.cpp
+    src/editor/panels/GJKStepperPanel.cpp
+    src/editor/inspectors/ScriptComponentInspector.cpp
+)
+
+# Python scripting sources — compiled into both runtime and editor targets
+set(PYTHON_SOURCES
+    src/scripting/python/PyComponentTable.cpp
+    src/scripting/python/PythonInterpreter.cpp
+    src/scripting/python/PythonScript.cpp
+    src/scripting/python/Bindings.cpp
+    src/scripting/python/bindings_math.cpp
+    src/scripting/python/bindings_ecs.cpp
+    src/scripting/python/bindings_world.cpp
 )
 
 # ---------------------------------------------------------------------------
 # Runtime executable (unchanged from before ENGINE_SOURCES refactor)
 # ---------------------------------------------------------------------------
 
-add_executable(yope3d src/main.cpp ${ENGINE_SOURCES})
+add_executable(yope3d src/main.cpp ${ENGINE_SOURCES} ${PYTHON_SOURCES})
 
 add_dependencies(yope3d compile_shaders)
 
@@ -271,8 +291,10 @@ if(YOPE_EMBED_ASSETS)
 endif()
 
 target_compile_definitions(yope3d PRIVATE
+    YOPE_PYTHON=1
     YOPE_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
     YOPE_SHADER_DIR="${CMAKE_SOURCE_DIR}/compiled_shaders"
+    YOPE_SCRIPTS_DIR="${CMAKE_SOURCE_DIR}/scripts"
     $<$<BOOL:${YOPE_EMBED_ASSETS}>:YOPE_EMBED_ASSETS>
 )
 
@@ -281,6 +303,7 @@ target_link_libraries(yope3d PRIVATE
     freetype
     OpenAL::OpenAL
     Vulkan::Vulkan
+    pybind11::embed
     $<$<BOOL:${YOPE_EMBED_ASSETS}>:embedded_assets>
 )
 
@@ -290,7 +313,7 @@ target_link_libraries(yope3d PRIVATE
 # Run:   ./build/mac-debug/yope_editor
 # ---------------------------------------------------------------------------
 
-add_executable(yope_editor src/main_editor.cpp ${ENGINE_SOURCES} ${EDITOR_SOURCES})
+add_executable(yope_editor src/main_editor.cpp ${ENGINE_SOURCES} ${EDITOR_SOURCES} ${PYTHON_SOURCES})
 
 add_dependencies(yope_editor compile_shaders)
 
@@ -306,8 +329,10 @@ endif()
 
 target_compile_definitions(yope_editor PRIVATE
     YOPE_EDITOR=1
+    YOPE_PYTHON=1
     YOPE_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
     YOPE_SHADER_DIR="${CMAKE_SOURCE_DIR}/compiled_shaders"
+    YOPE_SCRIPTS_DIR="${CMAKE_SOURCE_DIR}/scripts"
     $<$<BOOL:${YOPE_EMBED_ASSETS}>:YOPE_EMBED_ASSETS>
 )
 
@@ -318,6 +343,7 @@ target_link_libraries(yope_editor PRIVATE
     Vulkan::Vulkan
     imgui::imgui
     imguizmo::imguizmo
+    pybind11::embed
     $<$<BOOL:${YOPE_EMBED_ASSETS}>:embedded_assets>
 )
 if(APPLE)

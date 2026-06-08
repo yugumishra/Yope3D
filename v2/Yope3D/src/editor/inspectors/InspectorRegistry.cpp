@@ -16,6 +16,7 @@ void drawMeshRendererComponent           (void*, EditorContext&, ecs::Entity);
 void drawLightSourceComponent            (void*, EditorContext&, ecs::Entity);
 void drawAudioSourceComponent            (void*, EditorContext&, ecs::Entity);
 void drawSpringConstraintComponent       (void*, EditorContext&, ecs::Entity);
+void drawScriptComponent                 (void*, EditorContext&, ecs::Entity);
 // UI component inspectors
 void drawUITransformComponent            (void*, EditorContext&, ecs::Entity);
 void drawUIBackgroundComponent           (void*, EditorContext&, ecs::Entity);
@@ -38,6 +39,7 @@ void registerAllInspectors() {
         { ecs::typeId<ecs::LightSource>(),           drawLightSourceComponent           },
         { ecs::typeId<ecs::AudioSource>(),           drawAudioSourceComponent           },
         { ecs::typeId<ecs::SpringConstraint>(),      drawSpringConstraintComponent      },
+        { ecs::typeId<ecs::ScriptComponent>(),       drawScriptComponent                },
         { ecs::typeId<ecs::UITransform>(),           drawUITransformComponent           },
         { ecs::typeId<ecs::UIBackground>(),          drawUIBackgroundComponent          },
         { ecs::typeId<ecs::UITexturedBackground>(),  drawUITexturedBackgroundComponent  },

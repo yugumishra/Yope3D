@@ -59,4 +59,11 @@ namespace physics {
     // With Coulomb friction active these should be near-zero (air resistance only).
     inline constexpr float LINEAR_DAMPING                = 0.04f;
     inline constexpr float ANGULAR_DAMPING               = 0.04f;
+
+
+
+    //upperbound GJK just in case it gets caught trying to recurse forever to trap a origin it cannot (fp precision)
+    inline constexpr int MAX_GJK_ITERATIONS = 32;
+    //make sure GJK isn't doing an unnecessary amount of iterations moving toward an origin incredibly slowly
+    inline constexpr float GJK_EPS = 0.0001f;
 }

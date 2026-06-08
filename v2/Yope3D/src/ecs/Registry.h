@@ -56,6 +56,16 @@ public:
         return archetypes_[rec.archetype].cols[ci].at(rec.row);
     }
 
+    // Returns all TypeIds present on entity.
+    std::vector<TypeId> componentTypes(Entity e) const {
+        if (!valid(e)) return {};
+        return archetypes_[records_[e.id].archetype].types;
+    }
+
+    // Returns all entities whose archetype is a superset of the given TypeId set.
+    // Used by the Python scripting layer for runtime-dynamic view queries.
+    std::vector<Entity> entitiesWith(const std::vector<TypeId>& required) const;
+
 #ifdef YOPE_EDITOR
     // Deep-copy of all registry state. Used by World::snapshotForPlay/restoreFromPlay.
     struct Snapshot {
@@ -69,12 +79,6 @@ public:
     };
     Snapshot takeSnapshot() const;
     void     restoreSnapshot(const Snapshot& snap);
-
-    // Returns all TypeIds present on entity (used by InspectorPanel to enumerate components).
-    std::vector<TypeId> componentTypes(Entity e) const {
-        if (!valid(e)) return {};
-        return archetypes_[records_[e.id].archetype].types;
-    }
 #endif
 
 private:
