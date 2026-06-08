@@ -1,6 +1,7 @@
 #include "Registry.h"
 #include <cassert>
 #include <cstring>
+#include <algorithm>
 
 namespace ecs {
 
@@ -122,6 +123,17 @@ void Registry::removeRow(Archetype& arch, uint32_t row) {
         records_[movedEntity.id].row = row;
     }
     arch.entities.pop_back();
+}
+
+std::vector<Entity> Registry::entitiesWith(const std::vector<TypeId>& required) const {
+    std::vector<Entity> result;
+    for (auto& arch : archetypes_) {
+        if (arch.entities.empty()) continue;
+        if (!std::includes(arch.types.begin(), arch.types.end(),
+                           required.begin(), required.end())) continue;
+        result.insert(result.end(), arch.entities.begin(), arch.entities.end());
+    }
+    return result;
 }
 
 #ifdef YOPE_EDITOR

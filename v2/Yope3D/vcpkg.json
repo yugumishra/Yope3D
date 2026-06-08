@@ -12,6 +12,7 @@
       "features": ["docking-experimental", "vulkan-binding", "glfw-binding"]
     },
     "imguizmo",
+    "pybind11",
     {
       "name": "msdfgen",
       "default-features": false,

@@ -4,6 +4,8 @@
 #include "../math/Mat3.h"
 #include "ContactCache.h"
 #include "../ecs/Entity.h"
+#include <variant>
+#include <functional>
 
 namespace ecs { class Registry; }
 
@@ -104,8 +106,79 @@ namespace ColliderDiscrete {
     math::Vec3 supportAABBOBB     (const AABBGeom&   a, const OBBGeom&    b, const math::Vec3& dir);
     math::Vec3 supportOBBOBB      (const OBBGeom&    a, const OBBGeom&    b, const math::Vec3& dir);
 
+    // Unified overload set — lets std::visit dispatch by type automatically
+    math::Vec3 support(const SphereGeom& a, const SphereGeom& b, const math::Vec3& d);
+    math::Vec3 support(const SphereGeom& a, const AABBGeom&   b, const math::Vec3& d);
+    math::Vec3 support(const SphereGeom& a, const OBBGeom&    b, const math::Vec3& d);
+    math::Vec3 support(const AABBGeom&   a, const SphereGeom& b, const math::Vec3& d);
+    math::Vec3 support(const AABBGeom&   a, const AABBGeom&   b, const math::Vec3& d);
+    math::Vec3 support(const AABBGeom&   a, const OBBGeom&    b, const math::Vec3& d);
+    math::Vec3 support(const OBBGeom&    a, const SphereGeom& b, const math::Vec3& d);
+    math::Vec3 support(const OBBGeom&    a, const AABBGeom&   b, const math::Vec3& d);
+    math::Vec3 support(const OBBGeom&    a, const OBBGeom&    b, const math::Vec3& d);
+
+    //non virtual dispatch
+    using ShapeVariant = std::variant<SphereGeom, AABBGeom, OBBGeom>;
+    ShapeVariant makeShapeVariant(ecs::Entity& e, ecs::Registry& reg);
+
+    //struct returned by gjk that is the simplex it generates (used by epa)
+    struct GJKSimplex {
+        math::Vec3 points[4];
+        int n = 0;
+    };
+
+    // One recorded iteration of gjkIntersect, for the editor stepper. Purely
+    // observational — gjkIntersect only writes these when a trace pointer is passed,
+    // so the stepper replays the REAL run instead of re-implementing the loop.
+    struct GJKTraceFrame {
+        math::Vec3 dir;        // search direction used this iteration (post guard)
+        math::Vec3 support;    // support point returned for that direction
+        float      dotSD;      // support·dir (the termination-test value)
+        int        simplexN;   // simplex size after updateSimplex this iteration
+        math::Vec3 pts[4];     // simplex vertices after updateSimplex
+        bool       early;      // updateSimplex reported origin contained
+        bool       terminated; // this frame is the "no intersection" early exit
+    };
+    using GJKTrace = std::vector<GJKTraceFrame>;
+
+    // Zero-cost: templated GJK takes support by template param, inlined completely.
+    // Optional trace: when non-null, each iteration appends a GJKTraceFrame.
+    template<typename SupportFn>
+    bool gjkIntersect(SupportFn&& support, GJKSimplex& simplex, math::Vec3 initDir,
+                      GJKTrace* trace = nullptr);
+
+    template<typename SupportFn>
+    bool epaManifold(SupportFn&& support, GJKSimplex& simplex, ColliderDiscrete::ContactManifold& m);
+
+    // The dispatch — std::visit resolves at compile time to one of 6 instantiations
+    auto makeSupport(const ColliderDiscrete::ShapeVariant& va, const ColliderDiscrete::ShapeVariant& vb);
+    math::Vec3 shapePosition(const ShapeVariant& v);
+
     //gjk detect
     void detectGJK(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg, std::vector<ActiveContact>& contacts);
+
+    // ------------------------------------------------------------------------
+    // GJK debug / test harness (editor oracle + simplex stepper).
+    // Additive plumbing ONLY — none of this implements GJK; it just exposes the
+    // existing pieces so editor-side tooling can drive the real algorithm.
+    //   * updateSimplex      — fwd-decl of the existing (in-progress) Voronoi step,
+    //                          so the stepper can advance it one iteration at a time.
+    //   * makeSupportFn       — type-erased wrapper over makeSupport() (which returns
+    //                          `auto`, hence uncallable across TUs); captures the two
+    //                          shapes by value so the closure can outlive the call.
+    //   * gjkBoolean          — runs the real templated gjkIntersect() on a pair and
+    //                          reports intersection (+ optional final simplex).
+    //   * satBoolean          — pure-geometry ground truth via the proven SAT
+    //                          detect* routines (no layer/fixed/tangible gating), used
+    //                          as the oracle to diff against gjkBoolean.
+    // ------------------------------------------------------------------------
+    bool updateSimplex(GJKSimplex& simplex, math::Vec3& direction);
+    std::function<math::Vec3(math::Vec3)> makeSupportFn(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg);
+    bool gjkBoolean(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg, GJKSimplex* outSimplex = nullptr);
+    bool satBoolean(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg);
+    // Runs the real gjkIntersect on a pair with tracing on; fills outTrace and
+    // returns the intersection verdict. The stepper scrubs outTrace's frames.
+    bool gjkTrace(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg, GJKTrace& outTrace);
 
     // ECS-based detect — used by advance().
     void detect(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg,

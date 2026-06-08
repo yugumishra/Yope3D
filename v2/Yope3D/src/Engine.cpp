@@ -66,6 +66,11 @@ bool Engine::init() {
 
     sceneManager = std::make_unique<SceneManager>(*world, audio.get());
 
+#ifdef YOPE_PYTHON
+    python = std::make_unique<PythonInterpreter>();
+    python->init();
+#endif
+
     scriptCtx_.world         = world.get();
     scriptCtx_.camera        = camera.get();
     scriptCtx_.input         = input.get();
@@ -75,6 +80,10 @@ bool Engine::init() {
     scriptCtx_.ui            = uiManager.get();
     scriptCtx_.renderMode    = &renderMode_;
     scriptCtx_.sceneManager  = sceneManager.get();
+
+#ifdef YOPE_PYTHON
+    python->bindContext(scriptCtx_);
+#endif
 
     if (cfg.startupScene.empty()) {
         std::fprintf(stderr,
@@ -226,6 +235,10 @@ void Engine::cleanup() {
 
     if (sceneManager) sceneManager->shutdown(scriptCtx_);
     sceneManager.reset();
+#ifdef YOPE_PYTHON
+    // Shut down Python AFTER all Script* instances are destroyed (sceneManager->shutdown above).
+    if (python) { python->shutdown(); python.reset(); }
+#endif
     audio.reset();
     camera.reset();
     if (renderer && gpu) renderer->waitIdle(*gpu);

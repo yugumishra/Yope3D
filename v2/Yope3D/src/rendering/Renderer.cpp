@@ -142,6 +142,8 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
     createUIBuffers(gpu);
     createText3DPipeline(gpu.device());
     createText3DBuffers(gpu);
+    createLinePipeline(gpu.device());
+    createLineBuffers(gpu);
     createCommandPool(gpu);
     allocateCommandBuffers(gpu.device());
     createSyncObjects(gpu.device());
@@ -208,6 +210,11 @@ void Renderer::waitIdle(GpuDevice& gpu) {
     vkDestroyPipeline(gpu.device(), text3DPipeline_, nullptr);
     vkDestroyPipelineLayout(gpu.device(), text3DPipelineLayout_, nullptr);
     for (auto& tb : text3DBuffers_) tb.destroy(gpu.device());
+
+    // Debug-line pipeline cleanup
+    vkDestroyPipeline(gpu.device(), linePipeline_, nullptr);
+    vkDestroyPipelineLayout(gpu.device(), linePipelineLayout_, nullptr);
+    for (auto& lb : lineBuffers_) lb.destroy(gpu.device());
 
 #ifdef YOPE_EDITOR
     destroyOffscreenUIFramebuffer(gpu.device());
@@ -697,7 +704,9 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
                 if (!dm) continue;
                 struct PushConstants { math::Mat4 model; float color[3]; int32_t state; } push{};
                 push.model    = dm->modelMatrix;
-                push.color[0] = 0.0f; push.color[1] = 1.0f; push.color[2] = 0.2f;
+                // Per-mesh color: World stamps the default green, or a GJK-oracle
+                // verdict color (red/orange/green/gray), into each debug mesh.
+                push.color[0] = dm->color[0]; push.color[1] = dm->color[1]; push.color[2] = dm->color[2];
                 push.state    = 0;
                 vkCmdPushConstants(cmd, pipelineLayout,
                     VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -706,6 +715,8 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
             }
         }
 
+        // GJK CSO / simplex debug lines (always-on-top), then 3D world-space text.
+        recordDebugLines(cmd);
         // 3D world-space text — depth-tested against the scene, before pass end.
         recordText3D(cmd);
 
@@ -1239,6 +1250,144 @@ void Renderer::recordText3D(VkCommandBuffer cmd) {
 }
 
 // ---------------------------------------------------------------------------
+// Debug lines (GJK CSO / simplex visualizer)
+// ---------------------------------------------------------------------------
+
+void Renderer::createLineBuffers(GpuDevice& gpu) {
+    for (auto& lb : lineBuffers_) lb.init(gpu);
+}
+
+void Renderer::createLinePipeline(VkDevice device) {
+    ShaderModule vert(device, std::string(YOPE_SHADER_DIR) + "/line3d.vert.spv");
+    ShaderModule frag(device, std::string(YOPE_SHADER_DIR) + "/line3d.frag.spv");
+
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vert.get();
+    stages[0].pName  = "main";
+    stages[1].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = frag.get();
+    stages[1].pName  = "main";
+
+    VkVertexInputBindingDescription binding{};
+    binding.binding   = 0;
+    binding.stride    = sizeof(DebugLineVertex);
+    binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    VkVertexInputAttributeDescription attrs[2]{};
+    attrs[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT,    offsetof(DebugLineVertex, x) };
+    attrs[1] = { 1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(DebugLineVertex, r) };
+
+    VkPipelineVertexInputStateCreateInfo vertexInput{};
+    vertexInput.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInput.vertexBindingDescriptionCount   = 1;
+    vertexInput.pVertexBindingDescriptions      = &binding;
+    vertexInput.vertexAttributeDescriptionCount = 2;
+    vertexInput.pVertexAttributeDescriptions    = attrs;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+
+    VkDynamicState dynStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = 2;
+    dynamicState.pDynamicStates    = dynStates;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount  = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.cullMode    = VK_CULL_MODE_NONE;
+    rasterizer.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.lineWidth   = 1.0f;   // wideLines feature not assumed
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    // Always-on-top debug gizmo: no depth test, no depth write.
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable  = VK_FALSE;
+    depthStencil.depthWriteEnable = VK_FALSE;
+    depthStencil.depthCompareOp   = VK_COMPARE_OP_ALWAYS;
+    depthStencil.stencilTestEnable= VK_FALSE;
+
+    // Straight-alpha blend; preserve dst alpha so the editor's offscreen viewport
+    // texture keeps alpha=1 where lines draw (matches text3d/UI passes).
+    VkPipelineColorBlendAttachmentState blendAttachment{};
+    blendAttachment.blendEnable         = VK_TRUE;
+    blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;
+    blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttachment.alphaBlendOp        = VK_BLEND_OP_ADD;
+    blendAttachment.colorWriteMask      =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlend.attachmentCount = 1;
+    colorBlend.pAttachments    = &blendAttachment;
+
+    // Set 0 = GlobalUBO (view/proj). No push constants — positions are world-space.
+    VkDescriptorSetLayout setLayouts[1] = { uboLayout->get() };
+    VkPipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount = 1;
+    layoutInfo.pSetLayouts    = setLayouts;
+    if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &linePipelineLayout_) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create line pipeline layout");
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount          = 2;
+    pipelineInfo.pStages             = stages;
+    pipelineInfo.pVertexInputState   = &vertexInput;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState      = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState   = &multisampling;
+    pipelineInfo.pColorBlendState    = &colorBlend;
+    pipelineInfo.pDepthStencilState  = &depthStencil;
+    pipelineInfo.pDynamicState       = &dynamicState;
+    pipelineInfo.layout              = linePipelineLayout_;
+    // Render-pass-compatible with the offscreen game pass (like the mesh/text pipelines).
+    pipelineInfo.renderPass          = renderPass->get();
+    pipelineInfo.subpass             = 0;
+    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &linePipeline_) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create line pipeline");
+}
+
+void Renderer::uploadDebugLines(World& world) {
+    const auto& lines = world.getDebugLines();
+    lineVertexCount_ = lines.empty()
+        ? 0
+        : lineBuffers_[currentFrame].upload(lines.data(), static_cast<uint32_t>(lines.size()));
+}
+
+void Renderer::recordDebugLines(VkCommandBuffer cmd) {
+    if (lineVertexCount_ == 0) return;
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipeline_);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipelineLayout_,
+        0, 1, &descriptorSets[currentFrame], 0, nullptr);
+    VkBuffer     vb  = lineBuffers_[currentFrame].vertexBuffer();
+    VkDeviceSize off = 0;
+    vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &off);
+    vkCmdDraw(cmd, lineVertexCount_, 1, 0, 0);
+}
+
+// ---------------------------------------------------------------------------
 // drawFrame
 // ---------------------------------------------------------------------------
 
@@ -1302,6 +1451,7 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, W
         if (uiManager_) uiManager_->buildFrame(uiBuffers[currentFrame], sw, sh);
         buildECSUIGeometry(uiBuffers[currentFrame], world, sw, sh);
         buildECSText3DGeometry(text3DBuffers_[currentFrame], world);
+        uploadDebugLines(world);
     }
 
     vkResetCommandBuffer(cmdBuffers[currentFrame], 0);
@@ -1518,6 +1668,7 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
         {
             auto _lk = world.lockStructure();
             buildECSText3DGeometry(text3DBuffers_[currentFrame], world);
+            uploadDebugLines(world);
         }
 
         VkClearValue clearValues[2]{};
@@ -1576,7 +1727,8 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
                 if (!dm) continue;
                 struct PushConstants { math::Mat4 model; float color[3]; int32_t state; } push{};
                 push.model    = dm->modelMatrix;
-                push.color[0] = 0.0f; push.color[1] = 1.0f; push.color[2] = 0.2f;
+                // Per-mesh color (see runtime path above): default green or GJK verdict.
+                push.color[0] = dm->color[0]; push.color[1] = dm->color[1]; push.color[2] = dm->color[2];
                 push.state    = 0;
                 vkCmdPushConstants(cmd, pipelineLayout,
                     VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, 80, &push);
@@ -1584,6 +1736,8 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
             }
         }
 
+        // GJK CSO / simplex debug lines (always-on-top), then 3D world-space text.
+        recordDebugLines(cmd);
         // 3D world-space text — depth-tested against the scene, before pass end.
         recordText3D(cmd);
 

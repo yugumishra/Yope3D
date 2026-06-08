@@ -9,6 +9,7 @@
 #include "gpu/DepthBuffer.h"
 #include "gpu/UIBuffer.h"
 #include "gpu/Text3DBuffer.h"
+#include "gpu/LineBuffer.h"
 #include "Light.h"
 #include "../world/World.h"
 #include "RenderMode.h"
@@ -102,6 +103,14 @@ private:
     };
     std::vector<Text3DDrawCall> ecsText3DDrawCalls_;
 
+    // Debug-line pipeline (GJK CSO / simplex viz). World-space LINE_LIST, no depth
+    // test (always-on-top gizmo), recorded INSIDE the main 3D pass. Source data
+    // comes from World::getDebugLines(), uploaded once per frame.
+    VkPipelineLayout                    linePipelineLayout_ = VK_NULL_HANDLE;
+    VkPipeline                          linePipeline_       = VK_NULL_HANDLE;
+    std::array<LineBuffer, MAX_FRAMES>  lineBuffers_;
+    uint32_t                            lineVertexCount_    = 0;
+
     VkCommandPool                           commandPool = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, MAX_FRAMES> cmdBuffers{};
 
@@ -153,6 +162,13 @@ private:
     void createText3DBuffers(GpuDevice& gpu);
     void buildECSText3DGeometry(Text3DBuffer& buf, World& world);
     void recordText3D(VkCommandBuffer cmd);
+
+    // Debug lines: upload World's line list to this frame's buffer (before the
+    // pass), then record the draw inside the 3D pass.
+    void createLinePipeline(VkDevice device);
+    void createLineBuffers(GpuDevice& gpu);
+    void uploadDebugLines(World& world);
+    void recordDebugLines(VkCommandBuffer cmd);
 
 #ifdef YOPE_EDITOR
 public:

@@ -1040,7 +1040,23 @@ void World::syncDebugMeshes() {
         R.setRotationScale(quatToMat3(tf->rotation));
         math::Mat4 S = math::Mat4::scale(ext);
         debugMeshes_[i]->modelMatrix = T * R * S;
+
+        // Default overlay green, overridden by a per-entity verdict color if set.
+        math::Vec3 col{0.0f, 1.0f, 0.2f};
+        auto it = debugColorOverrides_.find(e.id);
+        if (it != debugColorOverrides_.end()) col = it->second;
+        debugMeshes_[i]->color[0] = col.x;
+        debugMeshes_[i]->color[1] = col.y;
+        debugMeshes_[i]->color[2] = col.z;
     }
+}
+
+void World::setDebugColor(ecs::Entity e, math::Vec3 color) {
+    debugColorOverrides_[e.id] = color;
+}
+
+void World::clearDebugColors() {
+    debugColorOverrides_.clear();
 }
 
 void World::destroyDebugMeshes() {
@@ -1108,6 +1124,45 @@ void World::restoreFromPlay() {
         if (mr.mesh) meshToEntity_[mr.mesh] = e;
 
     // Force-publish so RenderMesh model matrices reflect the restored transforms.
+    publishSnapshot();
+}
+
+// Script-snapshot: same as snapshotForPlay/restoreFromPlay but physics stays paused.
+// Called from the Scene Script panel in edit mode where the physics thread is already paused.
+void World::takeScriptSnapshot() {
+    prePlayMeshPoolSize_   = meshPool_.size();
+    prePlaySpringCount_    = springs_.size();
+    playSnapshot_.registry = registry_.takeSnapshot();
+    playSnapshot_.gravity  = gravity;
+    playSnapshot_.layers   = layers;
+    // Do NOT call setPaused(false) — physics stays paused in edit mode.
+}
+
+void World::restoreScriptSnapshot() {
+    // Physics is already paused (edit mode); no need to setPaused or wait for a step.
+    if (gpu_) gpu_->syncDevice();
+
+    for (size_t i = prePlayMeshPoolSize_; i < meshPool_.size(); ++i) {
+        RenderMesh* rm = meshPool_[i].get();
+        meshToEntity_.erase(rm);
+        rm->destroy(gpu_->device());
+    }
+    meshPool_.resize(prePlayMeshPoolSize_);
+    springs_.resize(prePlaySpringCount_);
+
+    registry_.restoreSnapshot(playSnapshot_.registry);
+    gravity = playSnapshot_.gravity;
+    layers  = playSnapshot_.layers;
+
+    advanceEntities_.clear();
+    sapPairs_.clear();
+    advanceContacts_.clear();
+    contactCache_.clear();
+
+    meshToEntity_.clear();
+    for (auto [e, mr] : registry_.view<ecs::MeshRenderer>())
+        if (mr.mesh) meshToEntity_[mr.mesh] = e;
+
     publishSnapshot();
 }
 #endif

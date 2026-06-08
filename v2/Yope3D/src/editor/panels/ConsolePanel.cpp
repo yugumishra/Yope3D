@@ -3,20 +3,7 @@
 #include <imgui.h>
 #include <cstring>
 
-// --- Static storage ---
-std::mutex              Console::mutex_;
-std::deque<Console::Entry> Console::entries_;
-
-void Console::log(const char* msg, LogSeverity sev) {
-    std::lock_guard<std::mutex> lk(mutex_);
-    if (entries_.size() >= kMaxEntries)
-        entries_.pop_front();
-    entries_.push_back({ msg, sev });
-}
-
-void Console::log(const std::string& msg, LogSeverity sev) {
-    log(msg.c_str(), sev);
-}
+// Console static storage and log() implementations now live in debug/Console.cpp.
 
 // --- ConsolePanel::draw ---
 

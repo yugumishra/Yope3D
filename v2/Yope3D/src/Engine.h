@@ -16,6 +16,9 @@
 #include "scripting/ScriptContext.h"
 #include "scene/SceneManager.h"
 #include "ui/UIManager.h"
+#ifdef YOPE_PYTHON
+#include "scripting/python/PythonInterpreter.h"
+#endif
 
 struct Engine {
     std::unique_ptr<Window>        window;
@@ -28,6 +31,9 @@ struct Engine {
     std::unique_ptr<AudioSystem>   audio;
     std::unique_ptr<UIManager>     uiManager;
     std::unique_ptr<SceneManager>  sceneManager;
+#ifdef YOPE_PYTHON
+    std::unique_ptr<PythonInterpreter> python;
+#endif
 
     ScriptContext scriptCtx_;
 
