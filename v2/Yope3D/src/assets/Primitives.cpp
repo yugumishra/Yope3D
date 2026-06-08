@@ -318,6 +318,156 @@ LoadedMesh Primitives::plane(float halfExtent) {
     return mesh;
 }
 
+LoadedMesh Primitives::capsule(float radius, float halfHeight, int rings, int sectors) {
+    LoadedMesh mesh;
+    mesh.name = "Capsule";
+
+    const float PI = 3.14159265359f;
+    const float invSectors = 1.0f / sectors;
+
+    // Bottom hemisphere: theta from -π/2 (south pole) to 0 (cylinder junction at y = -halfHeight)
+    for (int r = 0; r <= rings; ++r) {
+        float theta  = -PI * 0.5f + PI * 0.5f * (float)r / rings;
+        float sinT   = std::sin(theta);
+        float cosT   = std::cos(theta);
+        float y      = -halfHeight + radius * sinT;
+        float r_xz   = radius * cosT;
+
+        for (int s = 0; s <= sectors; ++s) {
+            float phi   = 2.0f * PI * s * invSectors;
+            float cosPhi = std::cos(phi), sinPhi = std::sin(phi);
+            Vertex v{};
+            v.position[0] = r_xz * cosPhi;
+            v.position[1] = y;
+            v.position[2] = r_xz * sinPhi;
+            v.normal[0] = cosT * cosPhi;
+            v.normal[1] = sinT;
+            v.normal[2] = cosT * sinPhi;
+            v.uv[0] = (float)s * invSectors;
+            v.uv[1] = (float)r / (2.0f * rings);
+            mesh.vertices.push_back(v);
+        }
+    }
+
+    // Top hemisphere: theta from 0 (cylinder junction at y = +halfHeight) to π/2 (north pole)
+    for (int r = 0; r <= rings; ++r) {
+        float theta  = PI * 0.5f * (float)r / rings;
+        float sinT   = std::sin(theta);
+        float cosT   = std::cos(theta);
+        float y      = halfHeight + radius * sinT;
+        float r_xz   = radius * cosT;
+
+        for (int s = 0; s <= sectors; ++s) {
+            float phi   = 2.0f * PI * s * invSectors;
+            float cosPhi = std::cos(phi), sinPhi = std::sin(phi);
+            Vertex v{};
+            v.position[0] = r_xz * cosPhi;
+            v.position[1] = y;
+            v.position[2] = r_xz * sinPhi;
+            v.normal[0] = cosT * cosPhi;
+            v.normal[1] = sinT;
+            v.normal[2] = cosT * sinPhi;
+            v.uv[0] = (float)s * invSectors;
+            v.uv[1] = 0.5f + (float)r / (2.0f * rings);
+            mesh.vertices.push_back(v);
+        }
+    }
+
+    // Stitch all rows as a single grid: (2*(rings+1)) rows, (sectors+1) cols
+    int perRow   = sectors + 1;
+    int totalRows = 2 * (rings + 1);
+    for (int r = 0; r < totalRows - 1; ++r) {
+        for (int s = 0; s < sectors; ++s) {
+            uint32_t a = (uint32_t)(r * perRow + s);
+            uint32_t b = a + (uint32_t)perRow;
+            mesh.indices.push_back(a);
+            mesh.indices.push_back(b);
+            mesh.indices.push_back(a + 1);
+            mesh.indices.push_back(a + 1);
+            mesh.indices.push_back(b);
+            mesh.indices.push_back(b + 1);
+        }
+    }
+
+    return mesh;
+}
+
+LoadedMesh Primitives::cylinder(float radius, float halfHeight, int sectors) {
+    LoadedMesh mesh;
+    mesh.name = "Cylinder";
+
+    const float PI = 3.14159265359f;
+    const float inv = 1.0f / sectors;
+
+    // === Bottom cap (normal pointing -Y) ===
+    uint32_t botCenter = (uint32_t)mesh.vertices.size();
+    mesh.vertices.push_back({{0.0f, -halfHeight, 0.0f}, {0.0f, -1.0f, 0.0f}, {0.5f, 0.5f}});
+    uint32_t botRingStart = (uint32_t)mesh.vertices.size();
+    for (int s = 0; s <= sectors; ++s) {
+        float phi = 2.0f * PI * s * inv;
+        float c = std::cos(phi), si = std::sin(phi);
+        Vertex v{};
+        v.position[0] = radius * c; v.position[1] = -halfHeight; v.position[2] = radius * si;
+        v.normal[0] = 0.0f; v.normal[1] = -1.0f; v.normal[2] = 0.0f;
+        v.uv[0] = 0.5f + 0.5f * c; v.uv[1] = 0.5f + 0.5f * si;
+        mesh.vertices.push_back(v);
+    }
+    for (int s = 0; s < sectors; ++s) {
+        mesh.indices.push_back(botCenter);
+        mesh.indices.push_back(botRingStart + (uint32_t)s + 1);
+        mesh.indices.push_back(botRingStart + (uint32_t)s);
+    }
+
+    // === Side wall (radial normals) ===
+    uint32_t sideBot = (uint32_t)mesh.vertices.size();
+    for (int s = 0; s <= sectors; ++s) {
+        float phi = 2.0f * PI * s * inv;
+        float c = std::cos(phi), si = std::sin(phi);
+        Vertex v{};
+        v.position[0] = radius * c; v.position[1] = -halfHeight; v.position[2] = radius * si;
+        v.normal[0] = c; v.normal[1] = 0.0f; v.normal[2] = si;
+        v.uv[0] = (float)s * inv; v.uv[1] = 1.0f;
+        mesh.vertices.push_back(v);
+    }
+    uint32_t sideTop = (uint32_t)mesh.vertices.size();
+    for (int s = 0; s <= sectors; ++s) {
+        float phi = 2.0f * PI * s * inv;
+        float c = std::cos(phi), si = std::sin(phi);
+        Vertex v{};
+        v.position[0] = radius * c; v.position[1] = halfHeight; v.position[2] = radius * si;
+        v.normal[0] = c; v.normal[1] = 0.0f; v.normal[2] = si;
+        v.uv[0] = (float)s * inv; v.uv[1] = 0.0f;
+        mesh.vertices.push_back(v);
+    }
+    for (int s = 0; s < sectors; ++s) {
+        uint32_t a = sideBot + (uint32_t)s;
+        uint32_t b = sideTop + (uint32_t)s;
+        mesh.indices.push_back(a);     mesh.indices.push_back(a + 1); mesh.indices.push_back(b);
+        mesh.indices.push_back(b);     mesh.indices.push_back(a + 1); mesh.indices.push_back(b + 1);
+    }
+
+    // === Top cap (normal pointing +Y) ===
+    uint32_t topRingStart = (uint32_t)mesh.vertices.size();
+    for (int s = 0; s <= sectors; ++s) {
+        float phi = 2.0f * PI * s * inv;
+        float c = std::cos(phi), si = std::sin(phi);
+        Vertex v{};
+        v.position[0] = radius * c; v.position[1] = halfHeight; v.position[2] = radius * si;
+        v.normal[0] = 0.0f; v.normal[1] = 1.0f; v.normal[2] = 0.0f;
+        v.uv[0] = 0.5f + 0.5f * c; v.uv[1] = 0.5f - 0.5f * si;
+        mesh.vertices.push_back(v);
+    }
+    uint32_t topCenter = (uint32_t)mesh.vertices.size();
+    mesh.vertices.push_back({{0.0f, halfHeight, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.5f, 0.5f}});
+    for (int s = 0; s < sectors; ++s) {
+        mesh.indices.push_back(topCenter);
+        mesh.indices.push_back(topRingStart + (uint32_t)s);
+        mesh.indices.push_back(topRingStart + (uint32_t)s + 1);
+    }
+
+    return mesh;
+}
+
 LoadedMesh Primitives::sphere(float radius, int rings, int sectors) {
     LoadedMesh mesh;
     mesh.name = "Sphere";

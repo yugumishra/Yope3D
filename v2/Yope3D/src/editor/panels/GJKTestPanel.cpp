@@ -18,6 +18,13 @@ constexpr ImVec4 kOrange{0.95f, 0.62f, 0.20f, 1.0f};
 constexpr ImVec4 kGray {0.55f, 0.55f, 0.55f, 1.0f};
 
 bool hasForm(ecs::Registry& reg, ecs::Entity e) {
+    return reg.has<ecs::SphereForm>(e)  || reg.has<ecs::AABBForm>(e)    || reg.has<ecs::OBBForm>(e)
+        || reg.has<ecs::CapsuleForm>(e) || reg.has<ecs::CylinderForm>(e);
+}
+
+// True only for shapes that have a SAT ground truth in satBoolean().
+// Capsule and Cylinder are GJK-only: no SAT oracle, so Oracle-vs-SAT mode skips them.
+bool hasSAT(ecs::Registry& reg, ecs::Entity e) {
     return reg.has<ecs::SphereForm>(e) || reg.has<ecs::AABBForm>(e) || reg.has<ecs::OBBForm>(e);
 }
 }
@@ -56,10 +63,16 @@ void GJKTestPanel::runOracle(EditorContext& ctx) {
 
     auto consider = [&](ecs::Entity a, ecs::Entity b) {
         bool g = CD::gjkBoolean(a, b, reg);
-        bool s = CD::satBoolean(a, b, reg);
-        ++pairsTested_;
         gjkHitAny[a.id] = gjkHitAny[a.id] || g;
         gjkHitAny[b.id] = gjkHitAny[b.id] || g;
+
+        // Oracle-vs-SAT mode: skip pairs where either shape has no SAT ground truth.
+        // Such pairs are still visualized by Raw GJK mode.
+        bool pairHasSAT = hasSAT(reg, a) && hasSAT(reg, b);
+        if (colorMode_ == ColorMode::Oracle && !pairHasSAT) return;
+
+        bool s = pairHasSAT ? CD::satBoolean(a, b, reg) : g; // trivially agree if no SAT
+        ++pairsTested_;
 
         Verdict v = (g == s) ? (g ? Verdict::AgreeHit : Verdict::AgreeDisjoint)
                              : (g ? Verdict::FalsePositive : Verdict::FalseNegative);

@@ -18,7 +18,8 @@ namespace {
 constexpr float kPi = 3.14159265358979f;
 
 bool hasForm(ecs::Registry& reg, ecs::Entity e) {
-    return reg.has<ecs::SphereForm>(e) || reg.has<ecs::AABBForm>(e) || reg.has<ecs::OBBForm>(e);
+    return reg.has<ecs::SphereForm>(e)  || reg.has<ecs::AABBForm>(e)    || reg.has<ecs::OBBForm>(e)
+        || reg.has<ecs::CapsuleForm>(e) || reg.has<ecs::CylinderForm>(e);
 }
 
 // Line-list builder in world space.

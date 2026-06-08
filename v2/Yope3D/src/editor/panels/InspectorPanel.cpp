@@ -183,11 +183,15 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     wantAutoSnap    = false;
                 }
 
-                const char* shapeNames[] = { "Sphere", "AABB", "OBB" };
-                ImGui::Combo("Shape", &shapeIdx, shapeNames, 3);
+                const char* shapeNames[] = { "Sphere", "AABB", "OBB", "Capsule", "Cylinder" };
+                ImGui::Combo("Shape", &shapeIdx, shapeNames, 5);
                 if (!isStatic) ImGui::DragFloat("Mass", &mass, 0.05f, 0.01f, 1000.0f, "%.2f");
                 if (shapeIdx == 0) {
                     ImGui::DragFloat("Radius", &radius, 0.01f, 0.01f, 100.0f, "%.3f");
+                } else if (shapeIdx == 3 || shapeIdx == 4) {
+                    // Capsule / Cylinder: radius + half-height
+                    ImGui::DragFloat("Radius##capext",      &extent[0], 0.01f, 0.01f, 100.0f, "%.3f");
+                    ImGui::DragFloat("Half-Height##capext", &extent[1], 0.01f, 0.01f, 100.0f, "%.3f");
                 } else {
                     ImGui::DragFloat3("Half-Extents", extent, 0.01f, 0.01f, 100.0f, "%.3f");
                 }
@@ -208,7 +212,10 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 if (ImGui::Button("Add")) {
                     using Shape = AddColliderCommand::Shape;
                     Shape s = (shapeIdx == 0) ? Shape::Sphere
-                            : (shapeIdx == 1) ? Shape::AABB : Shape::OBB;
+                            : (shapeIdx == 1) ? Shape::AABB
+                            : (shapeIdx == 2) ? Shape::OBB
+                            : (shapeIdx == 3) ? Shape::Capsule : Shape::Cylinder;
+                    // Capsule/Cylinder: extent.x=radius, extent.y=halfHeight
                     math::Vec3 param = (shapeIdx == 0)
                         ? math::Vec3{radius, radius, radius}
                         : math::Vec3{extent[0], extent[1], extent[2]};

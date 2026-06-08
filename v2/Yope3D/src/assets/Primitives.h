@@ -36,4 +36,16 @@ namespace Primitives {
     //   subdivisions=3 → 1280 triangles (default, good visual quality)
     // radius: sphere radius (default 1.0)
     LoadedMesh icosphere(float radius = 1.0f, int subdivisions = 3);
+
+    // Capsule: cylinder section capped with two hemispheres, axis +Y.
+    // The cylindrical body spans y in [-halfHeight, +halfHeight]; caps extend ±radius beyond that.
+    // Dims are baked into geometry — keep entity Transform.scale at {1,1,1}.
+    // rings: latitude divisions per hemisphere (default 8)
+    // sectors: longitude divisions (default 16)
+    LoadedMesh capsule(float radius = 0.5f, float halfHeight = 1.0f, int rings = 8, int sectors = 16);
+
+    // Cylinder: flat-capped cylinder, axis +Y, spanning y in [-halfHeight, +halfHeight].
+    // Dims are baked into geometry — keep entity Transform.scale at {1,1,1}.
+    // sectors: longitude divisions (default 16)
+    LoadedMesh cylinder(float radius = 0.5f, float halfHeight = 1.0f, int sectors = 16);
 }

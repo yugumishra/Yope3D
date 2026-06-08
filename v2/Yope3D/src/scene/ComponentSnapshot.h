@@ -14,12 +14,14 @@ class World;
 // OpenAL source from disk is the caller's responsibility (SceneSerializer does
 // it on load; CreateEntity/DeleteEntity undo only restores the metadata).
 struct ComponentSnapshot {
-    bool hasTransform = false;  Transform       transform;
+    bool hasTransform = false;  Transform        transform;
     bool hasHull      = false;  ecs::Hull        hull;
     bool hasFixed     = false;
     bool hasSphere    = false;  ecs::SphereForm  sphere;
     bool hasAABB      = false;  ecs::AABBForm    aabb;
     bool hasOBB       = false;  ecs::OBBForm     obb;
+    bool hasCapsule   = false;  ecs::CapsuleForm capsule;
+    bool hasCylinder  = false;  ecs::CylinderForm cylinder;
     bool hasLight     = false;  ecs::LightSource light;
     bool hasName      = false;  ecs::Name        name;
     bool hasAudio     = false;  ecs::AudioSource audio;   // Source* always null in the snapshot

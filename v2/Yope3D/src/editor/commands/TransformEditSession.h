@@ -5,6 +5,7 @@
 #include "editor/commands/SetComponentCommand.h"
 #include "editor/commands/CompoundCommand.h"
 #include "world/Transform.h"
+#include "world/World.h"
 #include "ecs/Entity.h"
 #include "ecs/Components.h"
 #include "ecs/Registry.h"
@@ -25,9 +26,11 @@ struct TransformEditAnchor {
     bool             active = false;
     ecs::Entity      entity = ecs::NullEntity;
     Transform        tfBefore{};
-    bool             hasSphere = false;  ecs::SphereForm sphereBefore{};
-    bool             hasAABB   = false;  ecs::AABBForm   aabbBefore{};
-    bool             hasOBB    = false;  ecs::OBBForm    obbBefore{};
+    bool             hasSphere  = false;  ecs::SphereForm  sphereBefore{};
+    bool             hasAABB    = false;  ecs::AABBForm    aabbBefore{};
+    bool             hasOBB     = false;  ecs::OBBForm     obbBefore{};
+    bool             hasCapsule = false;  ecs::CapsuleForm capsuleBefore{};
+    bool             hasCylinder= false;  ecs::CylinderForm cylinderBefore{};
 };
 
 namespace transform_edit {
@@ -39,20 +42,26 @@ inline float safeRatio(float numer, float denom) {
 // Capture pre-edit state. Call on the first frame the drag becomes active
 // (DragFloat IsItemActivated, gizmo IsUsing transition false→true).
 inline void begin(TransformEditAnchor& anchor, ecs::Entity e, ecs::Registry& reg) {
-    anchor.active    = true;
-    anchor.entity    = e;
-    anchor.hasSphere = false;
-    anchor.hasAABB   = false;
-    anchor.hasOBB    = false;
-    if (auto* tf = reg.get<Transform>(e)) anchor.tfBefore = *tf;
-    if (auto* sf = reg.get<ecs::SphereForm>(e)) { anchor.hasSphere = true; anchor.sphereBefore = *sf; }
-    if (auto* a  = reg.get<ecs::AABBForm>(e))   { anchor.hasAABB   = true; anchor.aabbBefore   = *a;  }
-    if (auto* o  = reg.get<ecs::OBBForm>(e))    { anchor.hasOBB    = true; anchor.obbBefore    = *o;  }
+    anchor.active     = true;
+    anchor.entity     = e;
+    anchor.hasSphere  = false;
+    anchor.hasAABB    = false;
+    anchor.hasOBB     = false;
+    anchor.hasCapsule = false;
+    anchor.hasCylinder= false;
+    if (auto* tf = reg.get<Transform>(e))        anchor.tfBefore       = *tf;
+    if (auto* sf = reg.get<ecs::SphereForm>(e))  { anchor.hasSphere   = true; anchor.sphereBefore   = *sf; }
+    if (auto* a  = reg.get<ecs::AABBForm>(e))    { anchor.hasAABB     = true; anchor.aabbBefore     = *a;  }
+    if (auto* o  = reg.get<ecs::OBBForm>(e))     { anchor.hasOBB      = true; anchor.obbBefore      = *o;  }
+    if (auto* c  = reg.get<ecs::CapsuleForm>(e)) { anchor.hasCapsule  = true; anchor.capsuleBefore  = *c;  }
+    if (auto* c  = reg.get<ecs::CylinderForm>(e)){ anchor.hasCylinder = true; anchor.cylinderBefore = *c;  }
 }
 
 // Scale any present Form proportionally to the current tf.scale vs anchor.
 // Call every frame during the drag *after* writing tf->scale. Safe no-op
 // when the entity has no collider, or the anchor isn't active.
+// Capsule / Cylinder convention: scale.x (and .z, kept equal) → radius;
+//                                scale.y → halfHeight.
 inline void applyScaleRatio(const TransformEditAnchor& anchor,
                             ecs::Entity e, ecs::Registry& reg) {
     if (!anchor.active || anchor.entity != e) return;
@@ -76,6 +85,27 @@ inline void applyScaleRatio(const TransformEditAnchor& anchor,
             o->extent = { anchor.obbBefore.extent.x * rx,
                           anchor.obbBefore.extent.y * ry,
                           anchor.obbBefore.extent.z * rz };
+    }
+    if (anchor.hasCapsule) {
+        if (auto* c = reg.get<ecs::CapsuleForm>(e)) {
+            // Capsule uses baked mesh + identity scale; scale is used transiently by
+            // the gizmo as a ratio input. Update the form then reset scale to {1,1,1}
+            // so the baked mesh isn't double-scaled.
+            float rr = (std::abs(rx - 1.f) >= std::abs(rz - 1.f)) ? rx : rz;
+            c->radius     = std::max(0.01f, anchor.capsuleBefore.radius     * rr);
+            c->halfHeight = std::max(0.01f, anchor.capsuleBefore.halfHeight * ry);
+            tf->scale = {1.f, 1.f, 1.f};
+        }
+    }
+    if (anchor.hasCylinder) {
+        if (auto* c = reg.get<ecs::CylinderForm>(e)) {
+            float rr = (std::abs(rx - 1.f) >= std::abs(rz - 1.f)) ? rx : rz;
+            c->radius     = std::max(0.01f, anchor.cylinderBefore.radius     * rr);
+            c->halfHeight = std::max(0.01f, anchor.cylinderBefore.halfHeight * ry);
+            tf->scale.x = c->radius;
+            tf->scale.z = c->radius;
+            tf->scale.y = c->halfHeight;
+        }
     }
 }
 
@@ -107,7 +137,19 @@ inline void commit(TransformEditAnchor& anchor, ecs::Entity e,
             group->add(std::make_unique<SetComponentCommand<ecs::OBBForm>>(
                 e, anchor.obbBefore, *o, "Resize OBB"));
     }
+    if (anchor.hasCapsule) {
+        if (auto* c = ctx.registry->get<ecs::CapsuleForm>(e))
+            group->add(std::make_unique<SetComponentCommand<ecs::CapsuleForm>>(
+                e, anchor.capsuleBefore, *c, "Resize Capsule"));
+    }
+    if (anchor.hasCylinder) {
+        if (auto* c = ctx.registry->get<ecs::CylinderForm>(e))
+            group->add(std::make_unique<SetComponentCommand<ecs::CylinderForm>>(
+                e, anchor.cylinderBefore, *c, "Resize Cylinder"));
+    }
     ctx.history->execute(ctx, std::move(group));
+    // Capsule: rebuild the baked render mesh so caps are correct after resize.
+    if (anchor.hasCapsule && ctx.world) ctx.world->rebuildCapsuleMesh(e);
     anchor.active = false;
 }
 

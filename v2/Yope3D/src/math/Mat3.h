@@ -140,18 +140,18 @@ namespace math {
 
 
     Mat3 Mat3::inverse() const {
-        // 1. Calculate the determinant using the Rule of Sarrus[cite: 1]
+        // 1. Calculate the determinant using the Rule of Sarrus
         float det = m[0] * (m[4] * m[8] - m[5] * m[7]) -
                     m[3] * (m[1] * m[8] - m[2] * m[7]) +
                     m[6] * (m[1] * m[5] - m[2] * m[4]);
 
-        // 2. Check for singularity[cite: 1]
+        // 2. Check for singularity
         if (std::abs(det) < 1e-6f) return Mat3(); // Return Identity if not invertible
 
         float invDet = 1.0f / det;
         Mat3 res;
 
-        // 3. Calculate adjugate matrix elements scaled by 1/det[cite: 1]
+        // 3. Calculate adjugate matrix elements scaled by 1/det
         res.m[0] = (m[4] * m[8] - m[5] * m[7]) * invDet;
         res.m[1] = (m[2] * m[7] - m[1] * m[8]) * invDet;
         res.m[2] = (m[1] * m[5] - m[2] * m[4]) * invDet;

@@ -17,6 +17,8 @@ enum class PrimitiveType {
     Rect,      // rect(extents) — 6 quads; primitiveExtents = halfExtents
     Cube,      // unit cube     — 6 quads; primitiveExtents = {1,1,1}
     Plane,     // XZ plane      — 1 quad;  primitiveExtents.x = halfExtent
+    Capsule,   // capsule (+Y axis, baked dims); primitiveExtents = {radius, halfHeight, 0}
+    Cylinder,  // cylinder (+Y axis, baked dims); primitiveExtents = {radius, halfHeight, 0}
 };
 
 // ---------------------------------------------------------------------------

@@ -42,6 +42,19 @@ void CreateEntityCommand::redo(EditorContext& ctx) {
             created_ = w.addStaticAABB(pos, ext);
             attachColored(created_, &w, Primitives::rect({1, 1, 1}), ext, 0.50f, 0.50f, 0.55f);
             break;
+        case EntityKind::Capsule:
+            // Baked mesh (actual dims) + scale={1,1,1}: caps are always correct.
+            // Resize events rebuild the mesh on commit; scale stays identity.
+            created_ = w.addCapsule(ext.x, ext.y, mass, pos);
+            attachColored(created_, &w, Primitives::capsule(ext.x, ext.y),
+                          {1.f, 1.f, 1.f}, 0.80f, 0.55f, 1.0f);
+            break;
+        case EntityKind::Cylinder:
+            // Unit mesh + scale={r,h,r}: flat caps scale correctly without distortion.
+            created_ = w.addCylinder(ext.x, ext.y, mass, pos);
+            attachColored(created_, &w, Primitives::cylinder(1.0f, 1.0f),
+                          {ext.x, ext.y, ext.x}, 0.55f, 1.0f, 0.75f);
+            break;
         case EntityKind::PointLight: {
             PointLight pl{};
             pl.color[0] = lightParams.color[0]; pl.color[1] = lightParams.color[1]; pl.color[2] = lightParams.color[2];

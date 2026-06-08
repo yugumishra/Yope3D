@@ -11,6 +11,8 @@ enum class EntityKind {
     OBB,
     AABB,
     StaticAABB,
+    Capsule,               // GJK-only; axis +Y; dims baked into mesh
+    Cylinder,              // GJK-only; axis +Y; dims baked into mesh
     PointLight,
     DirLight,
     SpotLight,
