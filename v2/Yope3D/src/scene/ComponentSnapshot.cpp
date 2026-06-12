@@ -19,6 +19,8 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
         e = world.addAABB(aabb.extent, hull.mass, pos);
     } else if (hasCapsule && hasHull) {
         e = world.addCapsule(capsule.radius, capsule.halfHeight, hull.mass, pos);
+    } else if (hasCapsule && !hasHull) {
+        e = world.addKinematicCapsule(capsule.radius, capsule.halfHeight, pos);
     } else if (hasCylinder && hasHull) {
         e = world.addCylinder(cylinder.radius, cylinder.halfHeight, hull.mass, pos);
     }

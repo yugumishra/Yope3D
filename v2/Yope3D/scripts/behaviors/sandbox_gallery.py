@@ -14,6 +14,9 @@ Controls:
 import yope
 
 class SandboxGallery:
+    PARAMS = {
+        "scenes": {"type": "strlist", "default": [], "label": "Scene Paths"},
+    }
     def init(self, world, entity, params):
         self.scenes   = params.get("scenes", [])
         self.current  = 0

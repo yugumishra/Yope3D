@@ -103,6 +103,11 @@ void CreateEntityCommand::redo(EditorContext& ctx) {
                                           {0.2f, 0.2f, 0.2f, 0.8f}, 0);
             break;
         }
+        case EntityKind::UITexturedBackground: {
+            created_ = w.addUITexturedBackground({0.1f, 0.1f}, {0.9f, 0.9f},
+                                                  {1.f, 1.f, 1.f, 1.f}, "", 0);
+            break;
+        }
         case EntityKind::UICurvedBackground: {
             created_ = w.addUICurvedBackground({0.1f, 0.1f}, {0.9f, 0.9f},
                                                 {0.2f, 0.2f, 0.2f, 0.8f}, 0.5f, 0);

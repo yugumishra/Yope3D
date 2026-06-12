@@ -4,6 +4,7 @@
 
 class World;
 class AudioSystem;
+class AssetManager;
 struct ScriptContext;
 
 // SceneManager owns the active scene's identity and queued transitions.
@@ -21,7 +22,7 @@ struct ScriptContext;
 //     existing Script*.
 class SceneManager {
 public:
-    SceneManager(World& world, AudioSystem* audio);
+    SceneManager(World& world, AudioSystem* audio, AssetManager* assets = nullptr);
 
     // Defer a scene swap to the next flush() call. Last queue wins.
     void queueLoad(std::string scenePath);
@@ -55,6 +56,7 @@ public:
 private:
     World&                     world_;
     AudioSystem*               audio_;
+    AssetManager*              assets_;
     std::string                currentPath_;
     std::optional<std::string> pendingLoad_;
 };

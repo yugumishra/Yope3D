@@ -292,18 +292,19 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
 // ============================================================================
 // Sphere — Sphere   (normal convention: from a toward b)
 // ============================================================================
-bool detectSphereSphere(const SphereGeom& a, const SphereGeom& b, ContactManifold& m) {
+bool analyticalSphereSphere(const SphereGeom& a, const SphereGeom& b, ContactManifold& m) {
     math::Vec3 diff   = b.getPosition() - a.getPosition();
     float      distSq = diff.dot(diff);
     float      rSum   = a.getRadius() + b.getRadius();
     if (distSq > rSum * rSum) return false;
 
     float dist = std::sqrt(distSq);
-    if (dist < 1e-7f) {
+    if (dist < 1e-7f) [[unlikely]] {
         m.normal      = {1.0f, 0.0f, 0.0f};
         m.penetration = rSum;
-    } else {
-        m.normal      = diff * (1.0f / dist);
+    } else [[likely]] {
+        float invDist = 1.0f / dist;
+        m.normal      = diff * invDist;
         m.penetration = rSum - dist;
     }
     m.numContacts      = 1;
@@ -316,7 +317,7 @@ bool detectSphereSphere(const SphereGeom& a, const SphereGeom& b, ContactManifol
 // Sphere — AABB   (normal convention: AABB → sphere; callers flip when sphere is 'a')
 // ============================================================================
 
-bool detectSphereAABB(const SphereGeom& sphere, const AABBGeom& aabb, ContactManifold& m) {
+bool analyticalSphereAABB(const SphereGeom& sphere, const AABBGeom& aabb, ContactManifold& m) {
     math::Vec3 sp = sphere.getPosition();
     math::Vec3 ap = aabb.getPosition();
     math::Vec3 ae = aabb.getScales();
@@ -377,7 +378,7 @@ bool detectSphereAABB(const SphereGeom& sphere, const AABBGeom& aabb, ContactMan
 // AABB — AABB   (normal convention: from a toward b)
 // ============================================================================
 
-bool detectAABBAABB(const AABBGeom& a, const AABBGeom& b, ContactManifold& m) {
+bool analyticalAABBAABB(const AABBGeom& a, const AABBGeom& b, ContactManifold& m) {
     math::Vec3 posA = a.getPosition(), posB = b.getPosition();
     math::Vec3 eA   = a.getScales(),   eB   = b.getScales();
 
@@ -446,7 +447,7 @@ bool detectAABBAABB(const AABBGeom& a, const AABBGeom& b, ContactManifold& m) {
 // Sphere — OBB   (normal convention: OBB → sphere)
 // ============================================================================
 
-bool detectSphereOBB(const SphereGeom& sphere, const OBBGeom& obb, ContactManifold& m) {
+bool analyticalSphereOBB(const SphereGeom& sphere, const OBBGeom& obb, ContactManifold& m) {
     math::Vec3 sp  = sphere.getPosition();
     math::Vec3 op  = obb.getPosition();
     math::Vec3 ext = obb.getScales();
@@ -498,7 +499,7 @@ bool detectSphereOBB(const SphereGeom& sphere, const OBBGeom& obb, ContactManifo
 // AABB — OBB   15-axis SAT   (normal convention: from AABB (a) toward OBB (b))
 // ============================================================================
 
-bool detectAABBOBB(const AABBGeom& a, const OBBGeom& b, ContactManifold& m) {
+bool analyticalAABBOBB(const AABBGeom& a, const OBBGeom& b, ContactManifold& m) {
     math::Vec3 aPos = a.getPosition(), aExt = a.getScales();
     math::Vec3 bPos = b.getPosition(), bExt = b.getScales();
     auto       bAxes = b.getOBBAxes();
@@ -610,18 +611,48 @@ bool detectAABBOBB(const AABBGeom& a, const OBBGeom& b, ContactManifold& m) {
             m.numContacts = k;
         }
     } else {
-        math::Vec3 supportA = {
-            aPos.x + (normal.x >= 0.0f ? aExt.x : -aExt.x),
-            aPos.y + (normal.y >= 0.0f ? aExt.y : -aExt.y),
-            aPos.z + (normal.z >= 0.0f ? aExt.z : -aExt.z)
-        };
-        math::Vec3 supportB = bPos;
-        supportB = supportB + bAxes[0] * (normal.dot(bAxes[0]) >= 0.0f ? -bExt.x :  bExt.x);
-        supportB = supportB + bAxes[1] * (normal.dot(bAxes[1]) >= 0.0f ? -bExt.y :  bExt.y);
-        supportB = supportB + bAxes[2] * (normal.dot(bAxes[2]) >= 0.0f ? -bExt.z :  bExt.z);
-        m.contactPoints[0] = (supportA + supportB) * 0.5f;
+        // edge-edge: world axis ai on AABB crossed with OBB axis bi
+        int   ai       = axisIdx / 3;
+        int   bi       = axisIdx % 3;
+        float aEArr[3] = {aExt.x, aExt.y, aExt.z};
+        float bEArr[3] = {bExt.x, bExt.y, bExt.z};
+        float nArr[3]  = {normal.x, normal.y, normal.z};
+
+        math::Vec3 edgeCenterA = aPos;
+        for (int k = 0; k < 3; ++k) {
+            if (k == ai) continue;
+            edgeCenterA += worldAxes[k] * (nArr[k] >= 0.0f ? aEArr[k] : -aEArr[k]);
+        }
+        math::Vec3 edgeCenterB = bPos;
+        for (int k = 0; k < 3; ++k) {
+            if (k == bi) continue;
+            edgeCenterB += bAxes[k] * (normal.dot(bAxes[k]) >= 0.0f ? -bEArr[k] : bEArr[k]);
+        }
+
+        math::Vec3 segA  = worldAxes[ai] * aEArr[ai];
+        math::Vec3 segB  = bAxes[bi]     * bEArr[bi];
+        math::Vec3 d     = edgeCenterA - edgeCenterB;
+        float      aSqr  = segA.dot(segA);
+        float      bSqr  = segB.dot(segB);
+        float      ab    = segA.dot(segB);
+        float      aDiff = segA.dot(d);
+        float      bDiff = segB.dot(d);
+        float      det   = aSqr * bSqr - ab * ab;
+
+        float tA = 0.0f, tB = bDiff / bSqr;
+        if (std::abs(det) > 1e-8f) {
+            tA = (ab * bDiff - bSqr * aDiff) / det;
+            tB = (aSqr * bDiff - ab  * aDiff) / det;
+        }
+        tA           = std::max(-1.0f, std::min(1.0f, tA));
+        float recomp = (ab * tA + bDiff) / bSqr;
+        tB           = std::max(-1.0f, std::min(1.0f, recomp));
+        recomp       = (ab * tB - aDiff) / aSqr;
+        tA           = std::max(-1.0f, std::min(1.0f, recomp));
+
+        m.contactPoints[0] = (edgeCenterA + segA * tA + edgeCenterB + segB * tB) * 0.5f;
         m.depths[0]        = m.penetration;
-        m.numContacts = 1;
+        m.numContacts      = 1;
     }
     return true;
 }
@@ -630,7 +661,7 @@ bool detectAABBOBB(const AABBGeom& a, const OBBGeom& b, ContactManifold& m) {
 // OBB — OBB   15-axis SAT   (normal convention: from OBB a toward OBB b)
 // ============================================================================
 
-bool detectOBBOBB(const OBBGeom& a, const OBBGeom& b, ContactManifold& m) {
+bool analyticalOBBOBB(const OBBGeom& a, const OBBGeom& b, ContactManifold& m) {
     math::Vec3 aPos = a.getPosition(), aExt = a.getScales();
     math::Vec3 bPos = b.getPosition(), bExt = b.getScales();
     auto       aAxes = a.getOBBAxes();
@@ -735,17 +766,47 @@ bool detectOBBOBB(const OBBGeom& a, const OBBGeom& b, ContactManifold& m) {
             m.numContacts = k;
         }
     } else {
-        math::Vec3 supportA = aPos;
-        supportA = supportA + aAxes[0] * (normal.dot(aAxes[0]) >= 0.0f ?  aExt.x : -aExt.x);
-        supportA = supportA + aAxes[1] * (normal.dot(aAxes[1]) >= 0.0f ?  aExt.y : -aExt.y);
-        supportA = supportA + aAxes[2] * (normal.dot(aAxes[2]) >= 0.0f ?  aExt.z : -aExt.z);
-        math::Vec3 supportB = bPos;
-        supportB = supportB + bAxes[0] * (normal.dot(bAxes[0]) >= 0.0f ? -bExt.x :  bExt.x);
-        supportB = supportB + bAxes[1] * (normal.dot(bAxes[1]) >= 0.0f ? -bExt.y :  bExt.y);
-        supportB = supportB + bAxes[2] * (normal.dot(bAxes[2]) >= 0.0f ? -bExt.z :  bExt.z);
-        m.contactPoints[0] = (supportA + supportB) * 0.5f;
+        // edge-edge: OBB axis ai on A crossed with OBB axis bi on B
+        int   ai       = axisIdx / 3;
+        int   bi       = axisIdx % 3;
+        float aEArr[3] = {aExt.x, aExt.y, aExt.z};
+        float bEArr[3] = {bExt.x, bExt.y, bExt.z};
+
+        math::Vec3 edgeCenterA = aPos;
+        for (int k = 0; k < 3; ++k) {
+            if (k == ai) continue;
+            edgeCenterA += aAxes[k] * (normal.dot(aAxes[k]) >= 0.0f ? aEArr[k] : -aEArr[k]);
+        }
+        math::Vec3 edgeCenterB = bPos;
+        for (int k = 0; k < 3; ++k) {
+            if (k == bi) continue;
+            edgeCenterB += bAxes[k] * (normal.dot(bAxes[k]) >= 0.0f ? -bEArr[k] : bEArr[k]);
+        }
+
+        math::Vec3 segA  = aAxes[ai] * aEArr[ai];
+        math::Vec3 segB  = bAxes[bi] * bEArr[bi];
+        math::Vec3 d     = edgeCenterA - edgeCenterB;
+        float      aSqr  = segA.dot(segA);
+        float      bSqr  = segB.dot(segB);
+        float      ab    = segA.dot(segB);
+        float      aDiff = segA.dot(d);
+        float      bDiff = segB.dot(d);
+        float      det   = aSqr * bSqr - ab * ab;
+
+        float tA = 0.0f, tB = bDiff / bSqr;
+        if (std::abs(det) > 1e-8f) {
+            tA = (ab * bDiff - bSqr * aDiff) / det;
+            tB = (aSqr * bDiff - ab  * aDiff) / det;
+        }
+        tA           = std::max(-1.0f, std::min(1.0f, tA));
+        float recomp = (ab * tA + bDiff) / bSqr;
+        tB           = std::max(-1.0f, std::min(1.0f, recomp));
+        recomp       = (ab * tB - aDiff) / aSqr;
+        tA           = std::max(-1.0f, std::min(1.0f, recomp));
+
+        m.contactPoints[0] = (edgeCenterA + segA * tA + edgeCenterB + segB * tB) * 0.5f;
         m.depths[0]        = m.penetration;
-        m.numContacts = 1;
+        m.numContacts      = 1;
     }
     return true;
 }
@@ -862,7 +923,7 @@ math::Vec3 supportOBBOBB(const OBBGeom& a, const OBBGeom& b, const math::Vec3& d
 }
 
 // ============================================================================
-// Capsule + Cylinder per-pair support stubs (user fills in the math)
+// Capsule + Cylinder per-pair support 
 // ============================================================================
 
 math::Vec3 supportSphereCapsule(const SphereGeom& a, const CapsuleGeom& b, const math::Vec3& dir) {
@@ -1172,7 +1233,7 @@ PairBucket getBucket(int ai, int bi) {
 
 // Forward declarations for the analytical helpers defined after gjkIntersect.
 static bool isAnalyticalPair(const ShapeVariant& va, const ShapeVariant& vb);
-static bool analyticalBoolean(const ShapeVariant& va, const ShapeVariant& vb);
+static bool analyticalBoolean(const ShapeVariant& va, const ShapeVariant& vb, ContactManifold& m);
 
 void detectGJK(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg,
             std::vector<ActiveContact>& contacts)
@@ -1191,14 +1252,19 @@ void detectGJK(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg,
     auto* tfb = reg.get<Transform>(eb);
     if (!tfa || !tfb) return;
 
+    //prior to shunting, make a unified contact manifold to store the results regardless of technique
+    ContactManifold m;
+
     ShapeVariant va = makeShapeVariant(ea, reg);
     ShapeVariant vb = makeShapeVariant(eb, reg);
 
-    // Shunt analytical pairs — EPA/manifold not yet implemented for these,
-    // so register no contact for now (TODO: analytical manifold when EPA lands).
+    // Shunt: sphere/AABB/OBB pairs use SAT; sphere/capsule/capsule use analytical.
+    // Both produce full manifolds directly — no GJK/EPA needed.
     if (isAnalyticalPair(va, vb)) {
-        // bool hit = analyticalBoolean(va, vb);
-        // if (hit) { /* TODO: analytical manifold */ }
+        if (analyticalBoolean(va, vb, m)) {
+            ActiveContact c; c.a = ea; c.b = eb; c.manifold = m;
+            contacts.push_back(c);
+        }
         return;
     }
 
@@ -1209,8 +1275,7 @@ void detectGJK(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg,
     //determine the appropriate support function
     auto supportFunction = makeSupport(va, vb);
 
-    //instantiate the manifold and simplex in which gjk results will bes tored
-    ContactManifold m;
+    //instantiate the simplex in which gjk results will be stored
     ColliderDiscrete::GJKSimplex simplex;
     //compute the initial direction for best convergence to be the difference of the 2 objects
     math::Vec3 initDir = shapePosition(vb) - shapePosition(va);
@@ -1793,15 +1858,15 @@ void detect(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg,
         contacts.push_back(c);
     };
 
-    if (sa && sb) { NPHASE_TIME(NP_SPH_SPH);   if (detectSphereSphere(mSph(ea,sa->radius), mSph(eb,sb->radius), m))    push(ea,eb,m); return; }
-    if (sa && ab) { NPHASE_TIME(NP_SPH_AABB);  if (detectSphereAABB(mSph(ea,sa->radius), mAABB(eb,ab->extent), m))   { m.normal=-m.normal; push(ea,eb,m); } return; }
-    if (aa && sb) { NPHASE_TIME(NP_SPH_AABB);  if (detectSphereAABB(mSph(eb,sb->radius), mAABB(ea,aa->extent), m))     push(ea,eb,m); return; }
-    if (aa && ab) { NPHASE_TIME(NP_AABB_AABB); if (detectAABBAABB(mAABB(ea,aa->extent), mAABB(eb,ab->extent), m))      push(ea,eb,m); return; }
-    if (sa && cb) { NPHASE_TIME(NP_SPH_OBB);   if (detectSphereOBB(mSph(ea,sa->radius), mOBB(eb,cb->extent), m))    { m.normal=-m.normal; push(ea,eb,m); } return; }
-    if (ca && sb) { NPHASE_TIME(NP_SPH_OBB);   if (detectSphereOBB(mSph(eb,sb->radius), mOBB(ea,ca->extent), m))      push(ea,eb,m); return; }
-    if (aa && cb) { NPHASE_TIME(NP_AABB_OBB);  if (detectAABBOBB(mAABB(ea,aa->extent), mOBB(eb,cb->extent), m))       push(ea,eb,m); return; }
-    if (ca && ab) { NPHASE_TIME(NP_AABB_OBB);  if (detectAABBOBB(mAABB(eb,ab->extent), mOBB(ea,ca->extent), m))     { m.normal=-m.normal; push(ea,eb,m); } return; }
-    if (ca && cb) { NPHASE_TIME(NP_OBB_OBB);   if (detectOBBOBB(mOBB(ea,ca->extent), mOBB(eb,cb->extent), m))         push(ea,eb,m); return; }
+    if (sa && sb) { NPHASE_TIME(NP_SPH_SPH);   if (analyticalSphereSphere(mSph(ea,sa->radius), mSph(eb,sb->radius), m))    push(ea,eb,m); return; }
+    if (sa && ab) { NPHASE_TIME(NP_SPH_AABB);  if (analyticalSphereAABB(mSph(ea,sa->radius), mAABB(eb,ab->extent), m))   { m.normal=-m.normal; push(ea,eb,m); } return; }
+    if (aa && sb) { NPHASE_TIME(NP_SPH_AABB);  if (analyticalSphereAABB(mSph(eb,sb->radius), mAABB(ea,aa->extent), m))     push(ea,eb,m); return; }
+    if (aa && ab) { NPHASE_TIME(NP_AABB_AABB); if (analyticalAABBAABB(mAABB(ea,aa->extent), mAABB(eb,ab->extent), m))      push(ea,eb,m); return; }
+    if (sa && cb) { NPHASE_TIME(NP_SPH_OBB);   if (analyticalSphereOBB(mSph(ea,sa->radius), mOBB(eb,cb->extent), m))    { m.normal=-m.normal; push(ea,eb,m); } return; }
+    if (ca && sb) { NPHASE_TIME(NP_SPH_OBB);   if (analyticalSphereOBB(mSph(eb,sb->radius), mOBB(ea,ca->extent), m))      push(ea,eb,m); return; }
+    if (aa && cb) { NPHASE_TIME(NP_AABB_OBB);  if (analyticalAABBOBB(mAABB(ea,aa->extent), mOBB(eb,cb->extent), m))       push(ea,eb,m); return; }
+    if (ca && ab) { NPHASE_TIME(NP_AABB_OBB);  if (analyticalAABBOBB(mAABB(eb,ab->extent), mOBB(ea,ca->extent), m))     { m.normal=-m.normal; push(ea,eb,m); } return; }
+    if (ca && cb) { NPHASE_TIME(NP_OBB_OBB);   if (analyticalOBBOBB(mOBB(ea,ca->extent), mOBB(eb,cb->extent), m))         push(ea,eb,m); return; }
 }
 
 // ============================================================================
@@ -1836,43 +1901,156 @@ static math::Vec3 gjkInitDir(const ShapeVariant& va, const ShapeVariant& vb) {
 }
 
 // ============================================================================
-// Analytical pair detection (sphere-sphere, sphere-capsule, capsule-capsule)
-// Stubs — user implements the math bodies. The shunt routes these pairs AWAY
-// from GJK (faster, no iteration needed for these simple geometries).
+// Analytical pair detection (sphere-capsule, capsule-capsule)
+// sphere-sphere is analyticalSphereSphere defined above (shared with detect()).
 // ============================================================================
 
-static bool analyticalSphereSphere(const SphereGeom& a, const SphereGeom& b) {
-    return false; // TODO: user implements (point distance vs r1+r2)
+bool analyticalSphereCapsule(const SphereGeom& a, const CapsuleGeom& b, ContactManifold& m) {
+    math::Vec3 sphereToCapsule = a.getPosition() - b.getPosition();
+    const auto& mat = b.getRotTransform().m;
+    math::Vec3 worldUp = { mat[3], mat[4], mat[5] };
+
+    //calculate the critical t
+    float tCrit = worldUp.dot(sphereToCapsule);
+    //must clamp as well
+    tCrit = std::max(-b.getHalfHeight(), std::min(b.getHalfHeight(), tCrit));
+    
+    //closest point in capsule t dimension is tCrit
+    math::Vec3 component = worldUp * (tCrit);
+
+    //closest point is this dot*worldUp + b.getPosition()
+    //we can now proceed as normal psehre sphere
+    math::Vec3 diff   = component - sphereToCapsule;
+    float      distSq = diff.dot(diff);
+    float      rSum   = a.getRadius() + b.getRadius();
+    if (distSq > rSum * rSum) return false;
+
+    float dist = std::sqrt(distSq);
+    if (dist < 1e-7f) [[unlikely]]{
+        m.normal      = {1.0f, 0.0f, 0.0f};
+        m.penetration = rSum;
+    } else [[likely]]{
+        float invDist = 1.0f / dist;
+        m.normal      = diff * invDist;
+        m.penetration = rSum - dist;
+    }
+    m.numContacts      = 1;
+    m.contactPoints[0] = a.getPosition() + m.normal * a.getRadius();
+    m.depths[0]        = m.penetration;
+    return true;
 }
-static bool analyticalSphereCapsule(const SphereGeom& a, const CapsuleGeom& b) {
-    return false; // TODO: user implements (sphere center vs segment distance)
-}
-static bool analyticalCapsuleCapsule(const CapsuleGeom& a, const CapsuleGeom& b) {
-    return false; // TODO: user implements (segment-to-segment distance)
+bool analyticalCapsuleCapsule(const CapsuleGeom& a, const CapsuleGeom& b, ContactManifold& m) {
+    //this is a bit more complex/involved since we have to find the 2 points on the line segments
+    //so parametrize the 2 line segments, minimize the distance between the 2 and use the result as the closest points
+    //but then we can proceed as sphere sphere
+
+    //compute halfHeight vectors for both
+    const auto& matA = a.getRotTransform().m;
+    math::Vec3 worldUpA = { matA[3], matA[4], matA[5] };
+    worldUpA *= a.getHalfHeight();
+
+    const auto& matB = b.getRotTransform().m;
+    math::Vec3 worldUpB = { matB[3], matB[4], matB[5] };
+    worldUpB *= b.getHalfHeight();
+
+    //compute difference vector and other quantities to solve this quadratic
+    math::Vec3 diff = a.getPosition() - b.getPosition();
+    float aSqr = worldUpA.dot(worldUpA);
+    float bSqr = worldUpB.dot(worldUpB);
+    float ab = worldUpA.dot(worldUpB);
+    float aDiff = worldUpA.dot(diff);
+    float bDiff = worldUpB.dot(diff);
+
+    //quadratic det
+    float det = aSqr * bSqr - ab * ab;
+
+    //now solve for the params of t for both (default values for parallel case are these)
+    float tA = 0, tB = bDiff / bSqr;
+
+    //check for non parallel
+    if(std::abs(det) > EPSILON) [[likely]]{
+        //non parallel, they will intersect, so compute ts normally
+        tA = (ab * bDiff - bSqr * aDiff) / det;
+        tB = (aSqr * bDiff - ab * aDiff) / det;
+    }
+
+    //now the first T, clamp to [-1,1]
+    tA = std::max(-1.0f, std::min(1.0f, tA));
+
+    //recompute the other with this clamped T (cant clamp both directly)
+    float recomputed = (ab * tA + bDiff) / bSqr;
+    tB = std::max(-1.0f, std::min(1.0f, recomputed));
+
+    //now if tB was also clamped, recompute tA
+    recomputed = (ab * tB - aDiff) / aSqr;
+    tA = std::max(-1.0f, std::min(1.0f, recomputed));
+
+    //now compute the difference between the two actual points (not the points themselves, avoid doing all that)
+    math::Vec3 aComponent = worldUpA * tA;
+    diff = worldUpB * tB - aComponent - diff;
+    //now proceed as normal with sphere-sphere
+    float      distSq = diff.dot(diff);
+    float      rSum   = a.getRadius() + b.getRadius();
+    if (distSq > rSum * rSum) return false;
+
+    float dist = std::sqrt(distSq);
+    if (dist < 1e-7f) [[unlikely]] {
+        m.normal      = {1.0f, 0.0f, 0.0f};
+        m.penetration = rSum;
+    } else [[likely]] {
+        float invDist = 1.0f / dist;
+        m.normal      = diff * invDist;
+        m.penetration = rSum - dist;
+    }
+    m.numContacts      = 1;
+    m.contactPoints[0] = (a.getPosition() + aComponent) + m.normal * a.getRadius();
+    m.depths[0]        = m.penetration;
+    return true;
 }
 
 // Returns true when this pair should bypass GJK and use analytical detection.
 // Pairs: (Sphere,Sphere)=(0,0), (Sphere,Capsule)=(0,3)/(3,0), (Capsule,Capsule)=(3,3)
-static bool isAnalyticalPair(const ShapeVariant& va, const ShapeVariant& vb) {
+bool isAnalyticalPair(const ShapeVariant& va, const ShapeVariant& vb) {
     int ai = (int)va.index(), bi = (int)vb.index();
     if (ai > bi) std::swap(ai, bi);
-    // (0,0)=sph-sph, (0,3)=sph-cap, (3,3)=cap-cap
-    return (ai == 0 && bi == 0) || (ai == 0 && bi == 3) || (ai == 3 && bi == 3);
+    // indices 0=Sphere, 1=AABB, 2=OBB: all combos use SAT/analytical
+    // (0,3)=sph-cap, (3,3)=cap-cap: closed-form analytical
+    return (ai <= 2 && bi <= 2) || (ai == 0 && bi == 3) || (ai == 3 && bi == 3);
 }
 
-static bool analyticalBoolean(const ShapeVariant& va, const ShapeVariant& vb) {
+bool analyticalBoolean(const ShapeVariant& va, const ShapeVariant& vb, ContactManifold& m) {
     // std::visit dispatches to the right stub; unused combos return false.
-    return std::visit([](const auto& a, const auto& b) -> bool {
+    return std::visit([&m](const auto& a, const auto& b) -> bool {
         using A = std::decay_t<decltype(a)>;
         using B = std::decay_t<decltype(b)>;
+        // Closed-form analytical
         if constexpr (std::is_same_v<A, SphereGeom>  && std::is_same_v<B, SphereGeom>)
-            return analyticalSphereSphere(a, b);
+            return analyticalSphereSphere(a, b, m);
         else if constexpr (std::is_same_v<A, SphereGeom>  && std::is_same_v<B, CapsuleGeom>)
-            return analyticalSphereCapsule(a, b);
+            return analyticalSphereCapsule(a, b, m);
         else if constexpr (std::is_same_v<A, CapsuleGeom> && std::is_same_v<B, SphereGeom>)
-            return analyticalSphereCapsule(b, a);
+            return analyticalSphereCapsule(b, a, m);
         else if constexpr (std::is_same_v<A, CapsuleGeom> && std::is_same_v<B, CapsuleGeom>)
-            return analyticalCapsuleCapsule(a, b);
+            return analyticalCapsuleCapsule(a, b, m);
+        // SAT — normal convention throughout: from a toward b.
+        // analyticalSphereAABB/OBB produce normal AABB/OBB→sphere, so flip when sphere is va (entity a).
+        // analyticalAABBOBB produces normal AABB→OBB; flip when OBB is va.
+        else if constexpr (std::is_same_v<A, SphereGeom> && std::is_same_v<B, AABBGeom>)
+            { bool h = analyticalSphereAABB(a, b, m); if (h) m.normal = -m.normal; return h; }
+        else if constexpr (std::is_same_v<A, AABBGeom>   && std::is_same_v<B, SphereGeom>)
+            return analyticalSphereAABB(b, a, m);
+        else if constexpr (std::is_same_v<A, SphereGeom> && std::is_same_v<B, OBBGeom>)
+            { bool h = analyticalSphereOBB(a, b, m); if (h) m.normal = -m.normal; return h; }
+        else if constexpr (std::is_same_v<A, OBBGeom>    && std::is_same_v<B, SphereGeom>)
+            return analyticalSphereOBB(b, a, m);
+        else if constexpr (std::is_same_v<A, AABBGeom>   && std::is_same_v<B, AABBGeom>)
+            return analyticalAABBAABB(a, b, m);
+        else if constexpr (std::is_same_v<A, AABBGeom>   && std::is_same_v<B, OBBGeom>)
+            return analyticalAABBOBB(a, b, m);
+        else if constexpr (std::is_same_v<A, OBBGeom>    && std::is_same_v<B, AABBGeom>)
+            { bool h = analyticalAABBOBB(b, a, m); if (h) m.normal = -m.normal; return h; }
+        else if constexpr (std::is_same_v<A, OBBGeom>    && std::is_same_v<B, OBBGeom>)
+            return analyticalOBBOBB(a, b, m);
         else
             return false;
     }, va, vb);
@@ -1886,8 +2064,10 @@ bool gjkBoolean(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg, GJKSimplex* 
     ShapeVariant va = makeShapeVariant(ea, reg);
     ShapeVariant vb = makeShapeVariant(eb, reg);
 
+    ContactManifold m;
+
     // Shunt analytical pairs (sphere-sphere, sphere-capsule, capsule-capsule)
-    if (isAnalyticalPair(va, vb)) return analyticalBoolean(va, vb);
+    if (isAnalyticalPair(va, vb)) return analyticalBoolean(va, vb, m);
 
     auto supportFunction = makeSupport(va, vb);
 
@@ -1933,15 +2113,15 @@ bool satBoolean(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg) {
     };
 
     ContactManifold m;
-    if (sa && sb) return detectSphereSphere(mSph(ea,sa->radius), mSph(eb,sb->radius), m);
-    if (sa && ab) return detectSphereAABB (mSph(ea,sa->radius), mAABB(eb,ab->extent), m);
-    if (aa && sb) return detectSphereAABB (mSph(eb,sb->radius), mAABB(ea,aa->extent), m);
-    if (aa && ab) return detectAABBAABB   (mAABB(ea,aa->extent), mAABB(eb,ab->extent), m);
-    if (sa && cb) return detectSphereOBB  (mSph(ea,sa->radius), mOBB(eb,cb->extent), m);
-    if (ca && sb) return detectSphereOBB  (mSph(eb,sb->radius), mOBB(ea,ca->extent), m);
-    if (aa && cb) return detectAABBOBB    (mAABB(ea,aa->extent), mOBB(eb,cb->extent), m);
-    if (ca && ab) return detectAABBOBB    (mAABB(eb,ab->extent), mOBB(ea,ca->extent), m);
-    if (ca && cb) return detectOBBOBB     (mOBB(ea,ca->extent), mOBB(eb,cb->extent), m);
+    if (sa && sb) return analyticalSphereSphere(mSph(ea,sa->radius), mSph(eb,sb->radius), m);
+    if (sa && ab) return analyticalSphereAABB  (mSph(ea,sa->radius), mAABB(eb,ab->extent), m);
+    if (aa && sb) return analyticalSphereAABB  (mSph(eb,sb->radius), mAABB(ea,aa->extent), m);
+    if (aa && ab) return analyticalAABBAABB    (mAABB(ea,aa->extent), mAABB(eb,ab->extent), m);
+    if (sa && cb) return analyticalSphereOBB   (mSph(ea,sa->radius), mOBB(eb,cb->extent), m);
+    if (ca && sb) return analyticalSphereOBB   (mSph(eb,sb->radius), mOBB(ea,ca->extent), m);
+    if (aa && cb) return analyticalAABBOBB     (mAABB(ea,aa->extent), mOBB(eb,cb->extent), m);
+    if (ca && ab) return analyticalAABBOBB     (mAABB(eb,ab->extent), mOBB(ea,ca->extent), m);
+    if (ca && cb) return analyticalOBBOBB      (mOBB(ea,ca->extent), mOBB(eb,cb->extent), m);
     return false;
 }
 

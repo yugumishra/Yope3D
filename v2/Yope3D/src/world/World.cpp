@@ -127,9 +127,7 @@ ecs::Entity World::addSphere(float mass, float radius, math::Vec3 pos) {
     hc.inverseInertia = math::Mat3::scale({invI, invI, invI});
     registry_.add<ecs::Hull>(e, hc);
     registry_.add<ecs::SphereForm>(e, {radius});
-#ifdef YOPE_EDITOR
     finalizeEntity(e, "Sphere");
-#endif
     return e;
 }
 
@@ -151,9 +149,7 @@ ecs::Entity World::addOBB(math::Vec3 extent, float mass, math::Vec3 pos) {
     }
     registry_.add<ecs::Hull>(e, hc);
     registry_.add<ecs::OBBForm>(e, {extent});
-#ifdef YOPE_EDITOR
     finalizeEntity(e, "OBB");
-#endif
     return e;
 }
 
@@ -167,9 +163,7 @@ ecs::Entity World::addAABB(math::Vec3 extent, float mass, math::Vec3 pos) {
     hc.inverseInertia = math::Mat3::zero();  // AABB has no angular dynamics
     registry_.add<ecs::Hull>(e, hc);
     registry_.add<ecs::AABBForm>(e, {extent});
-#ifdef YOPE_EDITOR
     finalizeEntity(e, "AABB");
-#endif
     return e;
 }
 
@@ -185,9 +179,7 @@ ecs::Entity World::addStaticAABB(math::Vec3 pos, math::Vec3 extent) {
     registry_.add<ecs::Hull>(e, hc);
     registry_.add<ecs::AABBForm>(e, {extent});
     registry_.add<ecs::Fixed>(e);
-#ifdef YOPE_EDITOR
     finalizeEntity(e, "StaticAABB");
-#endif
     return e;
 }
 
@@ -331,9 +323,7 @@ ecs::Entity World::addCapsule(float radius, float halfHeight, float mass, math::
     }
     registry_.add<ecs::Hull>(e, hc);
     registry_.add<ecs::CapsuleForm>(e, {radius, halfHeight});
-#ifdef YOPE_EDITOR
     finalizeEntity(e, "Capsule");
-#endif
     return e;
 }
 
@@ -352,9 +342,16 @@ ecs::Entity World::addCylinder(float radius, float halfHeight, float mass, math:
     }
     registry_.add<ecs::Hull>(e, hc);
     registry_.add<ecs::CylinderForm>(e, {radius, halfHeight});
-#ifdef YOPE_EDITOR
     finalizeEntity(e, "Cylinder");
-#endif
+    return e;
+}
+
+ecs::Entity World::addKinematicCapsule(float radius, float halfHeight, math::Vec3 pos) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {1.0f, 1.0f, 1.0f}});
+    registry_.add<ecs::CapsuleForm>(e, ecs::CapsuleForm{radius, halfHeight});
+    finalizeEntity(e, "KinematicCapsule");
     return e;
 }
 
@@ -387,9 +384,7 @@ ecs::Entity World::addRenderObject(const std::vector<Vertex>& vertices,
     registry_.add<Transform>(e);
     registry_.add<ecs::MeshRenderer>(e, {raw});
     meshToEntity_[raw] = e;
-#ifdef YOPE_EDITOR
     finalizeEntity(e, "Object");
-#endif
     return e;
 }
 
@@ -686,9 +681,7 @@ ecs::Entity World::addLight(const Light& light) {
     ecs::Entity e = registry_.create();
     registry_.add<ecs::LightSource>(e, ls);
     lightEntities_.push_back(e);
-#ifdef YOPE_EDITOR
     finalizeEntity(e, lightName);
-#endif
     return e;
 }
 
@@ -699,9 +692,7 @@ ecs::Entity World::addAudioSourceEntity(math::Vec3 pos) {
     tf.position = pos;
     registry_.add<Transform>(e, tf);
     registry_.add<ecs::AudioSource>(e, {});  // empty: no Source* yet, user binds .wav later
-#ifdef YOPE_EDITOR
     finalizeEntity(e, "AudioSource");
-#endif
     return e;
 }
 
@@ -716,9 +707,7 @@ ecs::Entity World::addUIBackground(math::Vec2 min, math::Vec2 max, math::Vec4 co
     ecs::UIBackground bg{};
     bg.r = color.x; bg.g = color.y; bg.b = color.z; bg.a = color.w;
     registry_.add<ecs::UIBackground>(e, bg);
-#ifdef YOPE_EDITOR
     finalizeEntity(e, "UI Background");
-#endif
     return e;
 }
 
@@ -735,9 +724,7 @@ ecs::Entity World::addUITexturedBackground(math::Vec2 min, math::Vec2 max,
     if (texPath) std::strncpy(bg.path, texPath, sizeof(bg.path) - 1);
     bg.tintR = tint.x; bg.tintG = tint.y; bg.tintB = tint.z; bg.tintA = tint.w;
     registry_.add<ecs::UITexturedBackground>(e, bg);
-#ifdef YOPE_EDITOR
     finalizeEntity(e, "UI Textured BG");
-#endif
     return e;
 }
 
@@ -754,9 +741,7 @@ ecs::Entity World::addUICurvedBackground(math::Vec2 min, math::Vec2 max,
     bg.r = color.x; bg.g = color.y; bg.b = color.z; bg.a = color.w;
     bg.curvature = curvature;
     registry_.add<ecs::UICurvedBackground>(e, bg);
-#ifdef YOPE_EDITOR
     finalizeEntity(e, "UI Curved BG");
-#endif
     return e;
 }
 
@@ -770,9 +755,7 @@ ecs::Entity World::addTextLabel3D(const char* fontPath, const char* text, math::
     if (fontPath) std::strncpy(t.fontPath, fontPath, sizeof(t.fontPath) - 1);
     if (text)     std::strncpy(t.text, text, sizeof(t.text) - 1);
     registry_.add<ecs::TextLabel3D>(e, t);
-#ifdef YOPE_EDITOR
     finalizeEntity(e, "Text Label");
-#endif
     return e;
 }
 
@@ -789,9 +772,7 @@ ecs::Entity World::addUIText(const char* fontPath, const char* text,
     if (fontPath) std::strncpy(ut.fontPath, fontPath, sizeof(ut.fontPath) - 1);
     if (text)     std::strncpy(ut.text, text, sizeof(ut.text) - 1);
     registry_.add<ecs::UIText>(e, ut);
-#ifdef YOPE_EDITOR
     finalizeEntity(e, "UI Text");
-#endif
     return e;
 }
 
@@ -841,6 +822,10 @@ void World::resetPhysics() {
 
 void World::cleanup() {
     std::lock_guard lk(structureMtx_);
+    if (gpu_) gpu_->syncDevice();
+    for (auto& m : pendingGpuDestroy_)
+        if (m) m->destroy(gpu_->device());
+    pendingGpuDestroy_.clear();
     destroyDebugMeshes();
     for (auto [e, sc] : registry_.view<ecs::ScriptComponent>()) {
         if (sc.instance) { delete sc.instance; sc.instance = nullptr; }
@@ -1217,15 +1202,17 @@ void World::destroyDebugMeshes() {
     debugEntities_.clear();
 }
 
-#ifdef YOPE_EDITOR
 void World::finalizeEntity(ecs::Entity e, const char* name) {
     ecs::Name n{};
     std::strncpy(n.value, name, sizeof(n.value) - 1);
     registry_.add<ecs::Name>(e, n);
+#ifdef YOPE_EDITOR
     registry_.add<ecs::EditorSelectable>(e);
     registry_.add<ecs::EditorPickable>(e);
+#endif
 }
 
+#ifdef YOPE_EDITOR
 void World::snapshotForPlay() {
     prePlayMeshPoolSize_       = meshPool_.size();
     prePlaySpringCount_        = springs_.size();

@@ -46,18 +46,32 @@ PYBIND11_EMBEDDED_MODULE(yope_io, m) {
 
 struct PythonInterpreter::Impl {
     std::unique_ptr<py::scoped_interpreter> interp;
+    wchar_t* pythonHomeW = nullptr; // Py_DecodeLocale-allocated; must outlive the interpreter
 };
 
 PythonInterpreter::PythonInterpreter() : impl_(std::make_unique<Impl>()) {}
-PythonInterpreter::~PythonInterpreter() = default;
 
-void PythonInterpreter::init() {
+PythonInterpreter::~PythonInterpreter() {
+    if (impl_->pythonHomeW) {
+        PyMem_RawFree(impl_->pythonHomeW);
+        impl_->pythonHomeW = nullptr;
+    }
+}
+
+void PythonInterpreter::init(const std::string& scriptsDir, const std::string& pythonHome) {
     if (initialized_) return;
+
+    if (!pythonHome.empty()) {
+        impl_->pythonHomeW = Py_DecodeLocale(pythonHome.c_str(), nullptr);
+        if (impl_->pythonHomeW)
+            Py_SetPythonHome(impl_->pythonHomeW);
+    }
+
     impl_->interp = std::make_unique<py::scoped_interpreter>();
 
     // Add scripts directory to sys.path
     auto sys = py::module_::import("sys");
-    sys.attr("path").attr("insert")(0, YOPE_SCRIPTS_DIR);
+    sys.attr("path").attr("insert")(0, scriptsDir);
 
     // Redirect stdout/stderr to Console
     auto io = py::module_::import("yope_io");

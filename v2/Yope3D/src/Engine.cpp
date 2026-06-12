@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include "platform/BundlePaths.h"
 #include "scripting/Config.h"
 #include "scripting/Script.h"
 #include "scene/SceneManager.h"
@@ -20,7 +21,19 @@ bool Engine::init() {
     input = std::make_unique<Input>();
     if (!glfwInit()) return false;
 
-    Config cfg = Config::load("yope.cfg");
+    const std::string resDir = bundleResourcesDir();
+
+#ifdef __APPLE__
+    // When running from a .app bundle the Vulkan loader won't find MoltenVK at
+    // its system-installed location. Point it at our bundled ICD JSON before
+    // VkInstance creation.
+    if (!resDir.empty()) {
+        std::string icd = resDir + "/vulkan/icd.d/MoltenVK_icd.json";
+        setenv("VK_ICD_FILENAMES", icd.c_str(), 1);
+    }
+#endif
+
+    Config cfg = Config::load(resDir.empty() ? "yope.cfg" : resDir + "/yope.cfg");
 
     int screenW = 1920, screenH = 1080;
     if (GLFWmonitor* primary = glfwGetPrimaryMonitor())
@@ -64,11 +77,14 @@ bool Engine::init() {
                     static_cast<float>(screenW), static_cast<float>(screenH));
     renderer->setUIManager(uiManager.get());
 
-    sceneManager = std::make_unique<SceneManager>(*world, audio.get());
+    sceneManager = std::make_unique<SceneManager>(*world, audio.get(), assets.get());
 
 #ifdef YOPE_PYTHON
     python = std::make_unique<PythonInterpreter>();
-    python->init();
+    python->init(
+        resDir.empty() ? YOPE_SCRIPTS_DIR : resDir + "/scripts",
+        resDir.empty() ? ""               : resDir + "/python"
+    );
 #endif
 
     scriptCtx_.world         = world.get();

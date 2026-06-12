@@ -52,7 +52,8 @@ private:
 
     std::unique_ptr<RenderPass> imguiPass_;
     IdBufferPass idBufferPass_;
-    FileWatcher       fileWatcher_;
+    FileWatcher        fileWatcher_;
+    FileWatcher        scriptsWatcher_;
     AssetBrowserPanel* assetBrowser_ = nullptr;  // non-owning; owned by panels_
 
     bool   playMode_ = false;

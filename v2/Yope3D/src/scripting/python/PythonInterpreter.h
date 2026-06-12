@@ -15,8 +15,11 @@ public:
     ~PythonInterpreter();
 
     // Start the interpreter, import the 'yope' module, build the component table.
+    // scriptsDir is added to sys.path so behaviors can be imported.
+    // pythonHome, if non-empty, is passed to Py_SetPythonHome before startup —
+    // use this to point at a bundled stdlib instead of the system Python.
     // Must be called before any Python script is instantiated.
-    void init();
+    void init(const std::string& scriptsDir, const std::string& pythonHome = "");
 
     // Publish the live engine objects as module-level singletons on 'yope'.
     // Call once the ScriptContext is fully wired (all pointers non-null).

@@ -2,6 +2,7 @@
 #ifdef YOPE_EDITOR
 #include "editor/EditorContext.h"
 #include "editor/CommandHistory.h"
+#include "editor/FileDialog.h"
 #include "editor/commands/SetAssetCommands.h"
 #include "ecs/Components.h"
 #include "world/World.h"
@@ -9,6 +10,23 @@
 #include "assets/ObjLoader.h"
 #include <imgui.h>
 #include <cstdio>
+
+static void applyMesh(EditorContext& ctx, ecs::Entity e, ecs::MeshRenderer* mr,
+                      const char* absPath) {
+    std::string before = (mr->mesh ? mr->mesh->sourcePath : "");
+    try {
+        LoadedMesh loaded = ObjLoader::load(absPath);
+        if (!loaded.vertices.empty() && ctx.world) {
+            RenderMesh* rm = ctx.world->attachMesh(e, loaded.vertices, loaded.indices);
+            if (rm) {
+                rm->sourcePath = absPath;
+                if (ctx.history)
+                    ctx.history->execute(ctx,
+                        std::make_unique<SetMeshCommand>(e, before, absPath));
+            }
+        }
+    } catch (...) {}
+}
 
 void drawMeshRendererComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
     auto* mr = static_cast<ecs::MeshRenderer*>(comp);
@@ -24,7 +42,7 @@ void drawMeshRendererComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
 
     ImGui::Spacing();
 
-    // Mesh path display + drag-drop target.
+    // Mesh path display + drag-drop target + browse button.
     // Show primitive type name if available, otherwise raw pointer address.
     const char* meshLabel = "custom mesh";
     switch (mr->mesh->primitiveType) {
@@ -41,24 +59,15 @@ void drawMeshRendererComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
     ImGui::Selectable(buf, false, ImGuiSelectableFlags_None, ImVec2(0, 0));
     ImGui::SameLine();
     ImGui::TextDisabled("(drop .obj here)");
+    ImGui::SameLine();
+    if (ImGui::Button("...##mesh_pick")) {
+        if (auto p = FileDialog::openFile({{"OBJ Mesh", "obj"}}))
+            applyMesh(ctx, e, mr, p->c_str());
+    }
 
     if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
-            const char* absPath = static_cast<const char*>(payload->Data);
-            std::string before = (mr->mesh ? mr->mesh->sourcePath : "");
-            try {
-                LoadedMesh loaded = ObjLoader::load(absPath);
-                if (!loaded.vertices.empty() && ctx.world) {
-                    RenderMesh* rm = ctx.world->attachMesh(e, loaded.vertices, loaded.indices);
-                    if (rm) {
-                        rm->sourcePath = absPath;
-                        if (ctx.history)
-                            ctx.history->execute(ctx,
-                                std::make_unique<SetMeshCommand>(e, before, absPath));
-                    }
-                }
-            } catch (...) {}
-        }
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH"))
+            applyMesh(ctx, e, mr, static_cast<const char*>(payload->Data));
         ImGui::EndDragDropTarget();
     }
 }

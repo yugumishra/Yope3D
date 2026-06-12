@@ -19,6 +19,24 @@ void JsonWriter::beginObject() {
     needComma_ = false;
 }
 
+void JsonWriter::writeArrayString(const char* value) {
+    comma();
+    indent();
+    ss_ << "\"";
+    for (const char* p = value; p && *p; ++p) {
+        switch (*p) {
+            case '"':  ss_ << "\\\""; break;
+            case '\\': ss_ << "\\\\"; break;
+            case '\n': ss_ << "\\n";  break;
+            case '\r': ss_ << "\\r";  break;
+            case '\t': ss_ << "\\t";  break;
+            default:   ss_ << *p;     break;
+        }
+    }
+    ss_ << "\"";
+    needComma_ = true;
+}
+
 void JsonWriter::beginArrayObject() {
     comma();
     indent();
@@ -61,7 +79,18 @@ void JsonWriter::writeKey(const char* key) {
 void JsonWriter::writeString(const char* key, const char* value) {
     comma();
     indent();
-    ss_ << "\"" << key << "\": \"" << (value ? value : "") << "\"";
+    ss_ << "\"" << key << "\": \"";
+    for (const char* p = value; p && *p; ++p) {
+        switch (*p) {
+            case '"':  ss_ << "\\\""; break;
+            case '\\': ss_ << "\\\\"; break;
+            case '\n': ss_ << "\\n";  break;
+            case '\r': ss_ << "\\r";  break;
+            case '\t': ss_ << "\\t";  break;
+            default:   ss_ << *p;     break;
+        }
+    }
+    ss_ << "\"";
     needComma_ = true;
 }
 

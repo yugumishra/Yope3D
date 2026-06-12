@@ -206,7 +206,8 @@ void GJKStepperPanel::draw(EditorContext& ctx) {
 
     // Scrub controls
     int frameCount = static_cast<int>(trace_.size());
-    if (!hasPair_) ImGui::BeginDisabled();
+    bool hasPairNow = hasPair_;
+    if (!hasPairNow) ImGui::BeginDisabled();
     if (ImGui::Button("Re-run")) runTrace(ctx);
     ImGui::SameLine();
     if (ImGui::Button("|< First")) frame_ = 0;
@@ -216,7 +217,7 @@ void GJKStepperPanel::draw(EditorContext& ctx) {
     if (ImGui::Button("Step >")) frame_ = std::min(frameCount - 1, frame_ + 1);
     ImGui::SameLine();
     if (ImGui::Button("End >|")) frame_ = frameCount - 1;
-    if (!hasPair_) ImGui::EndDisabled();
+    if (!hasPairNow) ImGui::EndDisabled();
 
     if (frameCount > 0) {
         ImGui::SetNextItemWidth(-1);

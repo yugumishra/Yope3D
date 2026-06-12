@@ -17,6 +17,7 @@ find_package(Stb      REQUIRED)         # header-only; provides Stb_INCLUDE_DIR
 find_package(imgui    CONFIG REQUIRED)  # docking-experimental + vulkan-binding + glfw-binding
 find_package(imguizmo CONFIG REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)  # embedded Python scripting
+find_package(nfd     CONFIG REQUIRED)  # native file dialogs (editor only)
 
 # ---------------------------------------------------------------------------
 # Shader compilation — GLSL → SPIR-V via glslc (bundled in the Vulkan SDK)
@@ -150,6 +151,7 @@ set(PHYSICS_SOURCES
     src/physics/ThreadPool.cpp
     src/physics/Spring.cpp
     src/physics/Raycast.cpp
+    src/physics/KinematicQuery.cpp
 )
 
 # ---------------------------------------------------------------------------
@@ -160,6 +162,7 @@ set(ENGINE_SOURCES
     src/ecs/Registry.cpp
     src/platform/Window.cpp
     src/platform/Input.cpp
+    src/platform/BundlePaths.cpp
     src/Engine.cpp
     src/math/MathImpl.cpp
     src/stb_impl.cpp
@@ -259,6 +262,7 @@ set(EDITOR_SOURCES
     src/editor/panels/GJKTestPanel.cpp
     src/editor/panels/GJKStepperPanel.cpp
     src/editor/inspectors/ScriptComponentInspector.cpp
+    src/editor/FileDialog.cpp
 )
 
 # Python scripting sources — compiled into both runtime and editor targets
@@ -266,6 +270,7 @@ set(PYTHON_SOURCES
     src/scripting/python/PyComponentTable.cpp
     src/scripting/python/PythonInterpreter.cpp
     src/scripting/python/PythonScript.cpp
+    src/scripting/python/BehaviorRegistry.cpp
     src/scripting/python/Bindings.cpp
     src/scripting/python/bindings_math.cpp
     src/scripting/python/bindings_ecs.cpp
@@ -309,10 +314,18 @@ target_link_libraries(yope3d PRIVATE
 
 # ---------------------------------------------------------------------------
 # Editor executable — same engine sources + editor overlay + ImGui
+# Excluded from release builds by default (set YOPE_BUILD_EDITOR=ON to override).
 # Build: cmake --build build/mac-debug --target yope_editor
 # Run:   ./build/mac-debug/yope_editor
 # ---------------------------------------------------------------------------
 
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    option(YOPE_BUILD_EDITOR "Build the editor executable" OFF)
+else()
+    option(YOPE_BUILD_EDITOR "Build the editor executable" ON)
+endif()
+
+if(YOPE_BUILD_EDITOR)
 add_executable(yope_editor src/main_editor.cpp ${ENGINE_SOURCES} ${EDITOR_SOURCES} ${PYTHON_SOURCES})
 
 add_dependencies(yope_editor compile_shaders)
@@ -344,11 +357,37 @@ target_link_libraries(yope_editor PRIVATE
     imgui::imgui
     imguizmo::imguizmo
     pybind11::embed
+    nfd::nfd
     $<$<BOOL:${YOPE_EMBED_ASSETS}>:embedded_assets>
 )
 if(APPLE)
     find_library(CoreServices_FRAMEWORK CoreServices REQUIRED)
     target_link_libraries(yope_editor PRIVATE ${CoreServices_FRAMEWORK})
+endif()
+endif() # YOPE_BUILD_EDITOR
+
+# ---------------------------------------------------------------------------
+# macOS app bundle
+# Generates cmake/Info.plist at configure time and adds a 'bundle' target that
+# runs tools/make_bundle.sh to assemble the standalone .app.
+# Usage: cmake --build build/mac-release --target bundle
+# ---------------------------------------------------------------------------
+
+if(APPLE)
+    configure_file(
+        "${CMAKE_SOURCE_DIR}/cmake/Info.plist.in"
+        "${CMAKE_SOURCE_DIR}/cmake/Info.plist"
+        @ONLY
+    )
+
+    add_custom_target(bundle
+        COMMAND "${CMAKE_SOURCE_DIR}/tools/make_bundle.sh"
+                "${CMAKE_BINARY_DIR}/yope3d"
+                "${CMAKE_BINARY_DIR}"
+        DEPENDS yope3d
+        COMMENT "Assembling Yope3D.app"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
 endif()
 
 # ---------------------------------------------------------------------------

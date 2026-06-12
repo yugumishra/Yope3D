@@ -24,7 +24,8 @@ struct EditorContext {
     // Viewport panel
     ViewportTarget* viewportTarget = nullptr;
     IdBufferPass*   idBufferPass   = nullptr;
-    bool*           playMode       = nullptr;   // read: show Play vs Stop label
+    bool*           playMode            = nullptr;   // read: show Play vs Stop label
+    bool            pendingScriptRevert = false;     // set by SceneScriptPanel; flushed pre-recording
     std::function<void()>                       onTogglePlay;
     std::function<void(uint32_t, uint32_t)>     onViewportResize;
     std::function<void(bool)>                   onViewportMaximize;

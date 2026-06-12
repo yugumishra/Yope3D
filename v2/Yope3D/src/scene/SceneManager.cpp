@@ -3,6 +3,7 @@
 #include "world/World.h"
 #include "ecs/Registry.h"
 #include "ecs/Components.h"
+#include "assets/AssetManager.h"
 #include "scripting/Script.h"
 #include "scripting/ScriptFactory.h"
 #include "scripting/ScriptContext.h"
@@ -10,8 +11,8 @@
 #include <cstdio>
 #include <vector>
 
-SceneManager::SceneManager(World& world, AudioSystem* audio)
-    : world_(world), audio_(audio) {}
+SceneManager::SceneManager(World& world, AudioSystem* audio, AssetManager* assets)
+    : world_(world), audio_(audio), assets_(assets) {}
 
 void SceneManager::queueLoad(std::string scenePath) {
     pendingLoad_ = std::move(scenePath);
@@ -83,7 +84,7 @@ std::string SceneManager::loadSynchronous(const std::string& scenePath,
     destroyAllInstances(world_.getRegistry(), ctx);
 
     std::string err = SceneSerializer::load(
-        scenePath.c_str(), world_.getRegistry(), world_, audio_, initScripts);
+        scenePath.c_str(), world_.getRegistry(), world_, audio_, assets_, initScripts);
     if (!err.empty()) {
         std::fprintf(stderr, "SceneManager: failed to load '%s': %s\n",
                      scenePath.c_str(), err.c_str());

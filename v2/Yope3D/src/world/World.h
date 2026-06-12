@@ -41,8 +41,10 @@ public:
     ecs::Entity addStaticAABB(math::Vec3 pos, math::Vec3 extent);
     ecs::Entity addOBBFromMesh(const LoadedMesh& mesh, float mass);
     // GJK-only primitives (axis +Y; dims baked into mesh, Transform.scale stays {1,1,1})
-    ecs::Entity addCapsule   (float radius, float halfHeight, float mass, math::Vec3 pos = {});
-    ecs::Entity addCylinder  (float radius, float halfHeight, float mass, math::Vec3 pos = {});
+    ecs::Entity addCapsule          (float radius, float halfHeight, float mass, math::Vec3 pos = {});
+    ecs::Entity addCylinder         (float radius, float halfHeight, float mass, math::Vec3 pos = {});
+    // Kinematic capsule: Transform + CapsuleForm only — no Hull, physics sim ignores it.
+    ecs::Entity addKinematicCapsule (float radius, float halfHeight, math::Vec3 pos = {});
 
     // Visual-only entity (mesh, no physics body).
     ecs::Entity addRenderObject(const std::vector<Vertex>&   vertices,
@@ -249,10 +251,11 @@ private:
     std::unordered_map<uint32_t, math::Vec3>            debugColorOverrides_;  // entity.id -> overlay color
     std::vector<DebugLineVertex>                        debugLines_;           // GJK CSO / simplex viz
 
-#ifdef YOPE_EDITOR
-    // Called at the end of every public factory method to stamp editor-visible tags.
+    // Called at the end of every public factory method.
+    // Always adds ecs::Name; adds EditorSelectable/EditorPickable only in editor builds.
     void finalizeEntity(ecs::Entity e, const char* name);
 
+#ifdef YOPE_EDITOR
     struct PlaySnapshot {
         ecs::Registry::Snapshot registry;
         math::Vec3               gravity;

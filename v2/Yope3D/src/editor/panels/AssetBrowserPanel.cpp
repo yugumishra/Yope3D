@@ -1,6 +1,7 @@
 #include "editor/panels/AssetBrowserPanel.h"
 #include "editor/EditorContext.h"
 #include "assets/AssetManager.h"
+#include "scripting/python/PythonInterpreter.h"
 #include "Engine.h"
 #include <imgui.h>
 #include <filesystem>
@@ -49,6 +50,7 @@ void AssetBrowserPanel::drawDirectory(const std::string& dirPath, EditorContext&
         // Hide editor-internal directories that aren't user-facing assets.
         static const std::unordered_set<std::string> kHiddenDirs = { "icons", "fonts" };
         if (entry.is_directory() && kHiddenDirs.count(filename)) continue;
+        if (filename == "__pycache__" || filename == "__init__.py") continue;
 
         bool isModified = false;
         {
@@ -99,9 +101,26 @@ void AssetBrowserPanel::draw(EditorContext& ctx) {
     ImGui::Begin("Asset Browser", &visible);
 
     // Toolbar
-    if (!selectedPath_.empty() && ctx.engine && ctx.engine->assets) {
-        if (ImGui::Button("Reload")) {
-            ctx.engine->assets->onFileChanged(selectedPath_);
+    if (!selectedPath_.empty() && ctx.engine) {
+        fs::path sel(selectedPath_);
+        std::string ext = sel.extension().string();
+        for (auto& c : ext) c = static_cast<char>(std::tolower(c));
+        bool isPy = (ext == ".py");
+
+        bool canReload = isPy ? (ctx.engine->python != nullptr)
+                               : (ctx.engine->assets != nullptr);
+        if (ImGui::Button("Reload") && canReload) {
+            if (isPy) {
+                // Derive dotted module name from path relative to scripts dir.
+                // e.g. .../scripts/behaviors/foo.py → "behaviors.foo"
+                fs::path scriptsRoot(YOPE_SCRIPTS_DIR);
+                fs::path relPath = sel.lexically_relative(scriptsRoot).replace_extension("");
+                std::string modName = relPath.generic_string();
+                for (auto& c : modName) if (c == '/') c = '.';
+                ctx.engine->python->reloadModule(modName);
+            } else {
+                ctx.engine->assets->onFileChanged(selectedPath_);
+            }
         }
         ImGui::SameLine();
         ImGui::TextDisabled("%s", selectedPath_.c_str());
@@ -111,10 +130,15 @@ void AssetBrowserPanel::draw(EditorContext& ctx) {
 
     ImGui::Separator();
 
-    // File tree starting at assets directory
-    std::string assetsDir = YOPE_ASSETS_DIR;
+    // File tree: assets + scripts roots
+    std::string assetsDir  = YOPE_ASSETS_DIR;
+    std::string scriptsDir = YOPE_SCRIPTS_DIR;
     if (ImGui::TreeNodeEx("assets", ImGuiTreeNodeFlags_DefaultOpen)) {
         drawDirectory(assetsDir, ctx);
+        ImGui::TreePop();
+    }
+    if (ImGui::TreeNodeEx("scripts", ImGuiTreeNodeFlags_DefaultOpen)) {
+        drawDirectory(scriptsDir, ctx);
         ImGui::TreePop();
     }
 

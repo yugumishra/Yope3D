@@ -12,8 +12,8 @@ public:
     void draw(EditorContext& ctx) override;
 
 private:
-    std::string code_ = "import yope\n# yope.world.add_sphere(mass=1.0, radius=0.5, pos=yope.Vec3(0,5,0))\n";
+    std::string code_ = "import yope\nfrom yope import world\ne = yope.world.add_sphere(mass=1.0, radius=0.5, pos=yope.Vec3(0,5,0))\nyope.world.attach_sphere_mesh(e, 0.5, 0.85, 0.5, 0.2)";
     std::string filePath_;
-    bool        snapshotTaken_ = false;
+bool        snapshotTaken_ = false;
 };
 #endif // YOPE_EDITOR

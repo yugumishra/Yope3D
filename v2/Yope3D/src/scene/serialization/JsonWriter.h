@@ -25,6 +25,9 @@ public:
     void writePackedFloats(const char* key, const float*    data, size_t count);
     void writePackedUInts (const char* key, const uint32_t* data, size_t count);
 
+    // Write a plain string value inside an array (no key).
+    void writeArrayString(const char* value);
+
     // Begin an object in an array (no key)
     void beginArrayObject();
 

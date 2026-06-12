@@ -19,6 +19,7 @@ enum class EntityKind {
     RenderObject,          // visual-only: Transform + MeshRenderer, no physics
     AudioSource,           // Transform + ecs::AudioSource (no Source* until user drops a .wav)
     UIBackground,          // UITransform + UIBackground
+    UITexturedBackground,  // UITransform + UITexturedBackground
     UICurvedBackground,    // UITransform + UICurvedBackground
     UIText,                // UITransform + UIText
     TextLabel3D,           // Transform + TextLabel3D (world-space MSDF text)
