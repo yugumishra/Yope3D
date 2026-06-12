@@ -14,6 +14,7 @@ JUMP_VEL    = 10.0
 CAMERA_LIFT = 0.6
 
 class PlatformerLogic:
+    PARAMS = {}
     def init(self, world, entity, params):
         self.entity    = entity
         self.yaw       = 0.0

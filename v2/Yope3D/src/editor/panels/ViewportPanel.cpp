@@ -112,8 +112,8 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
     if (cursorCaptured)
         ImGui::TextDisabled("MOUSE LOOK  |  Tab to release  Space: up");
     else
-        ImGui::TextDisabled(playing ? "PLAYING  |  WASD: fly  Tab: mouse look  P: stop"
-                                    : "EDITING  |  WASD: fly  Tab: mouse look  P: play");
+        ImGui::TextDisabled(playing ? "PLAYING  |  WASD: fly  Tab: mouse look  Y: stop"
+                                    : "EDITING  |  WASD: fly  Tab: mouse look  Y: play");
     // Maximize / restore button
     ImGui::SameLine(0, 16);
     if (ImGui::Button(isMaximized_ ? " [-] " : " [+] ")) {
@@ -123,9 +123,9 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(isMaximized_ ? "Restore viewport (M)" : "Maximize viewport (M)");
 
-    // P toggles play/stop globally (Space is reserved for camera up in mouse-look mode)
+    // Y toggles play/stop globally (Space is reserved for camera up in mouse-look mode)
     if (!cursorCaptured &&
-        ImGui::Shortcut(ImGuiKey_P, ImGuiInputFlags_RouteGlobal) &&
+        ImGui::Shortcut(ImGuiKey_Y, ImGuiInputFlags_RouteGlobal) &&
         ctx.onTogglePlay)
         ctx.onTogglePlay();
 

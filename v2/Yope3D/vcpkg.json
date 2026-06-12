@@ -13,6 +13,7 @@
     },
     "imguizmo",
     "pybind11",
+    "nativefiledialog-extended",
     {
       "name": "msdfgen",
       "default-features": false,

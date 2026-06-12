@@ -130,20 +130,10 @@ bool PythonScript::deserializeParams(const JsonNode& n) {
 #include <imgui.h>
 
 void PythonScript::drawInspector(EditorContext& /*ctx*/) {
-    char moduleBuf[256];
-    char classBuf[256];
-    std::strncpy(moduleBuf, module_.c_str(), sizeof(moduleBuf) - 1);
-    std::strncpy(classBuf,  class_.c_str(),  sizeof(classBuf)  - 1);
-
-    ImGui::TextUnformatted("Python Script");
-    if (ImGui::InputText("Module##pymod", moduleBuf, sizeof(moduleBuf)))
-        module_ = moduleBuf;
-    if (ImGui::InputText("Class##pycls",  classBuf,  sizeof(classBuf)))
-        class_ = classBuf;
     if (!pyObj_) {
         ImGui::TextDisabled("(not running — press Play)");
     } else {
-        ImGui::TextColored({0.2f, 0.9f, 0.2f, 1.f}, "Running");
+        ImGui::TextColored({0.2f, 0.9f, 0.2f, 1.f}, "● Running");
     }
 }
 #else

@@ -1,6 +1,7 @@
 #ifdef YOPE_EDITOR
 #include "editor/panels/SceneScriptPanel.h"
 #include "editor/EditorContext.h"
+#include "editor/FileDialog.h"
 #include "editor/panels/ConsolePanel.h"
 #include "Engine.h"
 #include "world/World.h"
@@ -26,7 +27,19 @@ void SceneScriptPanel::draw(EditorContext& ctx) {
 
     // Toolbar
     if (ImGui::Button("Load File")) {
-        ImGui::OpenPopup("load_script_popup");
+        if (auto picked = FileDialog::openFile({{"Python Script", "py"}}, YOPE_SCRIPTS_DIR)) {
+            std::ifstream f(*picked);
+            if (f) {
+                std::ostringstream ss;
+                ss << f.rdbuf();
+                code_ = ss.str();
+                filePath_ = *picked;
+                snapshotTaken_ = false;
+            } else {
+                Console::log(std::string("[SceneScript] Cannot open: ") + *picked,
+                             LogSeverity::Error);
+            }
+        }
     }
     ImGui::SameLine();
 
@@ -46,14 +59,15 @@ void SceneScriptPanel::draw(EditorContext& ctx) {
 
     ImGui::SameLine();
 
-    // Revert — restore the pre-run registry snapshot
-    if (!snapshotTaken_) ImGui::BeginDisabled();
+    // Revert — deferred to pre-recording so VkBuffers aren't destroyed mid-frame
+    bool canRevert = snapshotTaken_;
+    if (!canRevert) ImGui::BeginDisabled();
     if (ImGui::Button("Revert")) {
-        ctx.world->restoreScriptSnapshot();
+        ctx.pendingScriptRevert = true;
         snapshotTaken_ = false;
         Console::log("[SceneScript] Reverted.", LogSeverity::Info);
     }
-    if (!snapshotTaken_) ImGui::EndDisabled();
+    if (!canRevert) ImGui::EndDisabled();
 
     ImGui::SameLine();
 
@@ -79,31 +93,6 @@ void SceneScriptPanel::draw(EditorContext& ctx) {
                                   ImVec2(avail.x, avail.y - 4))) {
         code_ = buf;
         lastCode = code_;
-    }
-
-    // Load file popup (simple path input)
-    if (ImGui::BeginPopup("load_script_popup")) {
-        static char pathBuf[512] = YOPE_SCRIPTS_DIR "/setup/";
-        ImGui::Text("Script path:");
-        ImGui::SetNextItemWidth(400);
-        ImGui::InputText("##scriptpath", pathBuf, sizeof(pathBuf));
-        if (ImGui::Button("Load")) {
-            std::ifstream f(pathBuf);
-            if (f) {
-                std::ostringstream ss;
-                ss << f.rdbuf();
-                code_ = ss.str();
-                filePath_ = pathBuf;
-                snapshotTaken_ = false;
-            } else {
-                Console::log(std::string("[SceneScript] Cannot open: ") + pathBuf,
-                             LogSeverity::Error);
-            }
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
     }
 
     ImGui::End();

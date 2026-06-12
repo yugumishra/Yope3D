@@ -1,4 +1,9 @@
 #include "editor/EditorApp.h"
+#include "editor/FileDialog.h"
+#include <filesystem>
+#ifdef YOPE_PYTHON
+#include "scripting/python/BehaviorRegistry.h"
+#endif
 #include "editor/panels/ViewportPanel.h"
 #include "editor/panels/HierarchyPanel.h"
 #include "editor/panels/InspectorPanel.h"
@@ -112,6 +117,20 @@ bool EditorApp::init() {
         Console::log("Asset changed: " + p, LogSeverity::Info);
     });
 
+    // Also watch the scripts directory for .py hot-reload highlighting
+    std::string scriptsDir = YOPE_SCRIPTS_DIR;
+    scriptsWatcher_.watch(scriptsDir, [this](const std::string& p) {
+        if (p.find("__pycache__") != std::string::npos) return;
+        if (assetBrowser_) assetBrowser_->onAssetModified(p);
+        Console::log("Script changed: " + p, LogSeverity::Info);
+    });
+
+#ifdef YOPE_PYTHON
+    BehaviorRegistry::refresh(std::string(YOPE_SCRIPTS_DIR) + "/behaviors");
+#endif
+
+    FileDialog::init();
+
     lastTime_   = glfwGetTime();
     pendingVpW_ = vpW;
     pendingVpH_ = vpH;
@@ -178,11 +197,15 @@ void EditorApp::tick() {
     }
     pendingDeleteEntities_.clear();
 
-    // Undo/redo must run before the command buffer opens so entity deletion
-    // doesn't destroy VkBuffers that are still referenced in the current frame.
+    // Undo/redo and script-revert must run before the command buffer opens so
+    // entity deletion doesn't destroy VkBuffers still referenced in the current frame.
     if (!playMode_) {
         if (pendingUndo_) { history_.undo(ctx_); pendingUndo_ = false; }
         if (pendingRedo_) { history_.redo(ctx_); pendingRedo_ = false; }
+        if (ctx_.pendingScriptRevert) {
+            ctx_.pendingScriptRevert = false;
+            engine_.world->restoreScriptSnapshot();
+        }
     }
 
     // --- Pending viewport resize ---
@@ -316,11 +339,6 @@ void EditorApp::tick() {
 }
 
 void EditorApp::buildMenuBar() {
-    // Flags set inside menu scope; OpenPopup called after EndMenuBar at the
-    // dockspace-window level so the IDs match BeginPopupModal below.
-    static bool wantSaveAs    = false;
-    static bool wantOpenScene = false;
-
     if (!ImGui::BeginMenuBar()) return;
     if (ImGui::BeginMenu("File")) {
         if (ImGui::MenuItem("New Scene")) pendingNewScene_ = true;
@@ -329,8 +347,27 @@ void EditorApp::buildMenuBar() {
             SceneSerializer::save(currentSceneFile_.c_str(),
                                   *ctx_.registry, *ctx_.world);
         }
-        if (ImGui::MenuItem("Save Scene As...")) wantSaveAs    = true;
-        if (ImGui::MenuItem("Open Scene..."))    wantOpenScene = true;
+        if (ImGui::MenuItem("Save Scene As...")) {
+            namespace fs = std::filesystem;
+            const char* defaultDir  = nullptr;
+            const char* defaultName = "scene.json";
+            std::string dirStr, nameStr;
+            if (!currentSceneFile_.empty()) {
+                fs::path p(currentSceneFile_);
+                dirStr  = p.parent_path().string();
+                nameStr = p.filename().string();
+                if (!dirStr.empty())  defaultDir  = dirStr.c_str();
+                if (!nameStr.empty()) defaultName = nameStr.c_str();
+            }
+            if (auto picked = FileDialog::saveFile({{"Scene", "json"}}, defaultDir, defaultName)) {
+                currentSceneFile_ = *picked;
+                SceneSerializer::save(picked->c_str(), *ctx_.registry, *ctx_.world);
+            }
+        }
+        if (ImGui::MenuItem("Open Scene...")) {
+            if (auto picked = FileDialog::openFile({{"Scene", "json"}}))
+                pendingLoadScenePath_ = *picked;
+        }
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Edit")) {
@@ -366,50 +403,12 @@ void EditorApp::buildMenuBar() {
     }
 
     ImGui::EndMenuBar();
-
-    // ---- Dialogs: opened at dockspace-window scope (after EndMenuBar) ----
-    // OpenPopup must be called at the same ID-stack level as BeginPopupModal.
-    if (wantSaveAs)    { ImGui::OpenPopup("Save Scene As##dlg");  wantSaveAs    = false; }
-    if (wantOpenScene) { ImGui::OpenPopup("Open Scene##dlg");     wantOpenScene = false; }
-
-    // Save Scene As
-    static char savePath[256] = "scene.json";
-    if (ImGui::BeginPopupModal("Save Scene As##dlg", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("File path (relative to working directory):");
-        ImGui::SetNextItemWidth(360.f);
-        ImGui::InputText("##savepath", savePath, sizeof(savePath));
-        ImGui::Spacing();
-        if (ImGui::Button("Save", ImVec2(120, 0))) {
-            currentSceneFile_ = savePath;
-            SceneSerializer::save(savePath, *ctx_.registry, *ctx_.world);
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-    }
-
-    // Open Scene
-    static char openPath[256] = "scene.json";
-    if (ImGui::BeginPopupModal("Open Scene##dlg", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("File path (relative to working directory):");
-        ImGui::SetNextItemWidth(360.f);
-        ImGui::InputText("##openpath", openPath, sizeof(openPath));
-        ImGui::Spacing();
-        if (ImGui::Button("Load", ImVec2(120, 0))) {
-            // Defer — the actual load runs at the top of the next tick where
-            // it's safe to destroy GPU resources. See pendingLoadScenePath_.
-            pendingLoadScenePath_ = openPath;
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-    }
 }
 
 void EditorApp::cleanup() {
+    FileDialog::quit();
     fileWatcher_.stop();
+    scriptsWatcher_.stop();
     engine_.gpu->syncDevice();
     idBufferPass_.destroy(engine_.gpu->device());
     viewportTarget_.destroy(engine_.gpu->device());

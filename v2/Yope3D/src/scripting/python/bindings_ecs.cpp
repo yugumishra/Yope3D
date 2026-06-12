@@ -53,6 +53,14 @@ void bind_ecs(py::module_& m) {
     py::class_<ecs::OBBForm>(m, "OBBForm")
         .def_readwrite("extent", &ecs::OBBForm::extent);
 
+    py::class_<ecs::CapsuleForm>(m, "CapsuleForm")
+        .def_readwrite("radius",      &ecs::CapsuleForm::radius)
+        .def_readwrite("half_height", &ecs::CapsuleForm::halfHeight);
+
+    py::class_<ecs::CylinderForm>(m, "CylinderForm")
+        .def_readwrite("radius",      &ecs::CylinderForm::radius)
+        .def_readwrite("half_height", &ecs::CylinderForm::halfHeight);
+
     // LightSource — float arrays exposed as Vec3 via lambdas
     py::class_<ecs::LightSource>(m, "LightSource")
         .def_readwrite("type",       &ecs::LightSource::type)

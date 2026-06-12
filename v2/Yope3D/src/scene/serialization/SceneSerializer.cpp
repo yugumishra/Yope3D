@@ -10,6 +10,7 @@
 #include "world/Transform.h"
 #include "audio/AudioSystem.h"
 #include "audio/Source.h"
+#include "assets/AssetManager.h"
 #include "Engine.h"
 #ifdef YOPE_EDITOR
 #include "editor/panels/ConsolePanel.h"
@@ -118,7 +119,8 @@ bool save(const char* path, ecs::Registry& reg, World& world) {
     return true;
 }
 
-std::string load(const char* path, ecs::Registry& reg, World& world, AudioSystem* audio, bool startAudio) {
+std::string load(const char* path, ecs::Registry& reg, World& world,
+                 AudioSystem* audio, AssetManager* assets, bool startAudio) {
     JsonNode root;
     try {
         root = parseJsonFile(path);
@@ -306,6 +308,14 @@ std::string load(const char* path, ecs::Registry& reg, World& world, AudioSystem
                     if (as.autoplay && startAudio) as.source->play();
                 }
             }
+        }
+    }
+
+    // Rebind UITexturedBackground GPU textures from the saved path.
+    if (assets) {
+        for (auto [e, tbg] : reg.view<ecs::UITexturedBackground>()) {
+            if (tbg.texture || tbg.path[0] == 0) continue;
+            tbg.texture = assets->loadTexture(tbg.path);
         }
     }
 

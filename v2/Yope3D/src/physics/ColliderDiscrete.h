@@ -114,13 +114,13 @@ namespace ColliderDiscrete {
         float      getHalfHeight()   const { return halfHeight; }
     }; 
 
-    // Low-level detection — geometry-struct based (no Hull dependency).
-    bool detectSphereSphere(const SphereGeom& a, const SphereGeom& b, ContactManifold& m);
-    bool detectSphereAABB  (const SphereGeom& a, const AABBGeom&   b, ContactManifold& m);
-    bool detectSphereOBB   (const SphereGeom& a, const OBBGeom&    b, ContactManifold& m);
-    bool detectAABBAABB    (const AABBGeom&   a, const AABBGeom&   b, ContactManifold& m);
-    bool detectAABBOBB     (const AABBGeom&   a, const OBBGeom&    b, ContactManifold& m);
-    bool detectOBBOBB      (const OBBGeom&    a, const OBBGeom&    b, ContactManifold& m);
+    // Analytical/SAT detection — geometry-struct based (no Hull dependency).
+    bool analyticalSphereSphere(const SphereGeom& a, const SphereGeom& b, ContactManifold& m);
+    bool analyticalSphereAABB  (const SphereGeom& a, const AABBGeom&   b, ContactManifold& m);
+    bool analyticalSphereOBB   (const SphereGeom& a, const OBBGeom&    b, ContactManifold& m);
+    bool analyticalAABBAABB    (const AABBGeom&   a, const AABBGeom&   b, ContactManifold& m);
+    bool analyticalAABBOBB     (const AABBGeom&   a, const OBBGeom&    b, ContactManifold& m);
+    bool analyticalOBBOBB      (const OBBGeom&    a, const OBBGeom&    b, ContactManifold& m);
 
     //support functions for GJK implementation (done pairwise to optimize support calculations)
     //computes furthest point in the direction specified on the minkowski difference defined by shape a - shape b
