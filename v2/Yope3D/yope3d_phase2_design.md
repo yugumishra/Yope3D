@@ -619,12 +619,12 @@ With ECS and the editor in place, Python scripting becomes:
 pybind11 binds `Registry`, `Entity`, component types, and view iteration:
 
 ```python
-import yope
+import yope3d
 
 # Iterate all entities with Transform and RigidBody
-for entity, transform, rb in yope.world.view(yope.Transform, yope.RigidBody):
+for entity, transform, rb in yope3d.world.view(yope3d.Transform, yope3d.RigidBody):
     transform.position.y += 0.1
-    rb.velocity = yope.Vec3(0, 0, 0)
+    rb.velocity = yope3d.Vec3(0, 0, 0)
 ```
 
 Archetype iteration is exposed as a Python iterator that, under the hood, walks the matching archetypes. The Python iterator yields tuples; component references are returned as proxy objects that read/write the underlying memory directly (no copy).
@@ -642,7 +642,7 @@ The script defines `init(world)` (called when the scene loads) and `update(world
 A script can also attach a per-entity callback:
 
 ```python
-yope.world.on_update(entity, lambda dt: ...)
+yope3d.world.on_update(entity, lambda dt: ...)
 ```
 
 This is what enables the "clock-hand tick" pattern.

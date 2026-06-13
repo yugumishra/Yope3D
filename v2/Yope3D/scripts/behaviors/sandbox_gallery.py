@@ -11,7 +11,7 @@ Controls:
   LEFT / RIGHT  — switch scene
   SPACE         — spawn a sphere at camera position
 """
-import yope
+import yope3d
 
 class SandboxGallery:
     PARAMS = {
@@ -26,24 +26,24 @@ class SandboxGallery:
         self.spawn_cooldown = 0.0
 
     def update(self, world, entity, dt):
-        inp = yope.input
+        inp = yope3d.input
 
-        right = inp.is_key_down(yope.KEY_RIGHT)
-        left  = inp.is_key_down(yope.KEY_LEFT)
-        space = inp.is_key_down(yope.KEY_SPACE)
+        right = inp.is_key_down(yope3d.KEY_RIGHT)
+        left  = inp.is_key_down(yope3d.KEY_LEFT)
+        space = inp.is_key_down(yope3d.KEY_SPACE)
 
         if right and not self.right_was_down and self.scenes:
             self.current = (self.current + 1) % len(self.scenes)
-            yope.load_scene(self.scenes[self.current])
+            yope3d.load_scene(self.scenes[self.current])
 
         if left and not self.left_was_down and self.scenes:
             self.current = (self.current - 1) % len(self.scenes)
-            yope.load_scene(self.scenes[self.current])
+            yope3d.load_scene(self.scenes[self.current])
 
         # Spawn a sphere on space press (rate-limited)
         self.spawn_cooldown = max(0.0, self.spawn_cooldown - dt)
         if space and not self.space_was_down and self.spawn_cooldown <= 0.0:
-            pos = yope.camera.get_forward() * 3.0 + yope.camera.position
+            pos = yope3d.camera.get_forward() * 3.0 + yope3d.camera.position
             e = world.add_sphere(1.0, 0.5, pos)
             world.attach_sphere_mesh(e, 0.5, 0.9, 0.5, 0.2)
             self.spawn_cooldown = 0.15

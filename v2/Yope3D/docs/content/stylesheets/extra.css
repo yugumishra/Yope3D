@@ -1,0 +1,21 @@
+/* Right-hand Table of Contents scroll fix.
+ *
+ * This is a single very long page with the left nav hidden, so the TOC has ~200
+ * entries. Without an explicit bound, the sticky secondary sidebar grows to the
+ * full TOC height: its lower entries fall below the viewport with no way to
+ * reach them, and the wheel chains straight to the main page scroll. Bounding
+ * the scroll wrap to the viewport turns the TOC into its own scroll area, and
+ * `overscroll-behavior: contain` stops the wheel from leaking to the page when
+ * you hit the top/bottom of the list.
+ */
+.md-sidebar--secondary .md-sidebar__scrollwrap {
+  max-height: calc(100vh - 2.4rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* The deep mkdocstrings nesting (every member under the single `yope3d` root)
+ * leaves little horizontal room; trim the per-level indent so labels don't wrap. */
+.md-sidebar--secondary .md-nav__list .md-nav__list {
+  padding-left: 0.5rem;
+}

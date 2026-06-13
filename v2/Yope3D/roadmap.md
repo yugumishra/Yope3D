@@ -299,7 +299,7 @@ OpenAL port is the most direct 1:1 translation of any subsystem. OpenAL Soft (th
 - [ ] `scripting/ScriptFactory.h`: `std::unordered_map<std::string, std::function<Script*(ScriptContext&)>>` registry. Registered via a macro `YOPE_REGISTER_SCRIPT(ClassName)` in each script's `.cpp`. `main.cpp` reads a script name from command-line argument or a config file, looks it up in the registry, instantiates it. This replaces the `Launch.toScript = ClassName.class` pattern.
 
 **Config File:**
-- [ ] Simple `yope.cfg` key-value text file at runtime: `script=SpringDemo`, `width=1280`, `height=720`. Parsed at startup. This replaces compile-time script selection and lets you switch demos without recompiling.
+- [ ] Simple `yope3d.cfg` key-value text file at runtime: `script=SpringDemo`, `width=1280`, `height=720`. Parsed at startup. This replaces compile-time script selection and lets you switch demos without recompiling.
 
 ---
 
@@ -435,19 +435,19 @@ The engine has two modes determined at launch: `EditorMode` and `RuntimeMode`. I
 **Embedding CPython:**
 - [ ] Link against Python 3.x shared library (vcpkg `python3`). `#include <Python.h>`. Initialize with `Py_Initialize()` in `Engine::init()`.
 - [ ] Use **pybind11** (vcpkg) to generate bindings. This is a binding generator, not a game library — it is the appropriate tool for this job. The engine's custom rendering/physics code is still all from scratch; pybind11 just eliminates writing PyObject* boilerplate by hand.
-- [ ] Bind: `Vec3`, `Vec4`, `Mat4` (basic math ops), `World`, `SceneObject`, `Transform`, `Hull` (CSphere, COBB as subclasses), `Camera`, `Input`, `AudioSource`, `Listener`. Expose as a Python module named `yope`.
+- [ ] Bind: `Vec3`, `Vec4`, `Mat4` (basic math ops), `World`, `SceneObject`, `Transform`, `Hull` (CSphere, COBB as subclasses), `Camera`, `Input`, `AudioSource`, `Listener`. Expose as a Python module named `yope3d`.
 
 **Script Hot Reload:**
-- [ ] Python scripts are `.py` files in `scripts/` loaded by name from `yope.cfg` or editor dropdown.
+- [ ] Python scripts are `.py` files in `scripts/` loaded by name from `yope3d.cfg` or editor dropdown.
 - [ ] `PythonScript.h/cpp`: C++ `Script` subclass. Its `init()` calls `module.attr("init")(ctx)` via pybind11. Its `update(dt)` calls `module.attr("update")(ctx, dt)`.
 - [ ] Hot reload: on file change (poll mtime or use OS file-watcher), call `importlib.reload(module)` in the Python interpreter. The scene is NOT reset — only the script logic reloads. This means `init()` is not re-called; add a separate `onReload()` hook for scripts that need to reinitialize on reload.
 - [ ] Editor has a "Reload Script" button that manually triggers reload.
 - [ ] Error handling: if the Python script raises an exception, print to the editor console and continue running (do not crash the engine).
 
 **Python ECS Integration:**
-- [ ] Bind `Registry::view<T>()` to Python as an iterable that yields `(Entity, T&)` pairs. Scripts can iterate components: `for entity, transform in yope.world.view(yope.Transform): ...`
+- [ ] Bind `Registry::view<T>()` to Python as an iterable that yields `(Entity, T&)` pairs. Scripts can iterate components: `for entity, transform in yope3d.world.view(yope3d.Transform): ...`
 - [ ] Expose `Registry::add_component`, `remove_component`, `get_component` to Python.
-- [ ] Allow Python scripts to attach anonymous update callbacks to entities: `yope.world.on_update(entity, lambda dt: ...)` — enables the clock-hand tick behavior you described.
+- [ ] Allow Python scripts to attach anonymous update callbacks to entities: `yope3d.world.on_update(entity, lambda dt: ...)` — enables the clock-hand tick behavior you described.
 
 **Porting Demos to Python:**
 - [ ] Port `SpringDemoScript` to `spring_demo.py` as a reference implementation.
@@ -469,7 +469,7 @@ The engine has two modes determined at launch: `EditorMode` and `RuntimeMode`. I
 **Skybox:**
 - [ ] `rendering/Skybox.h/cpp`: loads a cubemap from 6 face images (or an equirectangular HDR map with conversion). Renders as a unit cube with depth testing disabled (always at infinity). Separate pipeline with front-face culling reversed.
 - [ ] `assets/AssetManager::loadCubemap(paths[6]) → Skybox*`
-- [ ] Exposed to Python scripts: `yope.world.set_skybox(yope.assets.load_cubemap(["px.png", "nx.png", ...]))`
+- [ ] Exposed to Python scripts: `yope3d.world.set_skybox(yope3d.assets.load_cubemap(["px.png", "nx.png", ...]))`
 
 ---
 
@@ -513,7 +513,7 @@ This is the project's deepest, most open-ended milestone. All items in this mile
 
 **Convex Hull Generation:**
 - [ ] `physics/ConvexHullBuilder.h/cpp`: Quickhull algorithm. Takes a `vector<Vec3>` point cloud (e.g., mesh vertices) and returns the convex hull. This enables `SceneObject::generateHullFromMesh()` — automatic collision hull generation from arbitrary meshes.
-- [ ] Python binding: `yope.ConvexHull.from_mesh(render_mesh)` generates a hull automatically.
+- [ ] Python binding: `yope3d.ConvexHull.from_mesh(render_mesh)` generates a hull automatically.
 - [ ] In the editor Inspector panel: "Generate Convex Hull" button on any object with a RenderMesh.
 
 **Constraint System (Stretch):**
@@ -532,8 +532,8 @@ This is the project's deepest, most open-ended milestone. All items in this mile
 **Weeks 50–56 | ~35 hrs** *(overlaps with physics work)*
 
 - [ ] **World-space UI**: `Label3D` — a `Label` variant that renders at a `Transform` in world space rather than screen space. Uses a billboard transformation (always faces camera). Enables floating health bars, name tags, interaction prompts.
-- [ ] **UI scripting via Python**: expose `yope.ui.add_background(min, max, color, depth)`, `yope.ui.add_text(background, message, size)`, `yope.ui.clear()`. Scripts create and manage UI entirely from Python, no C++ recompilation needed.
-- [ ] **Animated textures from Python**: `yope.ui.add_animated_background(folder, num_frames)` — drives `AnimatedBackground` from Python.
+- [ ] **UI scripting via Python**: expose `yope3d.ui.add_background(min, max, color, depth)`, `yope3d.ui.add_text(background, message, size)`, `yope3d.ui.clear()`. Scripts create and manage UI entirely from Python, no C++ recompilation needed.
+- [ ] **Animated textures from Python**: `yope3d.ui.add_animated_background(folder, num_frames)` — drives `AnimatedBackground` from Python.
 - [ ] **Cursor/click events to Python**: `Label.onClicked` hooked into Python via a registered callback per-label: `label.on_click = lambda x, y, button, action: ...`
 - [ ] **Resolution-independent layout**: current `Background` uses hardcoded NDC coordinates. Add a layout system where coordinates can be specified as percentage of screen width/height, enabling adaptive layouts on different monitors.
 
@@ -554,7 +554,7 @@ Testing should be added incrementally throughout all milestones, not deferred en
 **Documentation:**
 - [ ] Every public header has a Doxygen block (`/** @brief ... @param ... @return ... */`).
 - [ ] `docs/architecture.md`: description of the Engine context, the ECS registry, the Vulkan abstraction layer, and the scripting pipeline. One diagram per subsystem (ASCII or Mermaid).
-- [ ] `docs/scripting_guide.md`: how to write a Python script, what `yope` module objects are available, ECS usage examples, hot reload behavior.
+- [ ] `docs/scripting_guide.md`: how to write a Python script, what `yope3d` module objects are available, ECS usage examples, hot reload behavior.
 - [ ] `docs/build_guide.md`: one-command setup for Mac and Windows. Vulkan SDK installation. vcpkg bootstrap. CMake preset invocation.
 - [ ] `CHANGELOG.md`: maintained from the start. Each milestone completion is an entry.
 

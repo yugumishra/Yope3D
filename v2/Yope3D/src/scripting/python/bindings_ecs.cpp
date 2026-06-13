@@ -179,13 +179,13 @@ void bind_ecs(py::module_& m) {
             py::return_value_policy::reference);
 
     // view(*component_names) → list of tuples (entity, comp1, comp2, ...)
-    // The registry is accessed via the module-level 'yope.world' attribute.
+    // The registry is accessed via the module-level 'yope3d.world' attribute.
     // Note: must be called from the main thread while physics is paused.
     m.def("view", [](py::args names) -> py::list {
-        auto yope = py::module_::import("yope");
-        auto worldObj = yope.attr("world");
+        auto yope3d = py::module_::import("yope3d");
+        auto worldObj = yope3d.attr("world");
         if (worldObj.is_none()) {
-            throw std::runtime_error("yope.world not bound — call bindContext first");
+            throw std::runtime_error("yope3d.world not bound — call bindContext first");
         }
         auto* world = worldObj.cast<World*>();
         // Lock for the whole build: getRaw walks archetype arrays the physics thread
@@ -227,19 +227,19 @@ void bind_ecs(py::module_& m) {
 
     // reg_get / reg_has helpers
     m.def("reg_get", [](ecs::Entity e, const std::string& name) -> py::object {
-        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         void* ptr = world->getRegistry().getRaw(e, PyComponentTable::typeIdForName(name));
         return PyComponentTable::wrapPtr(name, ptr);
     });
     m.def("reg_has", [](ecs::Entity e, const std::string& name) -> bool {
-        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         auto tid = PyComponentTable::typeIdForName(name);
         return world->getRegistry().getRaw(e, tid) != nullptr;
     });
     m.def("reg_valid", [](ecs::Entity e) -> bool {
-        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         return world->getRegistry().valid(e);
     });
@@ -247,19 +247,19 @@ void bind_ecs(py::module_& m) {
     // Tag queries (the question wake() / fix_entity answer). Also reachable via
     // reg_has(e, "Sleeping") / reg_has(e, "Fixed").
     m.def("is_sleeping", [](ecs::Entity e) -> bool {
-        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         return world->getRegistry().has<ecs::Sleeping>(e);
     }, py::arg("entity"));
     m.def("is_fixed", [](ecs::Entity e) -> bool {
-        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         return world->getRegistry().has<ecs::Fixed>(e);
     }, py::arg("entity"));
 
     // set_text — mutate whichever text component the entity carries (UIText or TextLabel3D).
     m.def("set_text", [](ecs::Entity e, const std::string& s) {
-        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         auto& reg = world->getRegistry();
         if (auto* t = reg.get<ecs::UIText>(e)) {
@@ -274,18 +274,18 @@ void bind_ecs(py::module_& m) {
     // Safe re-resolving accessors — look the component up per call, so they never
     // hold a stale reference across an archetype migration. Prefer these in hot paths.
     m.def("get_position", [](ecs::Entity e) -> py::object {
-        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         if (auto* tf = world->getRegistry().get<Transform>(e)) return py::cast(tf->position);
         return py::none();
     }, py::arg("entity"));
     m.def("set_position", [](ecs::Entity e, math::Vec3 p) {
-        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         if (auto* tf = world->getRegistry().get<Transform>(e)) tf->position = p;
     }, py::arg("entity"), py::arg("pos"));
     m.def("set_velocity", [](ecs::Entity e, math::Vec3 v) {
-        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         if (auto* h = world->getRegistry().get<ecs::Hull>(e)) h->velocity = v;
     }, py::arg("entity"), py::arg("velocity"));
@@ -293,13 +293,13 @@ void bind_ecs(py::module_& m) {
     // reg_add / reg_remove — change an entity's component composition. Both take the
     // structure lock (composition change = archetype migration vs. the physics thread).
     m.def("reg_add", [](ecs::Entity e, const std::string& name) {
-        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         if (!PyComponentTable::addByName(world->getRegistry(), e, name))
             throw std::runtime_error("Unknown component: " + name);
     }, py::arg("entity"), py::arg("name"));
     m.def("reg_remove", [](ecs::Entity e, const std::string& name) {
-        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         if (!PyComponentTable::removeByName(world->getRegistry(), e, name))
             throw std::runtime_error("Unknown component: " + name);
@@ -307,7 +307,7 @@ void bind_ecs(py::module_& m) {
 
     // find_entity — first entity whose Name matches (or None). Linear scan.
     m.def("find_entity", [](const std::string& name) -> py::object {
-        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         for (auto [e, n] : world->getRegistry().view<ecs::Name>()) {
             if (name == n.value) return py::cast(e);
@@ -318,7 +318,7 @@ void bind_ecs(py::module_& m) {
     // get_behavior — the live Python instance of another entity's behavior, or None.
     // Lets one behavior read/call another's state directly (inter-script comms).
     m.def("get_behavior", [](ecs::Entity e) -> py::object {
-        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         auto* sc = world->getRegistry().get<ecs::ScriptComponent>(e);
         if (!sc || !sc->instance) return py::none();

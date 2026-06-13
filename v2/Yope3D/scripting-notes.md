@@ -12,9 +12,9 @@
 src/scripting/python/
     PyComponentTable.h/cpp      — name→TypeId+wrap registry for ECS components
     PythonInterpreter.h/cpp     — owns scoped_interpreter, stdout/stderr redirect, bindContext
-    Bindings.cpp                — PYBIND11_EMBEDDED_MODULE(yope) entry point
+    Bindings.cpp                — PYBIND11_EMBEDDED_MODULE(yope3d) entry point
     bindings_math.cpp           — Vec2/Vec3/Vec4/Quat + math utilities
-    bindings_ecs.cpp            — Entity, component classes, yope.view(), reg_get/has/valid
+    bindings_ecs.cpp            — Entity, component classes, yope3d.view(), reg_get/has/valid
     bindings_world.cpp          — World, Camera, Input, AudioSystem, SceneManager, key constants
     PythonScript.h/cpp          — Script subclass; YOPE_REGISTER_SCRIPT(PythonScript)
 
@@ -79,27 +79,27 @@ Every call is in `try/catch(py::error_already_set)` → `Console::log(..., Error
 
 ### Python module layout
 
-`yope.*` module-level singletons (set by `PythonInterpreter::bindContext`):
-- `yope.world` — bound `World*`
-- `yope.camera` — bound `Camera*`
-- `yope.input` — bound `Input*`
-- `yope.audio` — bound `AudioSystem*`
-- `yope.scene_manager` — bound `SceneManager*`
+`yope3d.*` module-level singletons (set by `PythonInterpreter::bindContext`):
+- `yope3d.world` — bound `World*`
+- `yope3d.camera` — bound `Camera*`
+- `yope3d.input` — bound `Input*`
+- `yope3d.audio` — bound `AudioSystem*`
+- `yope3d.scene_manager` — bound `SceneManager*`
 
-Convenience function: `yope.load_scene(path)` → `scene_manager.queueLoad(path)`
+Convenience function: `yope3d.load_scene(path)` → `scene_manager.queueLoad(path)`
 
-Key constants: `yope.KEY_W`, `KEY_A`, `KEY_S`, `KEY_D`, `KEY_SPACE`, `KEY_LEFT`, `KEY_RIGHT`, `KEY_UP`, `KEY_DOWN`, `KEY_F`, `KEY_R`, `KEY_ESCAPE`, `KEY_LEFT_SHIFT`, `KEY_LEFT_CONTROL`
+Key constants: `yope3d.KEY_W`, `KEY_A`, `KEY_S`, `KEY_D`, `KEY_SPACE`, `KEY_LEFT`, `KEY_RIGHT`, `KEY_UP`, `KEY_DOWN`, `KEY_F`, `KEY_R`, `KEY_ESCAPE`, `KEY_LEFT_SHIFT`, `KEY_LEFT_CONTROL`
 
 ### ECS view from Python
 
 ```python
-for (entity, hull, tf) in yope.view("Hull", "Transform"):
+for (entity, hull, tf) in yope3d.view("Hull", "Transform"):
     tf.position.y += 0.1
 ```
 
 Component proxies are `return_value_policy::reference` — they point directly into the archetype storage. **Do not cache a proxy across a structural change** (add/remove component, create/destroy entity) — the entity migrates to a new archetype and the pointer dangles.
 
-Individual access: `yope.reg_get(entity, "Transform")`, `yope.reg_has(entity, "Hull")`, `yope.reg_valid(entity)`
+Individual access: `yope3d.reg_get(entity, "Transform")`, `yope3d.reg_has(entity, "Hull")`, `yope3d.reg_valid(entity)`
 
 ### sys.path
 
@@ -115,7 +115,7 @@ Python `print()` and exceptions go to `Console::log()` (Info/Error severity). In
 
 ## Bound component types
 
-These are usable in `yope.view()` and `yope.reg_get()`:
+These are usable in `yope3d.view()` and `yope3d.reg_get()`:
 
 | Python name | C++ type | Key fields exposed |
 |---|---|---|
@@ -148,7 +148,7 @@ world.attach_sphere_mesh(entity, radius, r=1, g=1, b=1)
 world.attach_box_mesh(entity, half_vec3, r=1, g=1, b=1)
 world.fix_entity(entity)                  # sets inverseMass=0, adds Fixed tag
 world.set_mesh_color(entity, r, g, b)
-world.get_registry()                      → Registry (opaque, use yope.view/reg_get instead)
+world.get_registry()                      → Registry (opaque, use yope3d.view/reg_get instead)
 world.gravity                             # Vec3, read/write
 world.get_hull_count()                    → int
 world.get_island_count()                  → int
@@ -172,11 +172,11 @@ Located in `src/editor/panels/SceneScriptPanel.cpp`.
 
 1. **PythonScript entities in scenes** — no scene JSON with `scriptClass=PythonScript` has been tested in Play mode. The serializer path through `ScriptComponent` is wired, but the round-trip (save → load → Play → init called) is unverified.
 
-2. **`yope.view()` while physics is running** — safe in PythonScript::update (main thread, between physics ticks, inside `lockStructure()` via Engine::update). Safe in Scene Script panel (physics paused). NOT safe to call from a background thread.
+2. **`yope3d.view()` while physics is running** — safe in PythonScript::update (main thread, between physics ticks, inside `lockStructure()` via Engine::update). Safe in Scene Script panel (physics paused). NOT safe to call from a background thread.
 
-3. **Component proxy lifetime** — proxies returned from `yope.view()` / `yope.reg_get()` are raw C++ references. Any `add`/`remove`/`create`/`destroy` call migrates archetypes and invalidates them. Current binding does not enforce this; undefined behavior if cached.
+3. **Component proxy lifetime** — proxies returned from `yope3d.view()` / `yope3d.reg_get()` are raw C++ references. Any `add`/`remove`/`create`/`destroy` call migrates archetypes and invalidates them. Current binding does not enforce this; undefined behavior if cached.
 
-4. **`yope.load_scene()` during setup scripts** — the Scene Script panel runs synchronously. Calling `yope.load_scene()` queues a scene load but the flush happens at the next frame boundary (in `Engine::update`). So setup scripts should NOT call `load_scene` — only behavior scripts should.
+4. **`yope3d.load_scene()` during setup scripts** — the Scene Script panel runs synchronously. Calling `yope3d.load_scene()` queues a scene load but the flush happens at the next frame boundary (in `Engine::update`). So setup scripts should NOT call `load_scene` — only behavior scripts should.
 
 5. **Hot reload** — `PythonInterpreter::reloadModule()` is implemented but nothing calls it automatically. The FileWatcher on `assets/` does NOT watch `scripts/`. Hot reload must be triggered manually (not wired to any UI button yet).
 
@@ -186,7 +186,7 @@ Located in `src/editor/panels/SceneScriptPanel.cpp`.
 
 8. **`hull.inverseMass`** — not exposed in the Hull binding. `fix_entity()` handles zeroing it. If scripts need to read `inverseMass`, it needs to be added to the binding.
 
-9. **assetManager removed from bindContext** — `yope.assets` is `None`. If future scripts need to load sounds/textures, `AssetManager` needs a binding.
+9. **assetManager removed from bindContext** — `yope3d.assets` is `None`. If future scripts need to load sounds/textures, `AssetManager` needs a binding.
 
 ---
 
@@ -216,7 +216,7 @@ Check `PyConsoleStream::write()` in `PythonInterpreter.cpp` — it flushes on `\
 - In runtime: `PythonScript::deserializeParams` is called before `init`; if it returns false (empty module/class), init is skipped with a Warning log
 - Press Play in editor — in edit mode, `init()` is NOT called (that's intentional: editor instantiates scripts only on Play)
 
-### `yope.world` is None in a script
+### `yope3d.world` is None in a script
 - `bindContext` is called after `scriptCtx_` is fully wired in `Engine::init`
 - If a script runs before the startup scene loads, world is bound but may have no entities yet — that's fine
 - If Python interpreter fails to init (check for errors at startup), `initialized_` is false and `bindContext` no-ops

@@ -2,7 +2,7 @@
 Platformer level setup script.
 Run in the Scene Script panel -> Save Scene -> load 'scenes/platformer.json'.
 """
-import yope, math
+import yope3d, math
 
 PLAT_HALF_XZ = 1.0
 PLAT_HALF_Y  = 0.5
@@ -14,7 +14,7 @@ RADIUS_GROW    = 0.5
 
 def build_level(world):
     # Floor
-    world.add_static_aabb(yope.Vec3(0, 0, 0), yope.Vec3(30, 0.1, 30))
+    world.add_static_aabb(yope3d.Vec3(0, 0, 0), yope3d.Vec3(30, 0.1, 30))
 
     # Spiral platforms
     angle  = 0.0
@@ -23,11 +23,11 @@ def build_level(world):
         x = radius * math.cos(angle)
         z = radius * math.sin(angle)
         y = i * HEIGHT_STEP + PLAT_HALF_Y
-        e = world.add_static_aabb(yope.Vec3(x, y, z),
-                                   yope.Vec3(PLAT_HALF_XZ, PLAT_HALF_Y, PLAT_HALF_XZ))
+        e = world.add_static_aabb(yope3d.Vec3(x, y, z),
+                                   yope3d.Vec3(PLAT_HALF_XZ, PLAT_HALF_Y, PLAT_HALF_XZ))
         # Colour: warm gradient along the spiral
         t = i / (PLATFORM_COUNT - 1)
-        world.attach_box_mesh(e, yope.Vec3(PLAT_HALF_XZ, PLAT_HALF_Y, PLAT_HALF_XZ),
+        world.attach_box_mesh(e, yope3d.Vec3(PLAT_HALF_XZ, PLAT_HALF_Y, PLAT_HALF_XZ),
                               0.3 + 0.6*t, 0.6 - 0.3*t, 0.9 - 0.7*t)
         angle  += ANGLE_STEP
         radius += RADIUS_GROW
@@ -37,14 +37,14 @@ def build_level(world):
     spawn_z = INITIAL_RADIUS * math.sin(0.0)
     spawn_y = PLAT_HALF_Y * 2 + 1.0  # just above first platform
 
-    player = world.add_sphere(1.0, 0.5, yope.Vec3(spawn_x, spawn_y, spawn_z))
+    player = world.add_sphere(1.0, 0.5, yope3d.Vec3(spawn_x, spawn_y, spawn_z))
     world.attach_sphere_mesh(player, 0.5, 0.2, 0.6, 1.0)
 
     # Name the player so the behavior script can find it
     reg = world.get_registry()
     # (Name must be set via ECS — we rely on scene JSON "Name" component for now)
 
-    yope.camera.set_position(yope.Vec3(spawn_x, spawn_y + 0.6, spawn_z))
-    yope.camera.set_rotation(yope.Vec3(0, 0, 0))
+    yope3d.camera.set_position(yope3d.Vec3(spawn_x, spawn_y + 0.6, spawn_z))
+    yope3d.camera.set_rotation(yope3d.Vec3(0, 0, 0))
 
-build_level(yope.world)
+build_level(yope3d.world)
