@@ -28,6 +28,17 @@ public:
     virtual void onScroll(ScriptContext& /*ctx*/, ecs::Entity /*self*/,
                           double /*x*/, double /*y*/) {}
 
+    // Collision callbacks. `self` is this script's entity; `other` is the entity it
+    // started/stopped touching. Dispatched on the main thread from drained physics
+    // events (see World::drainCollisionEvents); default no-ops.
+    virtual void onCollisionEnter(ScriptContext& /*ctx*/, ecs::Entity /*self*/, ecs::Entity /*other*/) {}
+    virtual void onCollisionExit (ScriptContext& /*ctx*/, ecs::Entity /*self*/, ecs::Entity /*other*/) {}
+
+    // Opaque handle to the underlying scripting-runtime instance (a PyObject* for
+    // PythonScript, as void*). Used by yope.get_behavior to hand one behavior the
+    // live instance of another. nullptr for native scripts.
+    virtual void* pyInstanceHandle() { return nullptr; }
+
     // Per-script param serialization. Default = no params.
     virtual void serializeParams  (JsonWriter& /*w*/) const {}
     virtual bool deserializeParams(const JsonNode& /*n*/) { return true; }

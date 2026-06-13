@@ -22,6 +22,10 @@ public:
     void update(ScriptContext& ctx, ecs::Entity self, float dt) override;
     void onUnload(ScriptContext& ctx, ecs::Entity self) override;
 
+    void onCollisionEnter(ScriptContext& ctx, ecs::Entity self, ecs::Entity other) override;
+    void onCollisionExit (ScriptContext& ctx, ecs::Entity self, ecs::Entity other) override;
+    void* pyInstanceHandle() override;
+
     void serializeParams  (JsonWriter& w)        const override;
     bool deserializeParams(const JsonNode& node)       override;
 

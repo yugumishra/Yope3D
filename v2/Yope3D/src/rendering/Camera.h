@@ -32,11 +32,19 @@ public:
     math::Vec3 getRotation() const { return rotation; }
     math::Vec3 getForward()  const;  // Returns the camera's forward direction in world space
 
+    // Unproject a screen pixel (top-left origin, +Y down) into a world-space ray.
+    // outOrigin is the camera eye; outDir is unit length. Feed into KinematicQuery::raycast
+    // for click-to-pick / shoot-from-cursor. Uses the camera's current window dimensions.
+    void screenToRay(float px, float py, math::Vec3& outOrigin, math::Vec3& outDir) const;
+
     float getFov()         const { return fov; }
     float getAspectRatio() const { return aspectRatio; }
 
     void setPosition(const math::Vec3& p) { position = p; }
     void setRotation(const math::Vec3& r) { rotation = r; }
+
+    // Aim the camera at a world point (sets pitch/yaw so getForward() points at `target`).
+    void lookAt(const math::Vec3& target);
 
 private:
     static constexpr float NEAR_PLANE = 0.1f;

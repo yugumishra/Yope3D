@@ -4,8 +4,10 @@
 #include "math/Vec3.h"
 #include "math/Vec4.h"
 #include "math/Quat.h"
+#include "math/Mat3.h"
 #include "math/Mat4.h"
 #include "math/Math.h"
+#include <cmath>
 
 namespace py = pybind11;
 
@@ -72,10 +74,80 @@ void bind_math(py::module_& m) {
         .def_readwrite("w", &math::Quat::w)
         .def_static("from_axis_angle",
             [](math::Vec3 axis, float rad) { return math::Quat::fromAxisAngle(axis, rad); })
+        .def_static("from_euler",
+            [](float pitch, float yaw, float roll) {
+                // Tait-Bryan yaw(Y)·pitch(X)·roll(Z), radians. Matches FPS yaw/pitch.
+                math::Quat qx = math::Quat::fromAxisAngle(math::Vec3{1,0,0}, pitch);
+                math::Quat qy = math::Quat::fromAxisAngle(math::Vec3{0,1,0}, yaw);
+                math::Quat qz = math::Quat::fromAxisAngle(math::Vec3{0,0,1}, roll);
+                return qy * qx * qz;
+            }, py::arg("pitch"), py::arg("yaw"), py::arg("roll") = 0.f)
+        .def_static("slerp",
+            [](math::Quat a, math::Quat b, float t) {
+                float d = a.x*b.x + a.y*b.y + a.z*b.z + a.w*b.w;
+                if (d < 0.f) { b.x=-b.x; b.y=-b.y; b.z=-b.z; b.w=-b.w; d=-d; }
+                if (d > 0.9995f) {  // nearly parallel — normalized lerp
+                    math::Quat r{a.x+t*(b.x-a.x), a.y+t*(b.y-a.y),
+                                 a.z+t*(b.z-a.z), a.w+t*(b.w-a.w)};
+                    float l = std::sqrt(r.x*r.x + r.y*r.y + r.z*r.z + r.w*r.w);
+                    return math::Quat{r.x/l, r.y/l, r.z/l, r.w/l};
+                }
+                float th0 = std::acos(d), th = th0*t;
+                float s1 = std::sin(th) / std::sin(th0);
+                float s0 = std::cos(th) - d*s1;
+                return math::Quat{a.x*s0+b.x*s1, a.y*s0+b.y*s1,
+                                  a.z*s0+b.z*s1, a.w*s0+b.w*s1};
+            }, py::arg("a"), py::arg("b"), py::arg("t"))
+        .def("__mul__",
+            [](const math::Quat& a, const math::Quat& b) { return a * b; })
+        .def("rotate",
+            [](const math::Quat& q, math::Vec3 v) { return math::Mat3::rotation(q) * v; },
+            py::arg("vec"))
         .def("__repr__", [](const math::Quat& q) {
             return "Quat(" + std::to_string(q.x) + ", " + std::to_string(q.y) + ", "
                            + std::to_string(q.z) + ", " + std::to_string(q.w) + ")";
         });
+
+    // look_at — quaternion whose local +Z points along `forward`, +Y near `up`.
+    m.def("look_at",
+        [](math::Vec3 forward, math::Vec3 up) {
+            math::Vec3 f = forward.normalize();
+            math::Vec3 r = up.cross(f).normalize();
+            math::Vec3 u = f.cross(r);
+            // Basis as a rotation matrix (cols = right, up, forward); convert to a
+            // quaternion via Shepperd's method. m_{row,col}:
+            float m00=r.x, m01=u.x, m02=f.x;
+            float m10=r.y, m11=u.y, m12=f.y;
+            float m20=r.z, m21=u.z, m22=f.z;
+            float tr = m00 + m11 + m22;
+            math::Quat q;
+            if (tr > 0.f) {
+                float s = std::sqrt(tr + 1.f) * 2.f;       // s = 4w
+                q.w = 0.25f * s;
+                q.x = (m21 - m12) / s;
+                q.y = (m02 - m20) / s;
+                q.z = (m10 - m01) / s;
+            } else if (m00 > m11 && m00 > m22) {
+                float s = std::sqrt(1.f + m00 - m11 - m22) * 2.f;  // s = 4x
+                q.w = (m21 - m12) / s;
+                q.x = 0.25f * s;
+                q.y = (m01 + m10) / s;
+                q.z = (m02 + m20) / s;
+            } else if (m11 > m22) {
+                float s = std::sqrt(1.f + m11 - m00 - m22) * 2.f;  // s = 4y
+                q.w = (m02 - m20) / s;
+                q.x = (m01 + m10) / s;
+                q.y = 0.25f * s;
+                q.z = (m12 + m21) / s;
+            } else {
+                float s = std::sqrt(1.f + m22 - m00 - m11) * 2.f;  // s = 4z
+                q.w = (m10 - m01) / s;
+                q.x = (m02 + m20) / s;
+                q.y = (m12 + m21) / s;
+                q.z = 0.25f * s;
+            }
+            return q;
+        }, py::arg("forward"), py::arg("up") = math::Vec3{0,1,0});
 
     // Math utilities
     m.attr("PI") = math::PI;

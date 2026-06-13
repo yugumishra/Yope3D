@@ -327,4 +327,67 @@ CastResult capsuleCast(math::Vec3 pos, float r, float hh,
     return best;
 }
 
+// ---------------------------------------------------------------------------
+// raycast
+// ---------------------------------------------------------------------------
+
+RayHit raycast(math::Vec3 origin, math::Vec3 dir, float maxDist,
+               ecs::Registry& reg, ecs::Entity exclude)
+{
+    constexpr float MISS = std::numeric_limits<float>::min();
+
+    RayHit best;
+    best.t = maxDist;
+
+    float dl = dir.length();
+    if (dl < 1e-8f) return best;
+    math::Vec3 d = dir * (1.f / dl);
+
+    auto consider = [&](float t, ecs::Entity e, math::Vec3 n) {
+        if (t < 0.f || t > best.t) return;
+        best.hit    = true;
+        best.t      = t;
+        best.entity = e;
+        best.normal = n;
+        best.point  = origin + d * t;
+    };
+
+    // --- AABB ---
+    for (auto [e, tf, form] : reg.view<Transform, ecs::AABBForm>()) {
+        if (e == exclude || !isTangible(e, reg)) continue;
+        float t = Raycast::raycastAABB(d, origin, tf.position, form.extent);
+        if (t == MISS) continue;
+        math::Vec3 hitPt = origin + d * t;
+        consider(t, e, aabbFaceNormal(hitPt, tf.position, form.extent));
+    }
+
+    // --- OBB ---
+    for (auto [e, tf, form] : reg.view<Transform, ecs::OBBForm>()) {
+        if (e == exclude || !isTangible(e, reg)) continue;
+        math::Mat3 rot = math::Mat3::rotation(tf.rotation);
+        auto axes = std::array<math::Vec3,3>{{
+            {rot.m[0], rot.m[1], rot.m[2]},
+            {rot.m[3], rot.m[4], rot.m[5]},
+            {rot.m[6], rot.m[7], rot.m[8]}
+        }};
+        float t = Raycast::raycastOBB(d, origin, tf.position, form.extent, axes);
+        if (t == MISS) continue;
+        math::Vec3 hitPt = origin + d * t;
+        consider(t, e, obbFaceNormal(hitPt, tf.position, form.extent, rot));
+    }
+
+    // --- Sphere ---
+    for (auto [e, tf, form] : reg.view<Transform, ecs::SphereForm>()) {
+        if (e == exclude || !isTangible(e, reg)) continue;
+        float t = Raycast::raycastSphere(d, origin, tf.position, form.radius);
+        if (t < 0.f) continue;   // -1 miss, or negative t when origin is inside
+        math::Vec3 hitPt = origin + d * t;
+        math::Vec3 n = hitPt - tf.position;
+        float nl = n.length();
+        consider(t, e, nl > 1e-5f ? n * (1.f / nl) : math::Vec3{0,1,0});
+    }
+
+    return best;
+}
+
 } // namespace physics::KinematicQuery

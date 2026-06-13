@@ -63,6 +63,7 @@ public:
     int         state = 0;  // Render state: STATE_SOLID (0) or STATE_TEXTURED (1)
     math::Mat4  modelMatrix;  // Updated each frame by physics hull sync
     bool        transformReady = false;  // False until first snapshot propagates; suppresses the 0,0,0 flicker
+    bool        visible = true;          // Renderer skips this mesh when false (script-toggled hide)
     float       reflectivity = 0.0f;    // For raytracer: [0,1] mirror reflectance; 0 = fully diffuse
 
     // Raytracer metadata — set by World after mesh creation when the source is a known Primitive.

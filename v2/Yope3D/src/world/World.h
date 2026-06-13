@@ -59,6 +59,8 @@ public:
 
     RenderMesh* getMesh(ecs::Entity e);
     void        removeEntity(ecs::Entity e);
+    // Show/hide an entity's render mesh without destroying it (blinking pickups, etc.).
+    void        setMeshVisible(ecs::Entity e, bool visible);
 
     // Add / remove a physics body on an existing entity (editor "Add Component").
     // Silently no-ops if the entity already has a collider (or is invalid).
@@ -115,6 +117,7 @@ public:
     // ---- Lights ----
     ecs::Entity addLight(const Light& light);
     void        removeLight(int index);
+    void        removeLight(ecs::Entity e);   // by entity (what scripts hold from add_point_light)
 
     // ---- Audio ----
     // Create an audio-source entity at pos with an empty AudioSource (no Source* bound).
@@ -142,6 +145,25 @@ public:
     void advance(float dt);
     void resetPhysics();
 
+    // ---- Script physics helpers (lock structure internally; safe vs the physics thread) ----
+    // Apply a linear impulse (kg·m/s) and wake the body. No-op on static/invalid bodies.
+    void applyImpulse  (ecs::Entity e, math::Vec3 impulse);
+    // Apply an impulse at a world-space point — yields both linear and angular change.
+    void applyImpulseAt(ecs::Entity e, math::Vec3 impulse, math::Vec3 worldPoint);
+    // Remove the Sleeping tag (and zero sleepFrames) so direct velocity writes take effect.
+    void wake          (ecs::Entity e);
+    // Monotonic physics-tick counter (incremented once per advance()).
+    uint64_t getTickCount() const { return tickCount_.load(std::memory_order_relaxed); }
+
+    // ---- Collision events (enter/exit) ----
+    // The physics thread diffs the contact-pair set each tick and enqueues
+    // transitions; the main thread drains them once per frame and dispatches to
+    // behaviors. Enabled lazily by Engine only when behaviors exist (zero cost
+    // for script-less / stress scenes — the whole diff is skipped).
+    struct CollisionEvent { ecs::Entity a, b; bool enter; };
+    void setCollisionEventsEnabled(bool e) { collisionEventsEnabled_.store(e, std::memory_order_relaxed); }
+    std::vector<CollisionEvent> drainCollisionEvents();
+
     // Edit-mode pause: physics thread's advance() is a no-op while paused.
     // Zero cost in runtime (atomic load of a false value on every tick).
     std::atomic<bool> paused_{ false };
@@ -151,6 +173,7 @@ public:
     void syncRenderMeshesFromFront();
 
     std::atomic<bool> newSnapshotReady_{ false };
+    std::atomic<uint64_t> tickCount_{ 0 };   // bumped once per advance(); read by scripts
 
     int getIslandCount() const { return lastIslandCount_; }
     int getThreadCount() const;
@@ -179,6 +202,9 @@ public:
     void setDebugLines(std::vector<DebugLineVertex> lines) { debugLines_ = std::move(lines); }
     void clearDebugLines() { debugLines_.clear(); }
     const std::vector<DebugLineVertex>& getDebugLines() const { return debugLines_; }
+    // Append one world-space segment (a→b) in `color`. Used by script yope.draw_line;
+    // Engine clears debugLines_ each frame before scripts run, so segments are per-frame.
+    void addDebugLine(math::Vec3 a, math::Vec3 b, math::Vec3 color);
 
     void toggleProxies(bool enabled);
 
@@ -254,6 +280,13 @@ private:
     // Called at the end of every public factory method.
     // Always adds ecs::Name; adds EditorSelectable/EditorPickable only in editor builds.
     void finalizeEntity(ecs::Entity e, const char* name);
+
+    // Physics-thread: diff this tick's contact pairs vs. last tick's, enqueue enter/exit.
+    void detectCollisionEvents();
+    std::atomic<bool>           collisionEventsEnabled_{ false };
+    std::mutex                  collisionEventMtx_;
+    std::vector<CollisionEvent> collisionEvents_;
+    std::unordered_map<uint64_t, std::pair<ecs::Entity, ecs::Entity>> prevContactPairs_;
 
 #ifdef YOPE_EDITOR
     struct PlaySnapshot {

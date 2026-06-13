@@ -62,6 +62,11 @@ public:
     bool isForwardMBDown()  const { return mouseButtons[GLFW_MOUSE_BUTTON_5];   }
     bool isBackwardMBDown() const { return mouseButtons[GLFW_MOUSE_BUTTON_4];   }
 
+    // One-shot button-transition queries (true only on the frame the button
+    // changes state). Requires pollEvents() before beginFrame() — see note above.
+    bool isMousePressed (int button) const;
+    bool isMouseReleased(int button) const;
+
     // ------------------------------------------------------------------
     // Mouse movement  (delta since last beginFrame)
     // ------------------------------------------------------------------
@@ -72,8 +77,10 @@ public:
     // Scroll  (accumulated since last beginFrame)
     // ------------------------------------------------------------------
 
-    double getScrollX() const { return scrollX; }
-    double getScrollY() const { return scrollY; }
+    // Return the snapshot taken in beginFrame (mirrors getMouseDelta): the live
+    // accumulator is zeroed each frame, so reading it directly would always be 0.
+    double getScrollX() const { return prevScrollX; }
+    double getScrollY() const { return prevScrollY; }
 
     // ------------------------------------------------------------------
     // Callback sinks — called by Window's static GLFW callbacks only.
@@ -88,18 +95,33 @@ private:
     // Persistent key state.
     std::array<bool, GLFW_KEY_LAST + 1> keyState{};
 
-    // One-shot transition flags — set by onKey, cleared by beginFrame.
-    std::array<bool, GLFW_KEY_LAST + 1> keyJustPressed{};
-    std::array<bool, GLFW_KEY_LAST + 1> keyJustReleased{};
+    // One-shot transition flags. The loop order is pollEvents()→beginFrame()→update(),
+    // so callbacks fire (writing the *Live buffers) BEFORE beginFrame. beginFrame
+    // snapshots *Live into the frame-stable buffers the game reads this frame, then
+    // resets *Live — mirroring the mouseDelta/prevMouseDelta snapshot. Clearing the
+    // read buffers directly in beginFrame would wipe the transition before update sees it.
+    std::array<bool, GLFW_KEY_LAST + 1> keyJustPressed{};    // read by isKeyPressed
+    std::array<bool, GLFW_KEY_LAST + 1> keyJustReleased{};   // read by isKeyReleased
+    std::array<bool, GLFW_KEY_LAST + 1> keyPressedLive{};    // written by onKey during poll
+    std::array<bool, GLFW_KEY_LAST + 1> keyReleasedLive{};
 
     // Mouse button state  (GLFW_MOUSE_BUTTON_LAST is typically 7).
     std::array<bool, GLFW_MOUSE_BUTTON_LAST + 1> mouseButtons{};
+
+    // One-shot mouse-button transitions (same snapshot scheme as the key flags above).
+    std::array<bool, GLFW_MOUSE_BUTTON_LAST + 1> mouseJustPressed{};
+    std::array<bool, GLFW_MOUSE_BUTTON_LAST + 1> mouseJustReleased{};
+    std::array<bool, GLFW_MOUSE_BUTTON_LAST + 1> mousePressedLive{};
+    std::array<bool, GLFW_MOUSE_BUTTON_LAST + 1> mouseReleasedLive{};
 
     // Per-frame delta — accumulated by onMouseMove, cleared by beginFrame.
     MouseDelta mouseDelta;
     MouseDelta prevMouseDelta;
 
-    // Accumulated scroll since last beginFrame.
+    // Scroll: live accumulator (written by onScroll during poll) + frame snapshot
+    // (read by getScrollX/Y), same pattern as mouseDelta/prevMouseDelta.
     double scrollX = 0.0;
     double scrollY = 0.0;
+    double prevScrollX = 0.0;
+    double prevScrollY = 0.0;
 };

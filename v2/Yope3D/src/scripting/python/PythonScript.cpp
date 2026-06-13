@@ -106,6 +106,27 @@ void PythonScript::onUnload(ScriptContext& ctx, ecs::Entity self) {
     pyObj_.reset();
 }
 
+void PythonScript::onCollisionEnter(ScriptContext& ctx, ecs::Entity self, ecs::Entity other) {
+    if (!pyObj_) return;
+    (void)ctx;
+    auto yope = py::module_::import("yope");
+    callPyMethod(pyObj_->instance, "on_collision_enter",
+                 py::make_tuple(yope.attr("world"), py::cast(self), py::cast(other)));
+}
+
+void PythonScript::onCollisionExit(ScriptContext& ctx, ecs::Entity self, ecs::Entity other) {
+    if (!pyObj_) return;
+    (void)ctx;
+    auto yope = py::module_::import("yope");
+    callPyMethod(pyObj_->instance, "on_collision_exit",
+                 py::make_tuple(yope.attr("world"), py::cast(self), py::cast(other)));
+}
+
+void* PythonScript::pyInstanceHandle() {
+    if (!pyObj_ || !pyObj_->instance || pyObj_->instance.is_none()) return nullptr;
+    return pyObj_->instance.ptr();   // borrowed PyObject* — caller must not steal the ref
+}
+
 // ---------------------------------------------------------------------------
 // Serialization — just module and class name; remaining params stay in paramsBlob
 // ---------------------------------------------------------------------------

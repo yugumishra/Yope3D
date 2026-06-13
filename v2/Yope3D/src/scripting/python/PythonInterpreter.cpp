@@ -6,6 +6,7 @@
 #include "world/World.h"
 #include "rendering/Camera.h"
 #include "platform/Input.h"
+#include "platform/Window.h"
 #include "audio/AudioSystem.h"
 #include "scene/SceneManager.h"
 #include <pybind11/embed.h>
@@ -96,6 +97,7 @@ void PythonInterpreter::bindContext(ScriptContext& ctx) {
     m.attr("input")         = py::cast(ctx.input,        py::return_value_policy::reference);
     m.attr("audio")         = py::cast(ctx.audio,        py::return_value_policy::reference);
     m.attr("scene_manager") = py::cast(ctx.sceneManager, py::return_value_policy::reference);
+    m.attr("window")        = py::cast(ctx.window,       py::return_value_policy::reference);
 }
 
 bool PythonInterpreter::execString(const std::string& code) {
