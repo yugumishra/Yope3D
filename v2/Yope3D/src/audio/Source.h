@@ -39,7 +39,7 @@ public:
     // Prevents resumeAll() from resuming sources the user deliberately paused.
     bool pausedBySystem = false;
 
-    // True for one-shot voices created by yope.play_sound — eligible for reuse by
+    // True for one-shot voices created by yope3d.play_sound — eligible for reuse by
     // AudioSystem::playTransient once they stop, so footstep/impact spam can't leak.
     bool transient = false;
 

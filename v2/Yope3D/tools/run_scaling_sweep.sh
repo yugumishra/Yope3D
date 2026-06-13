@@ -23,7 +23,7 @@
 
 set -euo pipefail
 
-# Engine reads yope.cfg via relative path — it must run from the project root
+# Engine reads yope3d.cfg via relative path — it must run from the project root
 # (one level above tools/). Resolve via the script's own directory so the
 # sweep behaves the same whether invoked as `tools/run_scaling_sweep.sh`,
 # `./run_scaling_sweep.sh` (from inside tools/), or via an absolute path.
@@ -31,10 +31,10 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 cd "$PROJECT_ROOT"
 
-if [[ ! -f yope.cfg ]]; then
-    echo "warning: no yope.cfg in $PROJECT_ROOT — engine will fall back to" >&2
+if [[ ! -f yope3d.cfg ]]; then
+    echo "warning: no yope3d.cfg in $PROJECT_ROOT — engine will fall back to" >&2
     echo "         the default script name ('Sandbox') which isn't registered." >&2
-    echo "         Create yope.cfg with: script=SandboxScript" >&2
+    echo "         Create yope3d.cfg with: script=SandboxScript" >&2
 fi
 
 BIN="${BIN:-./build/mac-debug/yope3d}"

@@ -36,7 +36,7 @@ struct PyConsoleStream {
     }
 };
 
-PYBIND11_EMBEDDED_MODULE(yope_io, m) {
+PYBIND11_EMBEDDED_MODULE(yope3d_io, m) {
     py::class_<PyConsoleStream>(m, "ConsoleStream")
         .def(py::init<bool>())
         .def("write", &PyConsoleStream::write)
@@ -75,12 +75,12 @@ void PythonInterpreter::init(const std::string& scriptsDir, const std::string& p
     sys.attr("path").attr("insert")(0, scriptsDir);
 
     // Redirect stdout/stderr to Console
-    auto io = py::module_::import("yope_io");
+    auto io = py::module_::import("yope3d_io");
     sys.attr("stdout") = io.attr("ConsoleStream")(false);
     sys.attr("stderr") = io.attr("ConsoleStream")(true);
 
-    // Import 'yope' — triggers PYBIND11_EMBEDDED_MODULE callback, registers all classes
-    py::module_::import("yope");
+    // Import 'yope3d' — triggers PYBIND11_EMBEDDED_MODULE callback, registers all classes
+    py::module_::import("yope3d");
 
     // Build component table after py::class_ registrations are complete
     PyComponentTable::build();
@@ -91,7 +91,7 @@ void PythonInterpreter::init(const std::string& scriptsDir, const std::string& p
 
 void PythonInterpreter::bindContext(ScriptContext& ctx) {
     if (!initialized_) return;
-    auto m = py::module_::import("yope");
+    auto m = py::module_::import("yope3d");
     m.attr("world")         = py::cast(ctx.world,        py::return_value_policy::reference);
     m.attr("camera")        = py::cast(ctx.camera,       py::return_value_policy::reference);
     m.attr("input")         = py::cast(ctx.input,        py::return_value_policy::reference);

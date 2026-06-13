@@ -33,7 +33,7 @@ bool Engine::init() {
     }
 #endif
 
-    Config cfg = Config::load(resDir.empty() ? "yope.cfg" : resDir + "/yope.cfg");
+    Config cfg = Config::load(resDir.empty() ? "yope3d.cfg" : resDir + "/yope3d.cfg");
 
     int screenW = 1920, screenH = 1080;
     if (GLFWmonitor* primary = glfwGetPrimaryMonitor())
@@ -103,7 +103,7 @@ bool Engine::init() {
 
     if (cfg.startupScene.empty()) {
         std::fprintf(stderr,
-            "Engine: yope.cfg is missing 'startupScene='. Refusing to launch with no scene.\n");
+            "Engine: yope3d.cfg is missing 'startupScene='. Refusing to launch with no scene.\n");
         return false;
     }
     // Resolve relative scene paths against the assets directory so the runtime
@@ -193,7 +193,7 @@ void Engine::update() {
 #else
         sceneManager->flush(scriptCtx_, /*initScripts=*/true);
 #endif
-        // Per-frame debug lines: clear before scripts run so yope.draw_line()
+        // Per-frame debug lines: clear before scripts run so yope3d.draw_line()
         // accumulates fresh segments each frame (Renderer reads getDebugLines()).
         world->clearDebugLines();
 

@@ -244,8 +244,8 @@ EOF
 echo "  Copying scripts..."
 cp -r "$REPO_ROOT/scripts" "$RESOURCES_DIR/scripts"
 
-echo "  Copying yope.cfg..."
-cp "$REPO_ROOT/yope.cfg" "$RESOURCES_DIR/yope.cfg"
+echo "  Copying yope3d.cfg..."
+cp "$REPO_ROOT/yope3d.cfg" "$RESOURCES_DIR/yope3d.cfg"
 
 # ---------------------------------------------------------------------------
 

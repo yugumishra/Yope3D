@@ -54,7 +54,7 @@ public:
     // Create and own a new Source bound to the given buffer. Returns non-owning ptr.
     Source* createSource(SoundBuffer* buffer);
 
-    // Fire-and-forget one-shot (yope.play_sound): reuses a finished transient voice
+    // Fire-and-forget one-shot (yope3d.play_sound): reuses a finished transient voice
     // (rebinding its buffer + resetting gain/pitch/loop) before allocating a new one,
     // so footstep/impact spam can't exhaust the OpenAL voice pool. The returned handle
     // is valid until the sound stops, after which it may be recycled.

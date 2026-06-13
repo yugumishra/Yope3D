@@ -3,7 +3,7 @@ Sandbox setup: spring cloth grid.
 variant:    0 = top-row fixed, 1 = 4-corners fixed, 2 = 2-top-corners fixed
 shape_type: 0 = Sphere,        1 = AABB,            2 = OBB
 """
-import yope
+import yope3d
 
 GRID_N    = 20
 GRID_STEP = 1.0
@@ -13,7 +13,7 @@ SPRING_K  = 300.0
 
 def build_spring_cloth(world, variant=0, shape_type=0):
     fh = (GRID_N + 1) * GRID_STEP * 2.0
-    world.add_static_aabb(yope.Vec3(0, -5, 0), yope.Vec3(fh, 5, fh))
+    world.add_static_aabb(yope3d.Vec3(0, -5, 0), yope3d.Vec3(fh, 5, fh))
 
     horizontal = (variant == 1)
     half_w = (GRID_N - 1) * GRID_STEP * 0.5
@@ -32,18 +32,18 @@ def build_spring_cloth(world, variant=0, shape_type=0):
             fj = j / (GRID_N - 1)
 
             if shape_type == 0:
-                e = world.add_sphere(NODE_MASS, NODE_HALF, yope.Vec3(cx, cy, cz))
+                e = world.add_sphere(NODE_MASS, NODE_HALF, yope3d.Vec3(cx, cy, cz))
                 world.attach_sphere_mesh(e, NODE_HALF,
                     0.9-0.4*fi, 0.3+0.4*fj, 0.15+0.3*fi)
             elif shape_type == 1:
-                e = world.add_aabb(yope.Vec3(NODE_HALF,NODE_HALF,NODE_HALF), NODE_MASS,
-                                   yope.Vec3(cx, cy, cz))
-                world.attach_box_mesh(e, yope.Vec3(NODE_HALF,NODE_HALF,NODE_HALF),
+                e = world.add_aabb(yope3d.Vec3(NODE_HALF,NODE_HALF,NODE_HALF), NODE_MASS,
+                                   yope3d.Vec3(cx, cy, cz))
+                world.attach_box_mesh(e, yope3d.Vec3(NODE_HALF,NODE_HALF,NODE_HALF),
                     0.1+0.2*fj, 0.5+0.3*fi, 0.8-0.3*fj)
             else:
-                e = world.add_obb(yope.Vec3(NODE_HALF,NODE_HALF,NODE_HALF), NODE_MASS,
-                                  yope.Vec3(cx, cy, cz))
-                world.attach_box_mesh(e, yope.Vec3(NODE_HALF,NODE_HALF,NODE_HALF),
+                e = world.add_obb(yope3d.Vec3(NODE_HALF,NODE_HALF,NODE_HALF), NODE_MASS,
+                                  yope3d.Vec3(cx, cy, cz))
+                world.attach_box_mesh(e, yope3d.Vec3(NODE_HALF,NODE_HALF,NODE_HALF),
                     fi, fj, 0.4+0.3*(fi+fj)*0.5)
 
             grid[i][j] = e
@@ -71,11 +71,11 @@ def build_spring_cloth(world, variant=0, shape_type=0):
 
     dist = (GRID_N - 1) * GRID_STEP
     if horizontal:
-        yope.camera.set_position(yope.Vec3(0, top_y + dist, dist * 0.7))
-        yope.camera.set_rotation(yope.Vec3(-0.8, 0, 0))
+        yope3d.camera.set_position(yope3d.Vec3(0, top_y + dist, dist * 0.7))
+        yope3d.camera.set_rotation(yope3d.Vec3(-0.8, 0, 0))
     else:
-        yope.camera.set_position(yope.Vec3(0, top_y * 0.5, dist + 5))
-        yope.camera.set_rotation(yope.Vec3(0, 0, 0))
+        yope3d.camera.set_position(yope3d.Vec3(0, top_y * 0.5, dist + 5))
+        yope3d.camera.set_rotation(yope3d.Vec3(0, 0, 0))
 
 # Run immediately: default is sphere cloth, top-row fixed
-build_spring_cloth(yope.world, variant=0, shape_type=0)
+build_spring_cloth(yope3d.world, variant=0, shape_type=0)

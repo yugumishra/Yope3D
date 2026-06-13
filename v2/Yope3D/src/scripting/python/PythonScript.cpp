@@ -77,9 +77,9 @@ void PythonScript::init(ScriptContext& ctx, ecs::Entity self) {
         }
 
         auto params = paramsToDict(blob);
-        auto yope   = py::module_::import("yope");
+        auto yope3d   = py::module_::import("yope3d");
         callPyMethod(pyObj_->instance, "init",
-                     py::make_tuple(yope.attr("world"), py::cast(self), params));
+                     py::make_tuple(yope3d.attr("world"), py::cast(self), params));
     } catch (py::error_already_set& e) {
         Console::log(std::string("[PythonScript init] ") + e.what(), LogSeverity::Error);
         pyObj_.reset();
@@ -92,34 +92,34 @@ void PythonScript::init(ScriptContext& ctx, ecs::Entity self) {
 void PythonScript::update(ScriptContext& ctx, ecs::Entity self, float dt) {
     if (!pyObj_) return;
     (void)ctx;
-    auto yope = py::module_::import("yope");
+    auto yope3d = py::module_::import("yope3d");
     callPyMethod(pyObj_->instance, "update",
-                 py::make_tuple(yope.attr("world"), py::cast(self), dt));
+                 py::make_tuple(yope3d.attr("world"), py::cast(self), dt));
 }
 
 void PythonScript::onUnload(ScriptContext& ctx, ecs::Entity self) {
     if (!pyObj_) return;
     (void)ctx;
-    auto yope = py::module_::import("yope");
+    auto yope3d = py::module_::import("yope3d");
     callPyMethod(pyObj_->instance, "on_unload",
-                 py::make_tuple(yope.attr("world"), py::cast(self)));
+                 py::make_tuple(yope3d.attr("world"), py::cast(self)));
     pyObj_.reset();
 }
 
 void PythonScript::onCollisionEnter(ScriptContext& ctx, ecs::Entity self, ecs::Entity other) {
     if (!pyObj_) return;
     (void)ctx;
-    auto yope = py::module_::import("yope");
+    auto yope3d = py::module_::import("yope3d");
     callPyMethod(pyObj_->instance, "on_collision_enter",
-                 py::make_tuple(yope.attr("world"), py::cast(self), py::cast(other)));
+                 py::make_tuple(yope3d.attr("world"), py::cast(self), py::cast(other)));
 }
 
 void PythonScript::onCollisionExit(ScriptContext& ctx, ecs::Entity self, ecs::Entity other) {
     if (!pyObj_) return;
     (void)ctx;
-    auto yope = py::module_::import("yope");
+    auto yope3d = py::module_::import("yope3d");
     callPyMethod(pyObj_->instance, "on_collision_exit",
-                 py::make_tuple(yope.attr("world"), py::cast(self), py::cast(other)));
+                 py::make_tuple(yope3d.attr("world"), py::cast(self), py::cast(other)));
 }
 
 void* PythonScript::pyInstanceHandle() {

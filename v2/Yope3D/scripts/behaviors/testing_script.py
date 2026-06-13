@@ -1,5 +1,5 @@
-import yope
-from yope import audio
+import yope3d
+from yope3d import audio
 class Test:
     PARAMS={
         "frame_mod":    {"type": "int", "default": 480,     "label": "Frames between errors in update()"},
@@ -10,10 +10,10 @@ class Test:
 
     def init(self, world, entity, params):
         print("hello? only once though")
-        tf = yope.reg_get(entity, "Transform")
+        tf = yope3d.reg_get(entity, "Transform")
         print("hello multiple times")
         pos = tf.position
-        up = yope.Vec3(0,0.1,0)
+        up = yope3d.Vec3(0,0.1,0)
         tf.position = pos + up
 
         self.frameCounter = 1
@@ -26,14 +26,14 @@ class Test:
         self.message = params.get("message", "regular workflow")
 
         
-        spheres = yope.view("Transform", "SphereForm")
+        spheres = yope3d.view("Transform", "SphereForm")
         for i in range(1, len(spheres)):
             if spheres[i][1].position.x < spheres[i+1][1].position.x:
                 world.add_spring_with_proxies(spheres[i][0], spheres[i+1][0], 100, 1.5, 1.0, 0.25)
     
     def update(self, world, entity, dt):
-        inp = yope.input
-        tf = yope.reg_get(entity, "Transform")
+        inp = yope3d.input
+        tf = yope3d.reg_get(entity, "Transform")
         if tf is None:
             
             return
@@ -52,10 +52,10 @@ class Test:
         if self.frameCounter % self.frameMod == 0:
             
             print(world.get_hull_count())
-            e = yope.world.add_sphere(mass=1.0, radius=0.5, pos=yope.Vec3(0,5,0))
-            yope.world.attach_sphere_mesh(e, 0.5, 0.85, 0.5, 0.2)
-            hull = yope.reg_get(e, "Hull")
-            hull.velocity += yope.Vec3(1,0,0)
+            e = yope3d.world.add_sphere(mass=1.0, radius=0.5, pos=yope3d.Vec3(0,5,0))
+            yope3d.world.attach_sphere_mesh(e, 0.5, 0.85, 0.5, 0.2)
+            hull = yope3d.reg_get(e, "Hull")
+            hull.velocity += yope3d.Vec3(1,0,0)
 
             self.modCount = self.modCount + 1
 
@@ -65,13 +65,13 @@ class Test:
                 audio.resume_all()
 
             if self.modCount % 5 == 0:
-                yope.scene_manager.load_scene("assets/scenes/startup.json")
+                yope3d.scene_manager.load_scene("assets/scenes/startup.json")
 
         
 
         
         pos = tf.position
-        up = yope.Vec3(0 if self.up else self.upSpeed * dt,(self.upSpeed * dt) if (self.up) else (0),0)
+        up = yope3d.Vec3(0 if self.up else self.upSpeed * dt,(self.upSpeed * dt) if (self.up) else (0),0)
         tf.position = pos + up
 
     def on_unload(self, world, entity):

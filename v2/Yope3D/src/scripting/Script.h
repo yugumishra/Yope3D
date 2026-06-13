@@ -35,7 +35,7 @@ public:
     virtual void onCollisionExit (ScriptContext& /*ctx*/, ecs::Entity /*self*/, ecs::Entity /*other*/) {}
 
     // Opaque handle to the underlying scripting-runtime instance (a PyObject* for
-    // PythonScript, as void*). Used by yope.get_behavior to hand one behavior the
+    // PythonScript, as void*). Used by yope3d.get_behavior to hand one behavior the
     // live instance of another. nullptr for native scripts.
     virtual void* pyInstanceHandle() { return nullptr; }
 

@@ -243,7 +243,7 @@ void bind_world(py::module_& m) {
         .def("enable_looping", &Source::enableLooping, py::arg("loop"))
         .def("is_playing", &Source::isPlaying);
 
-    // CollisionLayers — named 32-bit layer registry (yope.world.layers)
+    // CollisionLayers — named 32-bit layer registry (yope3d.world.layers)
     py::class_<physics::CollisionLayers>(m, "CollisionLayers")
         .def("add",   &physics::CollisionLayers::add, py::arg("name"))
         .def("has",   &physics::CollisionLayers::has, py::arg("name"))
@@ -286,7 +286,7 @@ void bind_world(py::module_& m) {
     // Returns the Source (reuse it to stop/reposition) or None if audio isn't bound.
     m.def("play_sound",
         [](const std::string& path, py::object pos_obj, float gain, bool loop) -> Source* {
-            auto audioObj = py::module_::import("yope").attr("audio");
+            auto audioObj = py::module_::import("yope3d").attr("audio");
             if (audioObj.is_none()) return nullptr;
             auto* audio = audioObj.cast<AudioSystem*>();
             auto* buf = audio->loadSound(path);
@@ -310,7 +310,7 @@ void bind_world(py::module_& m) {
             ecs::Entity exclude = ecs::NullEntity;
             if (!exclude_obj.is_none())
                 exclude = exclude_obj.cast<ecs::Entity>();
-            auto* world = py::module_::import("yope").attr("world").cast<World*>();
+            auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
             auto lock = world->lockStructure();   // physics may be mid-advance()
             auto results = physics::KinematicQuery::capsuleOverlap(
                 pos, r, hh, world->getRegistry(), exclude);
@@ -330,7 +330,7 @@ void bind_world(py::module_& m) {
             ecs::Entity exclude = ecs::NullEntity;
             if (!exclude_obj.is_none())
                 exclude = exclude_obj.cast<ecs::Entity>();
-            auto* world = py::module_::import("yope").attr("world").cast<World*>();
+            auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
             auto lock = world->lockStructure();   // physics may be mid-advance()
             auto res = physics::KinematicQuery::capsuleCast(
                 pos, r, hh, dir, maxDist, world->getRegistry(), exclude);
@@ -346,7 +346,7 @@ void bind_world(py::module_& m) {
             ecs::Entity exclude = ecs::NullEntity;
             if (!exclude_obj.is_none())
                 exclude = exclude_obj.cast<ecs::Entity>();
-            auto* world = py::module_::import("yope").attr("world").cast<World*>();
+            auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
             auto lock = world->lockStructure();   // physics may be mid-advance()
             auto hit = physics::KinematicQuery::raycast(
                 origin, dir, maxDist, world->getRegistry(), exclude);
@@ -364,14 +364,14 @@ void bind_world(py::module_& m) {
         [](math::Vec3 a, math::Vec3 b, py::object color_obj) {
             math::Vec3 c{1.f, 1.f, 0.f};
             if (!color_obj.is_none()) c = color_obj.cast<math::Vec3>();
-            auto* world = py::module_::import("yope").attr("world").cast<World*>();
+            auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
             world->addDebugLine(a, b, c);
         }, py::arg("a"), py::arg("b"), py::arg("color") = py::none());
     m.def("draw_ray",
         [](math::Vec3 origin, math::Vec3 dir, float length, py::object color_obj) {
             math::Vec3 c{1.f, 1.f, 0.f};
             if (!color_obj.is_none()) c = color_obj.cast<math::Vec3>();
-            auto* world = py::module_::import("yope").attr("world").cast<World*>();
+            auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
             world->addDebugLine(origin, origin + dir.normalize() * length, c);
         }, py::arg("origin"), py::arg("dir"), py::arg("length") = 1.0f,
            py::arg("color") = py::none());
@@ -384,9 +384,9 @@ void bind_world(py::module_& m) {
     m.attr("scene_manager") = py::none();
     m.attr("window")        = py::none();
 
-    // Convenience: yope.load_scene(path) → scene_manager.load_scene(path)
+    // Convenience: yope3d.load_scene(path) → scene_manager.load_scene(path)
     m.def("load_scene", [](const std::string& path) {
-        auto sm = py::module_::import("yope").attr("scene_manager");
+        auto sm = py::module_::import("yope3d").attr("scene_manager");
         if (sm.is_none()) throw std::runtime_error("scene_manager not bound");
         sm.cast<SceneManager*>()->queueLoad(path);
     });
