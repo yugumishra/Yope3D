@@ -667,7 +667,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
                 sink = acc;
             }
             for (auto [entity, tf, mr] : reg.view<Transform, ecs::MeshRenderer>()) {
-                if (!mr.mesh || !mr.mesh->transformReady) continue;
+                if (!mr.mesh || !mr.mesh->transformReady || !mr.mesh->visible) continue;
 
                 math::Mat4 model = mr.mesh->modelMatrix;
 
@@ -1702,7 +1702,7 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
         auto& reg = world.getRegistry();
         if (!world.debugPhysics) {
             for (auto [entity, tf, mr] : reg.view<Transform, ecs::MeshRenderer>()) {
-                if (!mr.mesh || !mr.mesh->transformReady) continue;
+                if (!mr.mesh || !mr.mesh->transformReady || !mr.mesh->visible) continue;
 
                 Texture* tex = mr.mesh->texture ? mr.mesh->texture : assets.getDefaultTexture();
                 VkDescriptorSet texSet = tex->getDescriptorSet();

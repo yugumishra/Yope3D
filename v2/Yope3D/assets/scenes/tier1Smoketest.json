@@ -1,0 +1,404 @@
+{
+    "version": 1,
+    "gravity": [0, -9.80665, 0],
+    "entities": [
+        {
+            "fileId": 0,
+            "runtimeId": 0,
+            "isFixed": true,
+            "Name":             {
+                "value": "StaticAABB"
+            },
+            "Transform":             {
+                "position": [0, -0.5, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "Hull":             {
+                "mass": 0,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": false,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "AABBForm":             {
+                "extent": [19, 0.5, 15]
+            }
+        },
+        {
+            "fileId": 1,
+            "runtimeId": 1,
+            "Name":             {
+                "value": "OBB"
+            },
+            "Transform":             {
+                "position": [-1.5, 0.45, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": true,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "OBBForm":             {
+                "extent": [0.45, 0.45, 0.45]
+            },
+            "MeshRenderer":             {
+                "color": [0.2, 0.45, 0.9],
+                "primitiveType": 3,
+                "primitiveExtents": [0.45, 0.45, 0.45]
+            }
+        },
+        {
+            "fileId": 2,
+            "runtimeId": 2,
+            "Name":             {
+                "value": "OBB"
+            },
+            "Transform":             {
+                "position": [-0.5, 0.45, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": true,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "OBBForm":             {
+                "extent": [0.45, 0.45, 0.45]
+            },
+            "MeshRenderer":             {
+                "color": [0.2, 0.45, 0.9],
+                "primitiveType": 3,
+                "primitiveExtents": [0.45, 0.45, 0.45]
+            }
+        },
+        {
+            "fileId": 3,
+            "runtimeId": 3,
+            "Name":             {
+                "value": "OBB"
+            },
+            "Transform":             {
+                "position": [0.5, 0.45, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": true,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "OBBForm":             {
+                "extent": [0.45, 0.45, 0.45]
+            },
+            "MeshRenderer":             {
+                "color": [0.2, 0.45, 0.9],
+                "primitiveType": 3,
+                "primitiveExtents": [0.45, 0.45, 0.45]
+            }
+        },
+        {
+            "fileId": 4,
+            "runtimeId": 4,
+            "Name":             {
+                "value": "OBB"
+            },
+            "Transform":             {
+                "position": [1.5, 0.45, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": true,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "OBBForm":             {
+                "extent": [0.45, 0.45, 0.45]
+            },
+            "MeshRenderer":             {
+                "color": [0.2, 0.45, 0.9],
+                "primitiveType": 3,
+                "primitiveExtents": [0.45, 0.45, 0.45]
+            }
+        },
+        {
+            "fileId": 5,
+            "runtimeId": 5,
+            "Name":             {
+                "value": "OBB"
+            },
+            "Transform":             {
+                "position": [-1, 1.338, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": true,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "OBBForm":             {
+                "extent": [0.45, 0.45, 0.45]
+            },
+            "MeshRenderer":             {
+                "color": [0.433333, 0.4, 0.666667],
+                "primitiveType": 3,
+                "primitiveExtents": [0.45, 0.45, 0.45]
+            }
+        },
+        {
+            "fileId": 6,
+            "runtimeId": 6,
+            "Name":             {
+                "value": "OBB"
+            },
+            "Transform":             {
+                "position": [0, 1.338, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": true,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "OBBForm":             {
+                "extent": [0.45, 0.45, 0.45]
+            },
+            "MeshRenderer":             {
+                "color": [0.433333, 0.4, 0.666667],
+                "primitiveType": 3,
+                "primitiveExtents": [0.45, 0.45, 0.45]
+            }
+        },
+        {
+            "fileId": 7,
+            "runtimeId": 7,
+            "Name":             {
+                "value": "OBB"
+            },
+            "Transform":             {
+                "position": [1, 1.338, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": true,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "OBBForm":             {
+                "extent": [0.45, 0.45, 0.45]
+            },
+            "MeshRenderer":             {
+                "color": [0.433333, 0.4, 0.666667],
+                "primitiveType": 3,
+                "primitiveExtents": [0.45, 0.45, 0.45]
+            }
+        },
+        {
+            "fileId": 8,
+            "runtimeId": 8,
+            "Name":             {
+                "value": "OBB"
+            },
+            "Transform":             {
+                "position": [-0.5, 2.226, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": true,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "OBBForm":             {
+                "extent": [0.45, 0.45, 0.45]
+            },
+            "MeshRenderer":             {
+                "color": [0.666667, 0.35, 0.433333],
+                "primitiveType": 3,
+                "primitiveExtents": [0.45, 0.45, 0.45]
+            }
+        },
+        {
+            "fileId": 9,
+            "runtimeId": 9,
+            "Name":             {
+                "value": "OBB"
+            },
+            "Transform":             {
+                "position": [0.5, 2.226, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": true,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "OBBForm":             {
+                "extent": [0.45, 0.45, 0.45]
+            },
+            "MeshRenderer":             {
+                "color": [0.666667, 0.35, 0.433333],
+                "primitiveType": 3,
+                "primitiveExtents": [0.45, 0.45, 0.45]
+            }
+        },
+        {
+            "fileId": 10,
+            "runtimeId": 10,
+            "Name":             {
+                "value": "OBB"
+            },
+            "Transform":             {
+                "position": [0, 3.114, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": true,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "OBBForm":             {
+                "extent": [0.45, 0.45, 0.45]
+            },
+            "MeshRenderer":             {
+                "color": [0.9, 0.3, 0.2],
+                "primitiveType": 3,
+                "primitiveExtents": [0.45, 0.45, 0.45]
+            }
+        },
+        {
+            "fileId": 11,
+            "runtimeId": 11,
+            "isFixed": true,
+            "Name":             {
+                "value": "StaticAABB"
+            },
+            "Transform":             {
+                "position": [0, -0.980127, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [10, 0.1, 10]
+            },
+            "Hull":             {
+                "mass": 0,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": false,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "AABBForm":             {
+                "extent": [10, 0.1, 10]
+            },
+            "MeshRenderer":             {
+                "color": [0.5, 0.5, 0.55],
+                "primitiveType": 3,
+                "primitiveExtents": [1, 1, 1]
+            }
+        },
+        {
+            "fileId": 12,
+            "runtimeId": 12,
+            "Name":             {
+                "value": "PointLight"
+            },
+            "LightSource":             {
+                "type": 0,
+                "color": [1, 1, 1],
+                "intensity": 1.5,
+                "position": [2.0479, 3.99997, 1.69525],
+                "direction": [0, -1, 0],
+                "constant": 1,
+                "linear": 0.09,
+                "quadratic": 0.032,
+                "innerConeAngle": 0.2,
+                "outerConeAngle": 0.5
+            }
+        },
+        {
+            "fileId": 13,
+            "runtimeId": 13,
+            "Name":             {
+                "value": "Mover"
+            },
+            "Transform":             {
+                "position": [0, 0, 3.27911],
+                "rotation": [-4.37114e-08, 1, -4.37114e-08, 3.98597e-15],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "sourcePath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/suzanne.obj"
+            },
+            "ScriptComponent":             {
+                "scriptClass": "PythonScript",
+                "paramsBlob": "{\n    \"module\": \"behaviors._tier1_smoketest\",\n    \"class\": \"Tier1Smoketest\",\n    \"sound\": \"audios/test.ogg\",\n    \"font\": \"fonts/monaco.ttf\"\n}"
+            }
+        }
+    ]
+}

@@ -5,8 +5,11 @@
 #include "physics/KinematicQuery.h"
 #include "rendering/Camera.h"
 #include "platform/Input.h"
+#include "platform/Window.h"
 #include "audio/AudioSystem.h"
+#include "audio/Source.h"
 #include "scene/SceneManager.h"
+#include "physics/CollisionLayers.h"
 #include "rendering/Light.h"
 #include "assets/Primitives.h"
 #include "world/RenderMesh.h"
@@ -60,6 +63,9 @@ void bind_world(py::module_& m) {
                 py::arg("r")=1.f, py::arg("g")=1.f, py::arg("b")=1.f)
         // Make an entity static (pins it in place for spring cloth anchors, etc.)
         .def("fix_entity", [](World& w, ecs::Entity e) {
+            // Mutates entity composition (adds Fixed tag) → take the structure lock
+            // so it can't race a Sleeping-tag migration on the physics thread.
+            auto lock = w.lockStructure();
             auto& reg = w.getRegistry();
             if (auto* h = reg.get<ecs::Hull>(e)) {
                 h->mass = 0.f;
@@ -89,7 +95,69 @@ void bind_world(py::module_& m) {
                  RenderMesh* m = w.attachMesh(e, Primitives::capsule(r, hh));
                  if (m) { m->color[0]=cr; m->color[1]=cg; m->color[2]=cb; m->state=0; }
              }, py::arg("entity"), py::arg("radius"), py::arg("half_height"),
-                py::arg("r")=1.f, py::arg("g")=1.f, py::arg("b")=1.f);
+                py::arg("r")=1.f, py::arg("g")=1.f, py::arg("b")=1.f)
+        .def("attach_cylinder_mesh",
+             [](World& w, ecs::Entity e, float r, float hh,
+                float cr=1.f, float cg=1.f, float cb=1.f) {
+                 RenderMesh* m = w.attachMesh(e, Primitives::cylinder(r, hh));
+                 if (m) { m->color[0]=cr; m->color[1]=cg; m->color[2]=cb; m->state=0; }
+             }, py::arg("entity"), py::arg("radius"), py::arg("half_height"),
+                py::arg("r")=1.f, py::arg("g")=1.f, py::arg("b")=1.f)
+        // ---- GJK-only physics primitives (no mesh — call attach_*_mesh after) ----
+        .def("add_capsule",  &World::addCapsule,
+             py::arg("radius"), py::arg("half_height"), py::arg("mass"), py::arg("pos") = math::Vec3{})
+        .def("add_cylinder", &World::addCylinder,
+             py::arg("radius"), py::arg("half_height"), py::arg("mass"), py::arg("pos") = math::Vec3{})
+        // ---- Collider attach / detach (World methods lock internally) ----
+        .def("attach_sphere_collider",   &World::attachSphereCollider,
+             py::arg("entity"), py::arg("mass"), py::arg("radius"), py::arg("static_") = false)
+        .def("attach_aabb_collider",     &World::attachAABBCollider,
+             py::arg("entity"), py::arg("mass"), py::arg("extent"), py::arg("static_") = false)
+        .def("attach_obb_collider",      &World::attachOBBCollider,
+             py::arg("entity"), py::arg("mass"), py::arg("extent"), py::arg("static_") = false)
+        .def("attach_capsule_collider",  &World::attachCapsuleCollider,
+             py::arg("entity"), py::arg("mass"), py::arg("radius"), py::arg("half_height"), py::arg("static_") = false)
+        .def("attach_cylinder_collider", &World::attachCylinderCollider,
+             py::arg("entity"), py::arg("mass"), py::arg("radius"), py::arg("half_height"), py::arg("static_") = false)
+        .def("detach_physics_body",      &World::detachPhysicsBody, py::arg("entity"))
+        .def("set_mesh_visible", &World::setMeshVisible, py::arg("entity"), py::arg("visible"))
+        .def("remove_light", [](World& w, ecs::Entity e) { w.removeLight(e); }, py::arg("entity"))
+        // ---- Audio source entity ----
+        .def("add_audio_source_entity", &World::addAudioSourceEntity, py::arg("pos") = math::Vec3{})
+        // ---- Point light convenience (constructs a PointLight + addLight) ----
+        .def("add_point_light",
+             [](World& w, math::Vec3 pos, math::Vec3 color, float intensity) {
+                 PointLight pl{};
+                 pl.position[0]=pos.x; pl.position[1]=pos.y; pl.position[2]=pos.z;
+                 pl.color[0]=color.x; pl.color[1]=color.y; pl.color[2]=color.z;
+                 pl.intensity=intensity;
+                 pl.constant=1.0f; pl.linear=0.09f; pl.quadratic=0.032f;
+                 return w.addLight(Light{pl});
+             }, py::arg("pos"), py::arg("color") = math::Vec3{1.f,1.f,1.f}, py::arg("intensity") = 1.0f)
+        // ---- HUD / world text (coords in [0,1] screen percentage, top-left origin) ----
+        .def("add_ui_background", &World::addUIBackground,
+             py::arg("min"), py::arg("max"), py::arg("color"), py::arg("depth") = 0)
+        .def("add_ui_curved_background", &World::addUICurvedBackground,
+             py::arg("min"), py::arg("max"), py::arg("color"), py::arg("curvature") = 0.5f, py::arg("depth") = 0)
+        .def("add_ui_text", &World::addUIText,
+             py::arg("font"), py::arg("text"), py::arg("min"), py::arg("max"), py::arg("depth") = 0)
+        .def("add_text_label_3d", &World::addTextLabel3D,
+             py::arg("font"), py::arg("text"), py::arg("pos"))
+        // ---- Springs / misc ----
+        .def("remove_spring_between", &World::removeSpringBetween, py::arg("a"), py::arg("b"))
+        .def_readwrite("debug_physics", &World::debugPhysics)
+        .def("set_paused", &World::setPaused, py::arg("paused"))
+        .def_property("paused",
+            [](World& w) { return w.paused_.load(std::memory_order_acquire); },
+            [](World& w, bool p) { w.setPaused(p); })
+        // ---- Impulse / wake (own the sleeping-body correctness) ----
+        .def("apply_impulse",    &World::applyImpulse,   py::arg("entity"), py::arg("impulse"))
+        .def("apply_impulse_at", &World::applyImpulseAt, py::arg("entity"), py::arg("impulse"), py::arg("point"))
+        .def("wake",             &World::wake,           py::arg("entity"))
+        .def_property_readonly("tick_count", &World::getTickCount)
+        .def_property_readonly("layers",
+            [](World& w) -> physics::CollisionLayers& { return w.layers; },
+            py::return_value_policy::reference);
 
     // SceneManager — scene loading / transitions
     py::class_<SceneManager>(m, "SceneManager")
@@ -101,8 +169,33 @@ void bind_world(py::module_& m) {
         .def("set_rotation", &Camera::setRotation)
         .def("set_fov",      &Camera::setFOV)
         .def("get_forward",  &Camera::getForward)
+        .def("look_at",      &Camera::lookAt, py::arg("target"))
+        .def("screen_to_ray", [](const Camera& c, float px, float py) {
+            math::Vec3 o, d;
+            c.screenToRay(px, py, o, d);
+            return py::make_tuple(o, d);
+        }, py::arg("px"), py::arg("py"))
         .def_property("position", &Camera::getPosition, &Camera::setPosition)
         .def_property("rotation", &Camera::getRotation, &Camera::setRotation);
+
+    // Window — pixel dimensions + cursor position (for screen_to_ray / picking).
+    py::class_<Window>(m, "Window")
+        .def("get_width",  [](Window& w) { return w.getWidth();  })
+        .def("get_height", [](Window& w) { return w.getHeight(); })
+        .def("get_cursor_pos", [](Window& w) {
+            double x, y;
+            glfwGetCursorPos(w.getHandle(), &x, &y);
+            return std::make_pair(x, y);
+        })
+        // Lock = hidden + captured (FPS mouselook, the default). Unlock to show a
+        // visible cursor for menus / screen_to_ray picking.
+        .def("set_cursor_locked", [](Window& w, bool locked) {
+            glfwSetInputMode(w.getHandle(), GLFW_CURSOR,
+                             locked ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+        }, py::arg("locked"))
+        .def("is_cursor_locked", [](Window& w) {
+            return glfwGetInputMode(w.getHandle(), GLFW_CURSOR) == GLFW_CURSOR_DISABLED;
+        });
 
     // Input
     py::class_<Input>(m, "Input")
@@ -111,6 +204,13 @@ void bind_world(py::module_& m) {
         .def("is_key_released", &Input::isKeyReleased)
         .def("is_lmb_down",     &Input::isLMBDown)
         .def("is_rmb_down",     &Input::isRMBDown)
+        .def("is_mmb_down",     &Input::isMMBDown)
+        .def("is_forward_mb_down",  &Input::isForwardMBDown)
+        .def("is_backward_mb_down", &Input::isBackwardMBDown)
+        .def("is_mouse_pressed",  &Input::isMousePressed,  py::arg("button"))
+        .def("is_mouse_released", &Input::isMouseReleased, py::arg("button"))
+        .def("get_scroll_x", &Input::getScrollX)
+        .def("get_scroll_y", &Input::getScrollY)
         .def("get_mouse_delta", [](const Input& inp) {
             auto d = inp.getMouseDelta();
             return std::make_pair(d.x, d.y);
@@ -120,7 +220,37 @@ void bind_world(py::module_& m) {
     py::class_<AudioSystem>(m, "AudioSystem")
         .def("pause_all",  &AudioSystem::pauseAll)
         .def("resume_all", &AudioSystem::resumeAll)
-        .def("stop_all",   &AudioSystem::stopAll);
+        .def("stop_all",   &AudioSystem::stopAll)
+        .def("load_sound", &AudioSystem::loadSound, py::arg("path"),
+             py::return_value_policy::reference)
+        .def("create_source", &AudioSystem::createSource, py::arg("buffer"),
+             py::return_value_policy::reference);
+
+    // AudioSystem::SoundBuffer — opaque handle returned by load_sound
+    py::class_<AudioSystem::SoundBuffer>(m, "SoundBuffer");
+
+    // Source — one OpenAL voice (owned by AudioSystem; this is a non-owning view)
+    py::class_<Source>(m, "Source")
+        .def("play",   &Source::play)
+        .def("pause",  &Source::pause)
+        .def("stop",   &Source::stop)
+        .def("rewind", &Source::rewind)
+        .def("set_gain",     &Source::setGain,     py::arg("gain"))
+        .def("set_pitch",    &Source::setPitch,    py::arg("pitch"))
+        .def("set_position", &Source::setPosition, py::arg("pos"))
+        .def("set_velocity", &Source::setVelocity, py::arg("vel"))
+        .def("set_reference_distance", &Source::setReferenceDistance, py::arg("dist"))
+        .def("enable_looping", &Source::enableLooping, py::arg("loop"))
+        .def("is_playing", &Source::isPlaying);
+
+    // CollisionLayers — named 32-bit layer registry (yope.world.layers)
+    py::class_<physics::CollisionLayers>(m, "CollisionLayers")
+        .def("add",   &physics::CollisionLayers::add, py::arg("name"))
+        .def("has",   &physics::CollisionLayers::has, py::arg("name"))
+        .def("count", &physics::CollisionLayers::count)
+        .def("__getitem__", [](const physics::CollisionLayers& l, const std::string& n) { return l[n]; })
+        .def_property_readonly_static("ALL",  [](py::object) { return physics::CollisionLayers::ALL;  })
+        .def_property_readonly_static("NONE", [](py::object) { return physics::CollisionLayers::NONE; });
 
     // Registry (also accessed through view/reg_get at module level)
     py::class_<ecs::Registry>(m, "Registry");
@@ -147,6 +277,31 @@ void bind_world(py::module_& m) {
     m.attr("KEY_LEFT_CONTROL") = GLFW_KEY_LEFT_CONTROL;
     m.attr("KEY_V")            = GLFW_KEY_V;
 
+    // Mouse button constants (for is_mouse_pressed / is_mouse_released)
+    m.attr("MOUSE_LEFT")   = GLFW_MOUSE_BUTTON_LEFT;
+    m.attr("MOUSE_RIGHT")  = GLFW_MOUSE_BUTTON_RIGHT;
+    m.attr("MOUSE_MIDDLE") = GLFW_MOUSE_BUTTON_MIDDLE;
+
+    // One-shot audio convenience: load + create + play in a single call.
+    // Returns the Source (reuse it to stop/reposition) or None if audio isn't bound.
+    m.def("play_sound",
+        [](const std::string& path, py::object pos_obj, float gain, bool loop) -> Source* {
+            auto audioObj = py::module_::import("yope").attr("audio");
+            if (audioObj.is_none()) return nullptr;
+            auto* audio = audioObj.cast<AudioSystem*>();
+            auto* buf = audio->loadSound(path);
+            if (!buf) return nullptr;
+            Source* s = audio->playTransient(buf);   // reuses a finished one-shot voice
+            if (!s) return nullptr;
+            s->setGain(gain);
+            s->enableLooping(loop);
+            if (!pos_obj.is_none()) s->setPosition(pos_obj.cast<math::Vec3>());
+            s->play();
+            return s;
+        }, py::arg("path"), py::arg("pos") = py::none(),
+           py::arg("gain") = 1.0f, py::arg("loop") = false,
+           py::return_value_policy::reference);
+
     // Capsule overlap test against all tangible world geometry.
     // Returns list of (normal: Vec3, depth: float) tuples — one per overlapping entity.
     // exclude: pass the player entity (or None) to skip self-collision.
@@ -156,6 +311,7 @@ void bind_world(py::module_& m) {
             if (!exclude_obj.is_none())
                 exclude = exclude_obj.cast<ecs::Entity>();
             auto* world = py::module_::import("yope").attr("world").cast<World*>();
+            auto lock = world->lockStructure();   // physics may be mid-advance()
             auto results = physics::KinematicQuery::capsuleOverlap(
                 pos, r, hh, world->getRegistry(), exclude);
             py::list out;
@@ -175,6 +331,7 @@ void bind_world(py::module_& m) {
             if (!exclude_obj.is_none())
                 exclude = exclude_obj.cast<ecs::Entity>();
             auto* world = py::module_::import("yope").attr("world").cast<World*>();
+            auto lock = world->lockStructure();   // physics may be mid-advance()
             auto res = physics::KinematicQuery::capsuleCast(
                 pos, r, hh, dir, maxDist, world->getRegistry(), exclude);
             return py::make_tuple(res.t, res.hit, res.normal);
@@ -182,12 +339,50 @@ void bind_world(py::module_& m) {
            py::arg("dir"), py::arg("max_dist"),
            py::arg("exclude") = py::none());
 
+    // Thin-ray query. Returns (hit: bool, entity: Entity|None, point: Vec3, normal: Vec3, t: float).
+    // `dir` need not be normalized; `t` is in world meters. Pass an entity (or None) to exclude.
+    m.def("raycast",
+        [](math::Vec3 origin, math::Vec3 dir, float maxDist, py::object exclude_obj) {
+            ecs::Entity exclude = ecs::NullEntity;
+            if (!exclude_obj.is_none())
+                exclude = exclude_obj.cast<ecs::Entity>();
+            auto* world = py::module_::import("yope").attr("world").cast<World*>();
+            auto lock = world->lockStructure();   // physics may be mid-advance()
+            auto hit = physics::KinematicQuery::raycast(
+                origin, dir, maxDist, world->getRegistry(), exclude);
+            py::object ent = hit.hit ? py::cast(hit.entity) : py::none();
+            return py::make_tuple(hit.hit, ent, hit.point, hit.normal, hit.t);
+        }, py::arg("origin"), py::arg("dir"), py::arg("max_dist"),
+           py::arg("exclude") = py::none());
+
+    // Wall-clock seconds since engine startup (GLFW timer).
+    m.def("time", []() { return glfwGetTime(); });
+
+    // Per-frame debug overlay: accumulate a world-space segment / ray (drawn always-on-top).
+    // Cleared automatically each frame before scripts run, so call from update().
+    m.def("draw_line",
+        [](math::Vec3 a, math::Vec3 b, py::object color_obj) {
+            math::Vec3 c{1.f, 1.f, 0.f};
+            if (!color_obj.is_none()) c = color_obj.cast<math::Vec3>();
+            auto* world = py::module_::import("yope").attr("world").cast<World*>();
+            world->addDebugLine(a, b, c);
+        }, py::arg("a"), py::arg("b"), py::arg("color") = py::none());
+    m.def("draw_ray",
+        [](math::Vec3 origin, math::Vec3 dir, float length, py::object color_obj) {
+            math::Vec3 c{1.f, 1.f, 0.f};
+            if (!color_obj.is_none()) c = color_obj.cast<math::Vec3>();
+            auto* world = py::module_::import("yope").attr("world").cast<World*>();
+            world->addDebugLine(origin, origin + dir.normalize() * length, c);
+        }, py::arg("origin"), py::arg("dir"), py::arg("length") = 1.0f,
+           py::arg("color") = py::none());
+
     // Module-level singletons — set to None until bindContext() is called
     m.attr("world")         = py::none();
     m.attr("camera")        = py::none();
     m.attr("input")         = py::none();
     m.attr("audio")         = py::none();
     m.attr("scene_manager") = py::none();
+    m.attr("window")        = py::none();
 
     // Convenience: yope.load_scene(path) → scene_manager.load_scene(path)
     m.def("load_scene", [](const std::string& path) {

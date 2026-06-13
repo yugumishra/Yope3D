@@ -39,6 +39,11 @@ void Source::enableLooping(bool loop) {
     alSourcei(id_, AL_LOOPING, loop ? AL_TRUE : AL_FALSE);
 }
 
+void Source::setBuffer(ALuint bufferId) {
+    alSourceStop(id_);   // AL_BUFFER can only be set on a non-playing source
+    alSourcei(id_, AL_BUFFER, static_cast<ALint>(bufferId));
+}
+
 bool Source::isPlaying() const {
     ALint state = AL_STOPPED;
     alGetSourcei(id_, AL_SOURCE_STATE, &state);

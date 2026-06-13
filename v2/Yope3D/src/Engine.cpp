@@ -193,6 +193,10 @@ void Engine::update() {
 #else
         sceneManager->flush(scriptCtx_, /*initScripts=*/true);
 #endif
+        // Per-frame debug lines: clear before scripts run so yope.draw_line()
+        // accumulates fresh segments each frame (Renderer reads getDebugLines()).
+        world->clearDebugLines();
+
         // Collect under the structure lock: view iteration on the render thread
         // would race with Sleeping-tag archetype migrations on the physics thread.
         // Scripts execute outside the lock — they call World methods that acquire
@@ -204,6 +208,35 @@ void Engine::update() {
                 if (sc.instance) active.push_back({e, sc.instance});
         }
         for (auto& [e, inst] : active) inst->update(scriptCtx_, e, dt);
+
+        // Collision events only matter when a behavior is live — enabling lazily keeps
+        // script-less / stress scenes at zero cost (physics skips the whole diff).
+        world->setCollisionEventsEnabled(!active.empty());
+
+        // Drain physics-thread collision events and dispatch enter/exit to both
+        // entities' behaviors. reg.valid guards against destruction between tick & drain.
+        auto events = world->drainCollisionEvents();
+        if (!events.empty()) {
+            auto& reg = world->getRegistry();
+            auto dispatch = [&](ecs::Entity self, ecs::Entity other, bool enter) {
+                // Resolve the behavior under the structure lock (the reg.get races
+                // Sleeping-tag migrations on the physics thread), then release it
+                // before running Python — the Script* is a stable heap pointer.
+                Script* inst = nullptr;
+                {
+                    auto lock = world->lockStructure();
+                    if (!reg.valid(self)) return;
+                    if (auto* sc = reg.get<ecs::ScriptComponent>(self)) inst = sc->instance;
+                }
+                if (!inst) return;
+                if (enter) inst->onCollisionEnter(scriptCtx_, self, other);
+                else       inst->onCollisionExit (scriptCtx_, self, other);
+            };
+            for (auto& ev : events) {
+                dispatch(ev.a, ev.b, ev.enter);
+                dispatch(ev.b, ev.a, ev.enter);
+            }
+        }
     }
     { YOPE_PROF_SCOPE("ui_update",     "render"); uiManager->update(dt); }
 

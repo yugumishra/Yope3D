@@ -88,6 +88,24 @@ Source* AudioSystem::createSource(SoundBuffer* buffer) {
     return sources_.back().get();
 }
 
+Source* AudioSystem::playTransient(SoundBuffer* buffer) {
+    // Recycle a finished transient voice if one is free.
+    for (auto& s : sources_) {
+        if (s->transient && !s->isPlaying()) {
+            s->setBuffer(buffer->id);
+            s->setGain(1.0f);
+            s->setPitch(1.0f);
+            s->enableLooping(false);
+            return s.get();
+        }
+    }
+    // None reusable — allocate one and tag it transient.
+    sources_.push_back(std::make_unique<Source>(buffer->id));
+    Source* s = sources_.back().get();
+    s->transient = true;
+    return s;
+}
+
 void AudioSystem::pauseAll() {
     for (auto& src : sources_) {
         if (src->isPlaying()) {

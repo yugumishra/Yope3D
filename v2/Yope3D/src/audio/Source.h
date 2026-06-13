@@ -29,11 +29,19 @@ public:
     void setReferenceDistance(float dist);
     void enableLooping(bool loop);
 
+    // Rebind the AL buffer (stops the source first). Used to recycle a finished
+    // transient voice for a new one-shot instead of allocating another source.
+    void setBuffer(ALuint bufferId);
+
     bool isPlaying() const;
 
     // Set by AudioSystem::pauseAll(); cleared by resumeAll().
     // Prevents resumeAll() from resuming sources the user deliberately paused.
     bool pausedBySystem = false;
+
+    // True for one-shot voices created by yope.play_sound — eligible for reuse by
+    // AudioSystem::playTransient once they stop, so footstep/impact spam can't leak.
+    bool transient = false;
 
 private:
     ALuint id_ = 0;

@@ -1,6 +1,7 @@
 #ifdef YOPE_PYTHON
 #include "scripting/python/PyComponentTable.h"
 #include "ecs/Components.h"
+#include "ecs/Registry.h"
 #include "world/Transform.h"
 
 namespace py = pybind11;
@@ -9,20 +10,52 @@ namespace PyComponentTable {
 
 static std::vector<PyCompEntry> s_entries;
 
+// Build a full table entry for component type T: name + typeId + py wrapper +
+// default-add + remove. Keeps build() a flat, declarative list.
+template <class T>
+static PyCompEntry entryFor(const char* name) {
+    return {
+        name,
+        ecs::typeId<T>(),
+        [](void* p) { return py::cast(static_cast<T*>(p), py::return_value_policy::reference); },
+        [](ecs::Registry& r, ecs::Entity e) { if (!r.has<T>(e)) r.add<T>(e, T{}); },
+        [](ecs::Registry& r, ecs::Entity e) { if (r.has<T>(e))  r.remove<T>(e); }
+    };
+}
+
+// Zero-size tag components (Sleeping/Fixed) aren't bound py::class_es, so their wrap
+// just returns True (presence) — reg_get(e, "Fixed") is True/None; reg_has is the idiom.
+template <class T>
+static PyCompEntry tagEntryFor(const char* name) {
+    return {
+        name,
+        ecs::typeId<T>(),
+        [](void*) { return py::object(py::cast(true)); },
+        [](ecs::Registry& r, ecs::Entity e) { if (!r.has<T>(e)) r.add<T>(e, T{}); },
+        [](ecs::Registry& r, ecs::Entity e) { if (r.has<T>(e))  r.remove<T>(e); }
+    };
+}
+
 void build() {
-    using rv = py::return_value_policy;
     s_entries = {
-        { "Transform",        ecs::typeId<Transform>(),              [](void* p) { return py::cast(static_cast<Transform*>(p),              rv::reference); } },
-        { "Hull",             ecs::typeId<ecs::Hull>(),              [](void* p) { return py::cast(static_cast<ecs::Hull*>(p),              rv::reference); } },
-        { "SphereForm",       ecs::typeId<ecs::SphereForm>(),        [](void* p) { return py::cast(static_cast<ecs::SphereForm*>(p),        rv::reference); } },
-        { "AABBForm",         ecs::typeId<ecs::AABBForm>(),          [](void* p) { return py::cast(static_cast<ecs::AABBForm*>(p),          rv::reference); } },
-        { "OBBForm",          ecs::typeId<ecs::OBBForm>(),           [](void* p) { return py::cast(static_cast<ecs::OBBForm*>(p),           rv::reference); } },
-        { "CapsuleForm",      ecs::typeId<ecs::CapsuleForm>(),       [](void* p) { return py::cast(static_cast<ecs::CapsuleForm*>(p),       rv::reference); } },
-        { "CylinderForm",     ecs::typeId<ecs::CylinderForm>(),      [](void* p) { return py::cast(static_cast<ecs::CylinderForm*>(p),      rv::reference); } },
-        { "LightSource",      ecs::typeId<ecs::LightSource>(),       [](void* p) { return py::cast(static_cast<ecs::LightSource*>(p),       rv::reference); } },
-        { "Name",             ecs::typeId<ecs::Name>(),              [](void* p) { return py::cast(static_cast<ecs::Name*>(p),              rv::reference); } },
-        { "SpringConstraint", ecs::typeId<ecs::SpringConstraint>(),  [](void* p) { return py::cast(static_cast<ecs::SpringConstraint*>(p),  rv::reference); } },
-        { "ScriptComponent",  ecs::typeId<ecs::ScriptComponent>(),   [](void* p) { return py::cast(static_cast<ecs::ScriptComponent*>(p),   rv::reference); } },
+        entryFor<Transform>             ("Transform"),
+        entryFor<ecs::Hull>             ("Hull"),
+        entryFor<ecs::SphereForm>       ("SphereForm"),
+        entryFor<ecs::AABBForm>         ("AABBForm"),
+        entryFor<ecs::OBBForm>          ("OBBForm"),
+        entryFor<ecs::CapsuleForm>      ("CapsuleForm"),
+        entryFor<ecs::CylinderForm>     ("CylinderForm"),
+        entryFor<ecs::LightSource>      ("LightSource"),
+        entryFor<ecs::Name>             ("Name"),
+        entryFor<ecs::SpringConstraint> ("SpringConstraint"),
+        entryFor<ecs::ScriptComponent>  ("ScriptComponent"),
+        entryFor<ecs::UITransform>      ("UITransform"),
+        entryFor<ecs::UIBackground>     ("UIBackground"),
+        entryFor<ecs::UIText>           ("UIText"),
+        entryFor<ecs::TextLabel3D>      ("TextLabel3D"),
+        entryFor<ecs::AudioSource>      ("AudioSource"),
+        tagEntryFor<ecs::Sleeping>      ("Sleeping"),
+        tagEntryFor<ecs::Fixed>         ("Fixed"),
     };
 }
 
@@ -41,6 +74,20 @@ py::object wrapPtr(const std::string& name, void* ptr) {
         if (e.name == name) return e.wrap(ptr);
     }
     return py::none();
+}
+
+bool addByName(ecs::Registry& reg, ecs::Entity e, const std::string& name) {
+    for (auto& en : s_entries) {
+        if (en.name == name) { en.addDefault(reg, e); return true; }
+    }
+    return false;
+}
+
+bool removeByName(ecs::Registry& reg, ecs::Entity e, const std::string& name) {
+    for (auto& en : s_entries) {
+        if (en.name == name) { en.remove(reg, e); return true; }
+    }
+    return false;
 }
 
 } // namespace PyComponentTable

@@ -643,6 +643,86 @@ void World::removeSpringBetween(ecs::Entity a, ecs::Entity b) {
         }), springs_.end());
 }
 
+// ---- Script physics helpers ----
+
+void World::wake(ecs::Entity e) {
+    std::lock_guard lk(structureMtx_);
+    // Zero sleepFrames BEFORE removing the tag — remove<Sleeping> migrates the
+    // archetype and memcpy-moves the Hull, invalidating any prior pointer.
+    if (auto* h = registry_.get<ecs::Hull>(e)) h->sleepFrames = 0;
+    if (registry_.has<ecs::Sleeping>(e)) registry_.remove<ecs::Sleeping>(e);
+}
+
+void World::applyImpulse(ecs::Entity e, math::Vec3 impulse) {
+    std::lock_guard lk(structureMtx_);
+    auto* h = registry_.get<ecs::Hull>(e);
+    if (!h || h->inverseMass <= 0.0f) return;
+    h->velocity += impulse * h->inverseMass;   // write before wake() may migrate the Hull
+    wake(e);                                    // recursive mutex — safe to re-lock
+}
+
+void World::applyImpulseAt(ecs::Entity e, math::Vec3 impulse, math::Vec3 worldPoint) {
+    std::lock_guard lk(structureMtx_);
+    auto* h  = registry_.get<ecs::Hull>(e);
+    auto* tf = registry_.get<Transform>(e);
+    if (!h || !tf || h->inverseMass <= 0.0f) return;
+    math::Vec3 r = worldPoint - tf->position;
+    math::Mat3 R = math::Mat3::rotation(tf->rotation);
+    math::Mat3 worldInvI = R * h->inverseInertia * R.transpose();
+    h->velocity += impulse * h->inverseMass;
+    h->omega    += worldInvI * r.cross(impulse);
+    wake(e);
+}
+
+void World::addDebugLine(math::Vec3 a, math::Vec3 b, math::Vec3 color) {
+    debugLines_.push_back({ a.x, a.y, a.z, color.x, color.y, color.z, 1.0f });
+    debugLines_.push_back({ b.x, b.y, b.z, color.x, color.y, color.z, 1.0f });
+}
+
+// Order-independent 64-bit key for an entity pair (generation ignored — adequate
+// for frame-to-frame event matching).
+static uint64_t pairKey(ecs::Entity a, ecs::Entity b) {
+    uint32_t lo = a.id < b.id ? a.id : b.id;
+    uint32_t hi = a.id < b.id ? b.id : a.id;
+    return (static_cast<uint64_t>(lo) << 32) | hi;
+}
+
+void World::detectCollisionEvents() {
+    // Build this tick's contact-pair set, but only for pairs where at least one side
+    // carries a behavior — keeps the diff/queue tiny and meaningful.
+    std::unordered_map<uint64_t, std::pair<ecs::Entity, ecs::Entity>> current;
+    current.reserve(advanceContacts_.size());
+    for (const auto& c : advanceContacts_) {
+        if (!registry_.has<ecs::ScriptComponent>(c.a) &&
+            !registry_.has<ecs::ScriptComponent>(c.b)) continue;
+        current.emplace(pairKey(c.a, c.b), std::make_pair(c.a, c.b));
+    }
+
+    std::vector<CollisionEvent> evs;
+    for (const auto& [k, ab] : current)
+        if (!prevContactPairs_.count(k)) evs.push_back({ ab.first, ab.second, true });
+    for (const auto& [k, ab] : prevContactPairs_)
+        if (!current.count(k)) evs.push_back({ ab.first, ab.second, false });
+
+    prevContactPairs_ = std::move(current);
+
+    if (!evs.empty()) {
+        std::lock_guard<std::mutex> lk(collisionEventMtx_);
+        for (auto& e : evs) collisionEvents_.push_back(e);
+        // Safety cap in case nothing drains (e.g. behaviors but no consumer this frame).
+        if (collisionEvents_.size() > 8192)
+            collisionEvents_.erase(collisionEvents_.begin(),
+                collisionEvents_.end() - 8192);
+    }
+}
+
+std::vector<World::CollisionEvent> World::drainCollisionEvents() {
+    std::lock_guard<std::mutex> lk(collisionEventMtx_);
+    std::vector<CollisionEvent> out;
+    out.swap(collisionEvents_);
+    return out;
+}
+
 // ---- Lights ----
 
 ecs::Entity World::addLight(const Light& light) {
@@ -783,6 +863,17 @@ void World::removeLight(int index) {
     }
 }
 
+void World::removeLight(ecs::Entity e) {
+    std::lock_guard lk(structureMtx_);
+    auto it = std::find(lightEntities_.begin(), lightEntities_.end(), e);
+    if (it != lightEntities_.end()) lightEntities_.erase(it);
+    if (registry_.valid(e)) removeEntity(e);   // full cleanup (mesh/springs/cache + destroy)
+}
+
+void World::setMeshVisible(ecs::Entity e, bool visible) {
+    if (RenderMesh* m = getMesh(e)) m->visible = visible;
+}
+
 // ---- resetPhysics ----
 
 void World::resetPhysics() {
@@ -804,6 +895,12 @@ void World::resetPhysics() {
     springs_.clear();
     contactCache_.clear();
     meshToEntity_.clear();
+
+    // Collision-event state must not survive a scene swap: the fresh registry
+    // recycles entity ids from 0, so a stale pair set would fire spurious exits at
+    // unrelated new entities and swallow genuine enters whose key collides.
+    prevContactPairs_.clear();
+    { std::lock_guard<std::mutex> elk(collisionEventMtx_); collisionEvents_.clear(); }
 
     {
         std::lock_guard slk(snapshotMtx_);
@@ -844,6 +941,7 @@ void World::cleanup() {
 
 void World::advance(float dt) {
     if (paused_.load(std::memory_order_relaxed)) return;
+    tickCount_.fetch_add(1, std::memory_order_relaxed);
     YOPE_PROF_STEP("physics");
     std::lock_guard lk(structureMtx_);
 
@@ -914,6 +1012,11 @@ void World::advance(float dt) {
         physics::ColliderDiscrete::emitNarrowphaseProfile();
     }
     YOPE_PROF_SET_CONTACT_COUNT(advanceContacts_.size());
+
+    // 2b. Collision enter/exit events (only when a behavior is listening). Uses the
+    // freshly-built advanceContacts_ — runs even when empty so separations fire exits.
+    if (collisionEventsEnabled_.load(std::memory_order_relaxed))
+        detectCollisionEvents();
 
     // 3. Island-partitioned PGS solve.
     lastIslandCount_ = 0;

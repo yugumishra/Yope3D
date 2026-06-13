@@ -6,6 +6,8 @@
 #include "ecs/Entity.h"
 #include "world/Transform.h"
 #include "world/World.h"
+#include "audio/Source.h"   // complete type for AudioSource.source binding
+#include "scripting/Script.h"  // Script::pyInstanceHandle for get_behavior
 #include "scripting/python/PyComponentTable.h"
 
 namespace py = pybind11;
@@ -41,7 +43,9 @@ void bind_ecs(py::module_& m) {
         .def_readwrite("friction",        &ecs::Hull::friction)
         .def_readwrite("restitution",     &ecs::Hull::restitution)
         .def_readwrite("gravity",         &ecs::Hull::gravity)
-        .def_readwrite("tangible",        &ecs::Hull::tangible);
+        .def_readwrite("tangible",        &ecs::Hull::tangible)
+        .def_readwrite("collision_layer", &ecs::Hull::collisionLayer)
+        .def_readwrite("collision_mask",  &ecs::Hull::collisionMask);
 
     // Shape forms
     py::class_<ecs::SphereForm>(m, "SphereForm")
@@ -104,6 +108,76 @@ void bind_ecs(py::module_& m) {
                 std::strncpy(s.paramsBlob, v.c_str(), sizeof(s.paramsBlob) - 1);
             });
 
+    // ---- UI + 3D-text components (mutate after creation via reg_get / set_text) ----
+    py::class_<ecs::UITransform>(m, "UITransform")
+        .def_readwrite("min_x", &ecs::UITransform::minX)
+        .def_readwrite("min_y", &ecs::UITransform::minY)
+        .def_readwrite("max_x", &ecs::UITransform::maxX)
+        .def_readwrite("max_y", &ecs::UITransform::maxY)
+        .def_readwrite("depth", &ecs::UITransform::depth)
+        .def_readwrite("visible", &ecs::UITransform::visible);
+
+    py::class_<ecs::UIBackground>(m, "UIBackground")
+        .def_readwrite("r", &ecs::UIBackground::r)
+        .def_readwrite("g", &ecs::UIBackground::g)
+        .def_readwrite("b", &ecs::UIBackground::b)
+        .def_readwrite("a", &ecs::UIBackground::a);
+
+    py::class_<ecs::UIText>(m, "UIText")
+        .def_property("text",
+            [](const ecs::UIText& t) { return std::string(t.text); },
+            [](ecs::UIText& t, const std::string& s) {
+                std::strncpy(t.text, s.c_str(), sizeof(t.text) - 1);
+                t.text[sizeof(t.text) - 1] = '\0';
+            })
+        .def_property("font",
+            [](const ecs::UIText& t) { return std::string(t.fontPath); },
+            [](ecs::UIText& t, const std::string& s) {
+                std::strncpy(t.fontPath, s.c_str(), sizeof(t.fontPath) - 1);
+                t.fontPath[sizeof(t.fontPath) - 1] = '\0';
+            })
+        .def_readwrite("r", &ecs::UIText::cr)
+        .def_readwrite("g", &ecs::UIText::cg)
+        .def_readwrite("b", &ecs::UIText::cb)
+        .def_readwrite("a", &ecs::UIText::ca)
+        .def_readwrite("display_px", &ecs::UIText::displayPx)
+        .def_readwrite("alignment",  &ecs::UIText::alignment);
+
+    py::class_<ecs::TextLabel3D>(m, "TextLabel3D")
+        .def_property("text",
+            [](const ecs::TextLabel3D& t) { return std::string(t.text); },
+            [](ecs::TextLabel3D& t, const std::string& s) {
+                std::strncpy(t.text, s.c_str(), sizeof(t.text) - 1);
+                t.text[sizeof(t.text) - 1] = '\0';
+            })
+        .def_property("font",
+            [](const ecs::TextLabel3D& t) { return std::string(t.fontPath); },
+            [](ecs::TextLabel3D& t, const std::string& s) {
+                std::strncpy(t.fontPath, s.c_str(), sizeof(t.fontPath) - 1);
+                t.fontPath[sizeof(t.fontPath) - 1] = '\0';
+            })
+        .def_readwrite("r", &ecs::TextLabel3D::cr)
+        .def_readwrite("g", &ecs::TextLabel3D::cg)
+        .def_readwrite("b", &ecs::TextLabel3D::cb)
+        .def_readwrite("a", &ecs::TextLabel3D::ca)
+        .def_readwrite("size_meters", &ecs::TextLabel3D::sizeMeters)
+        .def_readwrite("billboard",   &ecs::TextLabel3D::billboard);
+
+    py::class_<ecs::AudioSource>(m, "AudioSource")
+        .def_property("path",
+            [](const ecs::AudioSource& a) { return std::string(a.path); },
+            [](ecs::AudioSource& a, const std::string& s) {
+                std::strncpy(a.path, s.c_str(), sizeof(a.path) - 1);
+                a.path[sizeof(a.path) - 1] = '\0';
+            })
+        .def_readwrite("gain",     &ecs::AudioSource::gain)
+        .def_readwrite("pitch",    &ecs::AudioSource::pitch)
+        .def_readwrite("loop",     &ecs::AudioSource::loop)
+        .def_readwrite("autoplay", &ecs::AudioSource::autoplay)
+        .def_property_readonly("source",
+            [](ecs::AudioSource& a) { return a.source; },
+            py::return_value_policy::reference);
+
     // view(*component_names) → list of tuples (entity, comp1, comp2, ...)
     // The registry is accessed via the module-level 'yope.world' attribute.
     // Note: must be called from the main thread while physics is paused.
@@ -114,6 +188,9 @@ void bind_ecs(py::module_& m) {
             throw std::runtime_error("yope.world not bound — call bindContext first");
         }
         auto* world = worldObj.cast<World*>();
+        // Lock for the whole build: getRaw walks archetype arrays the physics thread
+        // may be migrating (Sleeping-tag adds) during advance().
+        auto lock = world->lockStructure();
         auto& reg = world->getRegistry();
 
         // Collect TypeIds for the requested component names
@@ -151,17 +228,103 @@ void bind_ecs(py::module_& m) {
     // reg_get / reg_has helpers
     m.def("reg_get", [](ecs::Entity e, const std::string& name) -> py::object {
         auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto lock = world->lockStructure();
         void* ptr = world->getRegistry().getRaw(e, PyComponentTable::typeIdForName(name));
         return PyComponentTable::wrapPtr(name, ptr);
     });
     m.def("reg_has", [](ecs::Entity e, const std::string& name) -> bool {
         auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto lock = world->lockStructure();
         auto tid = PyComponentTable::typeIdForName(name);
         return world->getRegistry().getRaw(e, tid) != nullptr;
     });
     m.def("reg_valid", [](ecs::Entity e) -> bool {
         auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto lock = world->lockStructure();
         return world->getRegistry().valid(e);
     });
+
+    // Tag queries (the question wake() / fix_entity answer). Also reachable via
+    // reg_has(e, "Sleeping") / reg_has(e, "Fixed").
+    m.def("is_sleeping", [](ecs::Entity e) -> bool {
+        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto lock = world->lockStructure();
+        return world->getRegistry().has<ecs::Sleeping>(e);
+    }, py::arg("entity"));
+    m.def("is_fixed", [](ecs::Entity e) -> bool {
+        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto lock = world->lockStructure();
+        return world->getRegistry().has<ecs::Fixed>(e);
+    }, py::arg("entity"));
+
+    // set_text — mutate whichever text component the entity carries (UIText or TextLabel3D).
+    m.def("set_text", [](ecs::Entity e, const std::string& s) {
+        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto lock = world->lockStructure();
+        auto& reg = world->getRegistry();
+        if (auto* t = reg.get<ecs::UIText>(e)) {
+            std::strncpy(t->text, s.c_str(), sizeof(t->text) - 1);
+            t->text[sizeof(t->text) - 1] = '\0';
+        } else if (auto* t = reg.get<ecs::TextLabel3D>(e)) {
+            std::strncpy(t->text, s.c_str(), sizeof(t->text) - 1);
+            t->text[sizeof(t->text) - 1] = '\0';
+        }
+    }, py::arg("entity"), py::arg("text"));
+
+    // Safe re-resolving accessors — look the component up per call, so they never
+    // hold a stale reference across an archetype migration. Prefer these in hot paths.
+    m.def("get_position", [](ecs::Entity e) -> py::object {
+        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto lock = world->lockStructure();
+        if (auto* tf = world->getRegistry().get<Transform>(e)) return py::cast(tf->position);
+        return py::none();
+    }, py::arg("entity"));
+    m.def("set_position", [](ecs::Entity e, math::Vec3 p) {
+        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto lock = world->lockStructure();
+        if (auto* tf = world->getRegistry().get<Transform>(e)) tf->position = p;
+    }, py::arg("entity"), py::arg("pos"));
+    m.def("set_velocity", [](ecs::Entity e, math::Vec3 v) {
+        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto lock = world->lockStructure();
+        if (auto* h = world->getRegistry().get<ecs::Hull>(e)) h->velocity = v;
+    }, py::arg("entity"), py::arg("velocity"));
+
+    // reg_add / reg_remove — change an entity's component composition. Both take the
+    // structure lock (composition change = archetype migration vs. the physics thread).
+    m.def("reg_add", [](ecs::Entity e, const std::string& name) {
+        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto lock = world->lockStructure();
+        if (!PyComponentTable::addByName(world->getRegistry(), e, name))
+            throw std::runtime_error("Unknown component: " + name);
+    }, py::arg("entity"), py::arg("name"));
+    m.def("reg_remove", [](ecs::Entity e, const std::string& name) {
+        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto lock = world->lockStructure();
+        if (!PyComponentTable::removeByName(world->getRegistry(), e, name))
+            throw std::runtime_error("Unknown component: " + name);
+    }, py::arg("entity"), py::arg("name"));
+
+    // find_entity — first entity whose Name matches (or None). Linear scan.
+    m.def("find_entity", [](const std::string& name) -> py::object {
+        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto lock = world->lockStructure();
+        for (auto [e, n] : world->getRegistry().view<ecs::Name>()) {
+            if (name == n.value) return py::cast(e);
+        }
+        return py::none();
+    }, py::arg("name"));
+
+    // get_behavior — the live Python instance of another entity's behavior, or None.
+    // Lets one behavior read/call another's state directly (inter-script comms).
+    m.def("get_behavior", [](ecs::Entity e) -> py::object {
+        auto* world = py::module_::import("yope").attr("world").cast<World*>();
+        auto lock = world->lockStructure();
+        auto* sc = world->getRegistry().get<ecs::ScriptComponent>(e);
+        if (!sc || !sc->instance) return py::none();
+        void* h = sc->instance->pyInstanceHandle();
+        if (!h) return py::none();
+        return py::reinterpret_borrow<py::object>(reinterpret_cast<PyObject*>(h));
+    }, py::arg("entity"));
 }
 #endif // YOPE_PYTHON
