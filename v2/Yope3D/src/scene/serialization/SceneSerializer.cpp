@@ -40,6 +40,7 @@ static std::vector<CompSerEntry> buildSerTable() {
         { ecs::typeId<ecs::CapsuleForm>(),           "CapsuleForm",           compser::serializeCapsuleForm,           compser::deserializeCapsuleForm           },
         { ecs::typeId<ecs::CylinderForm>(),          "CylinderForm",          compser::serializeCylinderForm,          compser::deserializeCylinderForm          },
         { ecs::typeId<ecs::MeshRenderer>(),          "MeshRenderer",          compser::serializeMeshRenderer,          compser::deserializeMeshRenderer          },
+        { ecs::typeId<ecs::Material>(),              "Material",              compser::serializeMaterial,              compser::deserializeMaterial              },
         { ecs::typeId<ecs::LightSource>(),           "LightSource",           compser::serializeLightSource,           compser::deserializeLightSource           },
         { ecs::typeId<ecs::SpringConstraint>(),      "SpringConstraint",      compser::serializeSpringConstraint,      compser::deserializeSpringConstraint      },
         { ecs::typeId<ecs::AudioSource>(),           "AudioSource",           compser::serializeAudioSource,           compser::deserializeAudioSource           },
@@ -218,6 +219,10 @@ std::string load(const char* path, ecs::Registry& reg, World& world,
         if (entNode.contains("TextLabel3D")) {
             snap.hasTextLabel3D = true;
             compser::deserializeTextLabel3D(entNode["TextLabel3D"], &snap.textLabel3D);
+        }
+        if (entNode.contains("Material")) {
+            snap.hasMaterial = true;
+            compser::deserializeMaterial(entNode["Material"], &snap.material);
         }
         if (entNode.contains("SpringConstraint")) {
             snap.hasSpring = true;

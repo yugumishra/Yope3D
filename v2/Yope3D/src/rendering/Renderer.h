@@ -13,6 +13,7 @@
 #include "Light.h"
 #include "../world/World.h"
 #include "RenderMode.h"
+#include "Skybox.h"
 
 class GpuDevice;
 class Window;
@@ -55,6 +56,7 @@ public:
 
     VkCommandPool         getCommandPool()      const { return commandPool; }
     VkDescriptorSetLayout getTextureSetLayout() const;
+    VkDescriptorSetLayout getMaterialSetLayout() const;
     const Swapchain&      getSwapchain()        const { return *swapchain; }
     VkFormat              getDepthFormat()      const;
 
@@ -69,6 +71,7 @@ private:
     std::unique_ptr<DepthBuffer>         depthBuffer;
     std::unique_ptr<DescriptorSetLayout> uboLayout;
     std::unique_ptr<DescriptorSetLayout> textureSetLayout;
+    std::unique_ptr<DescriptorSetLayout> materialSetLayout;  // set 1, 5 PBR samplers
     std::unique_ptr<DescriptorPool>      descriptorPool;
 
     std::array<UniformBuffer,    MAX_FRAMES> uniformBuffers;
@@ -77,6 +80,11 @@ private:
 
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkPipeline       pipeline       = VK_NULL_HANDLE;
+
+    // Cubemap skybox: drawn first in the 3D pass (depth LEQUAL, no write).
+    Skybox           skybox_;
+    VkPipelineLayout skyboxPipelineLayout_ = VK_NULL_HANDLE;
+    VkPipeline       skyboxPipeline_       = VK_NULL_HANDLE;
 
     std::vector<VkFramebuffer> framebuffers;
 
@@ -127,6 +135,16 @@ private:
     void createRenderPass(GpuDevice& gpu);
     void createUBOLayout(VkDevice device);
     void createTextureSetLayout(VkDevice device);
+    void createMaterialSetLayout(VkDevice device);
+    void createSkyboxPipeline(VkDevice device);
+
+    // Records the scene mesh draws (mesh loop + debug-physics meshes) into the
+    // main 3D pass. Shared by the runtime and editor-offscreen record paths.
+    void recordSceneMeshes(VkCommandBuffer cmd, World& world, class AssetManager& assets);
+
+    // (Re)loads the cubemap if World marked it dirty; records the skybox draw.
+    void updateSkybox(GpuDevice& gpu, World& world);
+    void recordSkybox(VkCommandBuffer cmd);
     void createUniformBuffers(GpuDevice& gpu);
     void createDescriptorPool(VkDevice device);
     void createDescriptorSets(VkDevice device);

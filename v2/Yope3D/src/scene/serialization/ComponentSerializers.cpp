@@ -163,6 +163,46 @@ bool deserializeMeshRenderer(const JsonNode& /*n*/, void* /*comp*/) {
     return true;
 }
 
+// ---- Material ----
+void serializeMaterial(const void* comp, JsonWriter& w) {
+    auto* m = static_cast<const ecs::Material*>(comp);
+    if (m->albedoPath[0])     w.writeString("albedoPath",     m->albedoPath);
+    if (m->normalPath[0])     w.writeString("normalPath",     m->normalPath);
+    if (m->metalRoughPath[0]) w.writeString("metalRoughPath", m->metalRoughPath);
+    if (m->occlusionPath[0])  w.writeString("occlusionPath",  m->occlusionPath);
+    if (m->emissivePath[0])   w.writeString("emissivePath",   m->emissivePath);
+    w.writeFloat4("albedoFactor",   m->albedoFactor[0], m->albedoFactor[1],
+                                    m->albedoFactor[2], m->albedoFactor[3]);
+    w.writeFloat ("metallicFactor",  m->metallicFactor);
+    w.writeFloat ("roughnessFactor", m->roughnessFactor);
+    w.writeFloat3("emissiveFactor",  m->emissiveFactor[0], m->emissiveFactor[1], m->emissiveFactor[2]);
+    w.writeFloat ("normalScale",     m->normalScale);
+}
+bool deserializeMaterial(const JsonNode& n, void* comp) {
+    auto* m = static_cast<ecs::Material*>(comp);
+    auto str = [&](const char* key, char* dst, size_t cap) {
+        if (n.contains(key)) { std::strncpy(dst, n[key].asString().c_str(), cap - 1); dst[cap - 1] = '\0'; }
+    };
+    str("albedoPath",     m->albedoPath,     sizeof(m->albedoPath));
+    str("normalPath",     m->normalPath,     sizeof(m->normalPath));
+    str("metalRoughPath", m->metalRoughPath, sizeof(m->metalRoughPath));
+    str("occlusionPath",  m->occlusionPath,  sizeof(m->occlusionPath));
+    str("emissivePath",   m->emissivePath,   sizeof(m->emissivePath));
+    if (n.contains("albedoFactor")) {
+        auto& a = n["albedoFactor"].asArray();
+        if (a.size() >= 4) for (int i = 0; i < 4; ++i) m->albedoFactor[i] = a[i].asFloat();
+    }
+    if (n.contains("metallicFactor"))  m->metallicFactor  = n["metallicFactor"].asFloat();
+    if (n.contains("roughnessFactor")) m->roughnessFactor = n["roughnessFactor"].asFloat();
+    if (n.contains("emissiveFactor")) {
+        auto& a = n["emissiveFactor"].asArray();
+        if (a.size() >= 3) for (int i = 0; i < 3; ++i) m->emissiveFactor[i] = a[i].asFloat();
+    }
+    if (n.contains("normalScale")) m->normalScale = n["normalScale"].asFloat();
+    m->resolved = nullptr;   // force re-resolve against the live MaterialCache
+    return true;
+}
+
 // ---- LightSource ----
 
 void serializeLightSource(const void* comp, JsonWriter& w) {

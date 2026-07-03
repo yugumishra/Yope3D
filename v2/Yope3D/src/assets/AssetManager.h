@@ -4,9 +4,11 @@
 #include <memory>
 #include <string>
 #include "../gpu/Texture.h"
+#include "../rendering/MaterialCache.h"
 
 class GpuDevice;
 class RenderMesh;
+namespace ecs { struct Material; }
 
 // ---------------------------------------------------------------------------
 // AssetManager
@@ -22,19 +24,42 @@ public:
     ~AssetManager();
 
     // Initialize the asset manager with GPU context and command pool.
+    // textureSetLayout  — single-sampler set (UI + legacy per-texture sets).
+    // materialSetLayout — 5-sampler PBR material set (shared with MaterialCache).
     void init(GpuDevice& gpu, VkCommandPool commandPool,
-              VkDescriptorSetLayout textureSetLayout);
+              VkDescriptorSetLayout textureSetLayout,
+              VkDescriptorSetLayout materialSetLayout);
 
     // Cleanup all resources. Must be called before GPU is destroyed.
     void cleanup(VkDevice device);
 
-    // Load a texture from disk (deduplicates by path).
+    // Load a texture from disk (deduplicates by path). srgb=true (default) for
+    // color maps (albedo/emissive); srgb=false for data maps (normal/metal-rough/
+    // occlusion) whose values must not be gamma-decoded.
     // Supports both embedded assets (YOPE_EMBED_ASSETS) and filesystem mode.
     Texture* loadTexture(GpuDevice& gpu, const std::string& path);
     Texture* loadTexture(const std::string& path);  // script-friendly: uses cached gpu
+    Texture* loadTextureSrgb(const std::string& path, bool srgb);
+
+    // Register an already-decoded RGBA8 image under a synthetic cache key, stored
+    // under the same srgb-aware key loadTextureSrgb(path, srgb) computes — so a
+    // later material resolve finds it. Used by GltfLoader for embedded/base64 images.
+    Texture* registerDecodedTexture(const std::string& path, bool srgb,
+                                    const uint8_t* pixels, int width, int height);
 
     // Get the default 1×1 white texture (used for untextured meshes).
     Texture* getDefaultTexture() const;
+
+    // Default PBR map textures (1×1) for unfilled material slots.
+    Texture* getDefaultAlbedo()     const { return defaultTexture.get(); }      // white, sRGB
+    Texture* getDefaultNormal()     const { return defaultNormal.get(); }       // flat (0,0,1)
+    Texture* getDefaultMetalRough() const { return defaultMetalRough.get(); }   // white (neutral)
+    Texture* getDefaultOcclusion()  const { return defaultOcclusion.get(); }    // white (unoccluded)
+    Texture* getDefaultEmissive()   const { return defaultEmissive.get(); }     // black
+
+    // Material descriptor sets (set 1, 5 PBR samplers).
+    VkDescriptorSet   defaultMaterialSet(Texture* albedo) { return materialCache_.defaultSetFor(albedo); }
+    ResolvedMaterial* resolveMaterial(const ecs::Material& m) { return materialCache_.resolve(m); }
 
     // Load a mesh from an OBJ file (deduplicates by path).
     // The path is relative to YOPE_ASSETS_DIR (e.g., "models/myobj.obj").
@@ -54,8 +79,14 @@ public:
 
 private:
     std::unordered_map<std::string, std::unique_ptr<Texture>> textures;
-    std::unique_ptr<Texture> defaultTexture;
+    std::unique_ptr<Texture> defaultTexture;      // white albedo
+    std::unique_ptr<Texture> defaultNormal;       // flat normal (128,128,255)
+    std::unique_ptr<Texture> defaultMetalRough;   // white (neutral multiply)
+    std::unique_ptr<Texture> defaultOcclusion;    // white
+    std::unique_ptr<Texture> defaultEmissive;     // black
     std::unordered_map<std::string, std::unique_ptr<RenderMesh>> meshes;
+
+    MaterialCache         materialCache_;
 
     GpuDevice*            gpu_ = nullptr;
     VkDescriptorPool      descriptorPool = VK_NULL_HANDLE;

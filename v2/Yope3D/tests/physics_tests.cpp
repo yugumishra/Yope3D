@@ -184,3 +184,49 @@ TEST_CASE("ECS SAP: nearby pair found, distant pair excluded", "[sap][ecs]") {
     CHECK(nearFound);
     CHECK_FALSE(farFound);
 }
+
+static ecs::Entity makeOBBEntity(ecs::Registry& reg, math::Vec3 pos, math::Vec3 ext,
+                                 math::Quat rot = {0, 0, 0, 1}) {
+    ecs::Entity e = reg.create();
+    reg.add<Transform>(e, Transform{pos, rot, {1, 1, 1}});
+    ecs::Hull hc;
+    hc.tangible = true;
+    hc.mass = 1.0f;
+    hc.inverseMass = 1.0f;
+    reg.add<ecs::Hull>(e, hc);
+    reg.add<ecs::OBBForm>(e, {ext});
+    return e;
+}
+
+TEST_CASE("ECS SAP: rotated OBB AABBs are rotation-fattened", "[sap][ecs][obb]") {
+    // Two unit-half-extent cubes rotated 45deg about Z, centers 2.6 apart on X.
+    // Unrotated boxes span x +-1 (gap: 2.6 > 2.0), but the rotated world AABB
+    // half-extent is sqrt(2) (~1.414) so the true boxes overlap (2.83 > 2.6).
+    // The pre-fix broadphase used the unrotated extents and missed this pair.
+    const float h  = 0.5f * math::toRadians(45.0f);
+    math::Quat rotZ{0.0f, 0.0f, std::sin(h), std::cos(h)};
+
+    ecs::Registry reg;
+    ecs::Entity e0 = makeOBBEntity(reg, {0, 0, 0},    {1, 1, 1}, rotZ);
+    ecs::Entity e1 = makeOBBEntity(reg, {2.6f, 0, 0}, {1, 1, 1}, rotZ);
+    std::vector<ecs::Entity> entities = {e0, e1};
+
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
+    sap.collectPairs(entities, reg, pairs);
+
+    bool found = false;
+    for (auto& [a, b] : pairs)
+        if ((a == e0 && b == e1) || (a == e1 && b == e0))
+            found = true;
+    CHECK(found);
+
+    // Negative control: same centers, unrotated — no overlap, no pair.
+    ecs::Registry reg2;
+    ecs::Entity f0 = makeOBBEntity(reg2, {0, 0, 0},    {1, 1, 1});
+    ecs::Entity f1 = makeOBBEntity(reg2, {2.6f, 0, 0}, {1, 1, 1});
+    std::vector<ecs::Entity> entities2 = {f0, f1};
+    pairs.clear();
+    sap.collectPairs(entities2, reg2, pairs);
+    CHECK(pairs.empty());
+}

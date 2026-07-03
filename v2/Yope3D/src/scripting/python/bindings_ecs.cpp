@@ -163,6 +163,58 @@ void bind_ecs(py::module_& m) {
         .def_readwrite("size_meters", &ecs::TextLabel3D::sizeMeters)
         .def_readwrite("billboard",   &ecs::TextLabel3D::billboard);
 
+    {
+        py::class_<ecs::Material>(m, "Material")
+            .def_property("albedo_map",
+                [](const ecs::Material& mat) { return std::string(mat.albedoPath); },
+                [](ecs::Material& mat, const std::string& s) {
+                    std::strncpy(mat.albedoPath, s.c_str(), sizeof(mat.albedoPath) - 1);
+                    mat.albedoPath[sizeof(mat.albedoPath) - 1] = '\0'; mat.resolved = nullptr;
+                })
+            .def_property("normal_map",
+                [](const ecs::Material& mat) { return std::string(mat.normalPath); },
+                [](ecs::Material& mat, const std::string& s) {
+                    std::strncpy(mat.normalPath, s.c_str(), sizeof(mat.normalPath) - 1);
+                    mat.normalPath[sizeof(mat.normalPath) - 1] = '\0'; mat.resolved = nullptr;
+                })
+            .def_property("metal_rough_map",
+                [](const ecs::Material& mat) { return std::string(mat.metalRoughPath); },
+                [](ecs::Material& mat, const std::string& s) {
+                    std::strncpy(mat.metalRoughPath, s.c_str(), sizeof(mat.metalRoughPath) - 1);
+                    mat.metalRoughPath[sizeof(mat.metalRoughPath) - 1] = '\0'; mat.resolved = nullptr;
+                })
+            .def_property("occlusion_map",
+                [](const ecs::Material& mat) { return std::string(mat.occlusionPath); },
+                [](ecs::Material& mat, const std::string& s) {
+                    std::strncpy(mat.occlusionPath, s.c_str(), sizeof(mat.occlusionPath) - 1);
+                    mat.occlusionPath[sizeof(mat.occlusionPath) - 1] = '\0'; mat.resolved = nullptr;
+                })
+            .def_property("emissive_map",
+                [](const ecs::Material& mat) { return std::string(mat.emissivePath); },
+                [](ecs::Material& mat, const std::string& s) {
+                    std::strncpy(mat.emissivePath, s.c_str(), sizeof(mat.emissivePath) - 1);
+                    mat.emissivePath[sizeof(mat.emissivePath) - 1] = '\0'; mat.resolved = nullptr;
+                })
+            .def_property("albedo",
+                [](const ecs::Material& mat) {
+                    return py::make_tuple(mat.albedoFactor[0], mat.albedoFactor[1],
+                                          mat.albedoFactor[2], mat.albedoFactor[3]);
+                },
+                [](ecs::Material& mat, py::sequence s) {
+                    for (int i = 0; i < 4 && i < (int)py::len(s); ++i) mat.albedoFactor[i] = s[i].cast<float>();
+                })
+            .def_readwrite("metallic",     &ecs::Material::metallicFactor)
+            .def_readwrite("roughness",    &ecs::Material::roughnessFactor)
+            .def_readwrite("normal_scale", &ecs::Material::normalScale)
+            .def_property("emissive",
+                [](const ecs::Material& mat) {
+                    return py::make_tuple(mat.emissiveFactor[0], mat.emissiveFactor[1], mat.emissiveFactor[2]);
+                },
+                [](ecs::Material& mat, py::sequence s) {
+                    for (int i = 0; i < 3 && i < (int)py::len(s); ++i) mat.emissiveFactor[i] = s[i].cast<float>();
+                });
+    }
+
     py::class_<ecs::AudioSource>(m, "AudioSource")
         .def_property("path",
             [](const ecs::AudioSource& a) { return std::string(a.path); },

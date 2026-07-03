@@ -1,7 +1,12 @@
 #include "World.h"
 #include "../gpu/GpuDevice.h"
 #include "../assets/Primitives.h"
+#include "../assets/GltfLoader.h"
+#include "../assets/ImageLoader.h"
+#include "../assets/AssetManager.h"
 #include <cstring>
+#include <cctype>
+#include <filesystem>
 #include "../audio/AudioSystem.h"
 #include "../physics/ColliderDiscrete.h"
 #include "../physics/IslandDetector.h"
@@ -393,6 +398,64 @@ ecs::Entity World::addRenderObject(const LoadedMesh& mesh) {
     if (auto* mr = registry_.get<ecs::MeshRenderer>(e))
         setPrimitiveInfo(mr->mesh, mesh);
     return e;
+}
+
+// Copy a parsed MaterialData (from OBJ/MTL or glTF) into an ecs::Material on e.
+static void applyMaterialData(ecs::Registry& reg, ecs::Entity e, const MaterialData& md) {
+    if (!md.hasMaterial) return;
+    ecs::Material mat;
+    auto cp = [](char* dst, const std::string& s) {
+        std::strncpy(dst, s.c_str(), 255); dst[255] = '\0';
+    };
+    cp(mat.albedoPath,     md.albedoPath);
+    cp(mat.normalPath,     md.normalPath);
+    cp(mat.metalRoughPath, md.metalRoughPath);
+    cp(mat.occlusionPath,  md.occlusionPath);
+    cp(mat.emissivePath,   md.emissivePath);
+    mat.albedoFactor[0] = md.albedoFactor.x; mat.albedoFactor[1] = md.albedoFactor.y;
+    mat.albedoFactor[2] = md.albedoFactor.z; mat.albedoFactor[3] = md.albedoFactor.w;
+    mat.metallicFactor  = md.metallicFactor;
+    mat.roughnessFactor = md.roughnessFactor;
+    mat.emissiveFactor[0] = md.emissiveFactor.x;
+    mat.emissiveFactor[1] = md.emissiveFactor.y;
+    mat.emissiveFactor[2] = md.emissiveFactor.z;
+    mat.normalScale = md.normalScale;
+    reg.add<ecs::Material>(e, mat);
+}
+
+std::vector<ecs::Entity> World::addModel(const std::string& path) {
+    AssetManager* assets = assets_;
+    std::string fullPath = (std::filesystem::path(YOPE_ASSETS_DIR) / path).string();
+    std::string ext = std::filesystem::path(path).extension().string();
+    for (char& c : ext) c = static_cast<char>(std::tolower(c));
+
+    std::vector<LoadedMesh> meshes;
+    if (ext == ".glb" || ext == ".gltf") {
+        // Decode glTF-embedded/base64 images and register them as GPU textures.
+        GltfLoader::RegisterImageFn reg;
+        if (assets) {
+            reg = [assets](const std::string& key, const uint8_t* data, int len, bool srgb) -> std::string {
+                LoadedImage img = ImageLoader::loadFromMemory(data, len);
+                assets->registerDecodedTexture(key, srgb, img.pixels.data(), img.width, img.height);
+                return key;
+            };
+        }
+        meshes = GltfLoader::load(fullPath, reg);
+    } else {
+        meshes.push_back(ObjLoader::load(fullPath));
+    }
+
+    std::vector<ecs::Entity> entities;
+    entities.reserve(meshes.size());
+    for (const LoadedMesh& m : meshes) {
+        ecs::Entity e = addRenderObject(m);   // Transform + MeshRenderer (locks internally)
+        {
+            std::lock_guard lk(structureMtx_);
+            applyMaterialData(registry_, e, m.material);
+        }
+        entities.push_back(e);
+    }
+    return entities;
 }
 
 // ---- Attach mesh to existing entity ----

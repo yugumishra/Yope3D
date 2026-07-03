@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include "../math/Vec3.h"
+#include "../math/Vec4.h"
 #include "../world/RenderMesh.h"
 
 // ---------------------------------------------------------------------------
@@ -14,9 +15,22 @@
 // - MTL files: parses usemtl, loads .mtl for Kd (diffuse color) and map_Kd (texture)
 // ---------------------------------------------------------------------------
 
+// PBR metallic-roughness material, fed by both the OBJ/MTL parser and GltfLoader.
+// All *Path values are relative to YOPE_ASSETS_DIR (or a synthetic key registered
+// in AssetManager for glTF-embedded images). hasMaterial gates whether the World
+// factory attaches an ecs::Material; when false the mesh uses the legacy default.
 struct MaterialData {
-    math::Vec3  diffuseColor        = {1.0f, 1.0f, 1.0f};  // Kd from MTL
-    std::string diffuseTexturePath;                          // map_Kd from MTL
+    bool        hasMaterial     = false;
+    math::Vec4  albedoFactor    = {1.0f, 1.0f, 1.0f, 1.0f};  // Kd / baseColorFactor
+    std::string albedoPath;                                   // map_Kd / baseColorTexture
+    std::string normalPath;                                   // map_Kn|map_Bump / normalTexture
+    std::string metalRoughPath;                               // metallicRoughnessTexture
+    std::string occlusionPath;                                // occlusionTexture
+    std::string emissivePath;                                 // map_Ke / emissiveTexture
+    float       metallicFactor  = 0.0f;                       // OBJ default non-metal
+    float       roughnessFactor = 1.0f;
+    math::Vec3  emissiveFactor  = {0.0f, 0.0f, 0.0f};
+    float       normalScale     = 1.0f;
 };
 
 struct LoadedMesh {

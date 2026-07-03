@@ -37,6 +37,31 @@ struct Vertex {
 };
 
 // ---------------------------------------------------------------------------
+// PackedVertex
+//
+// GPU-side upload format. Identical information to a Vertex (+ a tangent frame
+// for normal mapping) compressed to exactly 32 bytes — half a cache line —
+// via octahedral snorm16 encoding of the normal and tangent. The CPU keeps the
+// float `Vertex` (RenderMesh::cpuVertices) as the authoring/working copy; only
+// the GPU buffer stores PackedVertex. See Milestone 15 plan for the derivation.
+//
+//   location 0 — position    (xyz, float32)        offset  0
+//   location 1 — uv          (st,  float32)        offset 12
+//   location 2 — normalOct   (octahedral snorm16)  offset 20
+//   location 3 — tangentOct  (octahedral snorm16)  offset 24
+//   location 4 — handedness  (+-1, float32)        offset 28
+// ---------------------------------------------------------------------------
+
+struct PackedVertex {
+    float   position[3];   // offset  0
+    float   uv[2];         // offset 12
+    int16_t normalOct[2];  // offset 20  (VK_FORMAT_R16G16_SNORM)
+    int16_t tangentOct[2]; // offset 24  (VK_FORMAT_R16G16_SNORM)
+    float   handedness;    // offset 28  (bitangent sign, +-1)
+};
+static_assert(sizeof(PackedVertex) == 32, "PackedVertex must stay 32 bytes");
+
+// ---------------------------------------------------------------------------
 // RenderMesh
 //
 // GPU-side representation of a mesh: owns a vertex Buffer and an index Buffer.

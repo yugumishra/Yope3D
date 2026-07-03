@@ -130,11 +130,13 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
     createRenderPass(gpu);
     createUBOLayout(gpu.device());
     createTextureSetLayout(gpu.device());
+    createMaterialSetLayout(gpu.device());
     createUniformBuffers(gpu);
     createLightBuffers(gpu);
     createDescriptorPool(gpu.device());
     createDescriptorSets(gpu.device());
     createPipeline(gpu.device());
+    createSkyboxPipeline(gpu.device());
     createFramebuffers(gpu.device());
     createUIRenderPass(gpu);
     createUIFramebuffers(gpu.device());
@@ -175,6 +177,10 @@ VkDescriptorSetLayout Renderer::getTextureSetLayout() const {
     return textureSetLayout->get();
 }
 
+VkDescriptorSetLayout Renderer::getMaterialSetLayout() const {
+    return materialSetLayout->get();
+}
+
 VkFormat Renderer::getDepthFormat() const {
     return depthBuffer->format();
 }
@@ -198,6 +204,11 @@ void Renderer::waitIdle(GpuDevice& gpu) {
 
     vkDestroyPipeline(gpu.device(), pipeline, nullptr);
     vkDestroyPipelineLayout(gpu.device(), pipelineLayout, nullptr);
+
+    // Skybox cleanup
+    skybox_.destroy(gpu.device());
+    vkDestroyPipeline(gpu.device(), skyboxPipeline_, nullptr);
+    vkDestroyPipelineLayout(gpu.device(), skyboxPipelineLayout_, nullptr);
 
     // UI pipeline cleanup
     vkDestroyPipeline(gpu.device(), uiPipeline, nullptr);
@@ -275,6 +286,112 @@ void Renderer::createTextureSetLayout(VkDevice device) {
     samplerBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     textureSetLayout = std::make_unique<DescriptorSetLayout>(device, std::vector{samplerBinding});
+}
+
+void Renderer::createMaterialSetLayout(VkDevice device) {
+    // Set 1 (PBR material): 5 combined image samplers —
+    //   binding 0 albedo, 1 normal, 2 metalRough, 3 occlusion, 4 emissive.
+    std::vector<VkDescriptorSetLayoutBinding> bindings(5);
+    for (uint32_t i = 0; i < 5; ++i) {
+        bindings[i].binding         = i;
+        bindings[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[i].descriptorCount = 1;
+        bindings[i].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+    materialSetLayout = std::make_unique<DescriptorSetLayout>(device, bindings);
+}
+
+void Renderer::createSkyboxPipeline(VkDevice device) {
+    ShaderModule vert(device, std::string(YOPE_SHADER_DIR) + "/skybox.vert.spv");
+    ShaderModule frag(device, std::string(YOPE_SHADER_DIR) + "/skybox.frag.spv");
+
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage  = VK_SHADER_STAGE_VERTEX_BIT;   stages[0].module = vert.get(); stages[0].pName = "main";
+    stages[1].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage  = VK_SHADER_STAGE_FRAGMENT_BIT; stages[1].module = frag.get(); stages[1].pName = "main";
+
+    // No vertex input — the vertex shader generates a fullscreen triangle.
+    VkPipelineVertexInputStateCreateInfo vertexInput{};
+    vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+    VkPipelineInputAssemblyStateCreateInfo ia{};
+    ia.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkDynamicState dyn[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = 2; dynamicState.pDynamicStates = dyn;
+
+    VkPipelineViewportStateCreateInfo vpState{};
+    vpState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    vpState.viewportCount = 1; vpState.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rs{};
+    rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rs.polygonMode = VK_POLYGON_MODE_FILL; rs.cullMode = VK_CULL_MODE_NONE;
+    rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE; rs.lineWidth = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo ms{};
+    ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineColorBlendAttachmentState blend{};
+    blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendStateCreateInfo cb{};
+    cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    cb.attachmentCount = 1; cb.pAttachments = &blend;
+
+    // Depth: test LESS_OR_EQUAL (skybox sits at depth 1.0), no write — geometry
+    // drawn afterwards always overdraws it.
+    VkPipelineDepthStencilStateCreateInfo ds{};
+    ds.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    ds.depthTestEnable  = VK_TRUE;
+    ds.depthWriteEnable = VK_FALSE;
+    ds.depthCompareOp   = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+    VkDescriptorSetLayout setLayouts[2] = { uboLayout->get(), textureSetLayout->get() };
+    VkPipelineLayoutCreateInfo li{};
+    li.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    li.setLayoutCount = 2; li.pSetLayouts = setLayouts;
+    if (vkCreatePipelineLayout(device, &li, nullptr, &skyboxPipelineLayout_) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create skybox pipeline layout");
+
+    VkGraphicsPipelineCreateInfo pi{};
+    pi.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pi.stageCount          = 2; pi.pStages = stages;
+    pi.pVertexInputState   = &vertexInput;
+    pi.pInputAssemblyState = &ia;
+    pi.pViewportState      = &vpState;
+    pi.pRasterizationState = &rs;
+    pi.pMultisampleState   = &ms;
+    pi.pColorBlendState    = &cb;
+    pi.pDepthStencilState  = &ds;
+    pi.pDynamicState       = &dynamicState;
+    pi.layout              = skyboxPipelineLayout_;
+    pi.renderPass          = renderPass->get();
+    pi.subpass             = 0;
+    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pi, nullptr, &skyboxPipeline_) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create skybox pipeline");
+}
+
+void Renderer::updateSkybox(GpuDevice& gpu, World& world) {
+    if (!world.skyboxDirty()) return;
+    skybox_.init(gpu, commandPool, textureSetLayout->get(), world.skyboxFaces());
+    world.clearSkyboxDirty();
+}
+
+void Renderer::recordSkybox(VkCommandBuffer cmd) {
+    if (!skybox_.valid()) return;
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline_);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipelineLayout_,
+        0, 1, &descriptorSets[currentFrame], 0, nullptr);
+    VkDescriptorSet cube = skybox_.descriptorSet();
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipelineLayout_,
+        1, 1, &cube, 0, nullptr);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
 }
 
 void Renderer::createUniformBuffers(GpuDevice& gpu) {
@@ -365,28 +482,35 @@ void Renderer::createPipeline(VkDevice device) {
     stages[1].module = frag.get();
     stages[1].pName  = "main";
 
-    // Vertex input — one binding, three attributes (position, normal, uv)
+    // Vertex input — one binding, five attributes. 32-byte octahedral layout:
+    // position (f32x3) | uv (f32x2) | normalOct (snorm16x2) | tangentOct (snorm16x2) | handedness (f32)
     VkVertexInputBindingDescription binding{};
     binding.binding   = 0;
-    binding.stride    = sizeof(Vertex);
+    binding.stride    = sizeof(PackedVertex);
     binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    VkVertexInputAttributeDescription attrs[3]{};
+    VkVertexInputAttributeDescription attrs[5]{};
     attrs[0].location = 0; attrs[0].binding = 0;
     attrs[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
-    attrs[0].offset   = offsetof(Vertex, position);
+    attrs[0].offset   = offsetof(PackedVertex, position);
     attrs[1].location = 1; attrs[1].binding = 0;
-    attrs[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
-    attrs[1].offset   = offsetof(Vertex, normal);
+    attrs[1].format   = VK_FORMAT_R32G32_SFLOAT;
+    attrs[1].offset   = offsetof(PackedVertex, uv);
     attrs[2].location = 2; attrs[2].binding = 0;
-    attrs[2].format   = VK_FORMAT_R32G32_SFLOAT;
-    attrs[2].offset   = offsetof(Vertex, uv);
+    attrs[2].format   = VK_FORMAT_R16G16_SNORM;
+    attrs[2].offset   = offsetof(PackedVertex, normalOct);
+    attrs[3].location = 3; attrs[3].binding = 0;
+    attrs[3].format   = VK_FORMAT_R16G16_SNORM;
+    attrs[3].offset   = offsetof(PackedVertex, tangentOct);
+    attrs[4].location = 4; attrs[4].binding = 0;
+    attrs[4].format   = VK_FORMAT_R32_SFLOAT;
+    attrs[4].offset   = offsetof(PackedVertex, handedness);
 
     VkPipelineVertexInputStateCreateInfo vertexInput{};
     vertexInput.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInput.vertexBindingDescriptionCount   = 1;
     vertexInput.pVertexBindingDescriptions      = &binding;
-    vertexInput.vertexAttributeDescriptionCount = 3;
+    vertexInput.vertexAttributeDescriptionCount = 5;
     vertexInput.pVertexAttributeDescriptions    = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
@@ -433,15 +557,15 @@ void Renderer::createPipeline(VkDevice device) {
     depthStencil.depthBoundsTestEnable = VK_FALSE;
     depthStencil.stencilTestEnable     = VK_FALSE;
 
-    // Per-object model matrix + color + state via push constants.
-    // Layout: mat4 model (64 bytes) + vec3 color (12 bytes) + int state (4 bytes) = 80 bytes.
-    // Accessible to both vertex and fragment stages.
+    // Per-object PBR push constants (112 bytes, within the 128-byte guaranteed min):
+    //   mat4 model (64) + vec4 albedo (16) + vec4 mrn (16) + vec4 emissive (16).
+    // mrn = (metallic, roughness, normalScale, _). Accessible to both stages.
     VkPushConstantRange pushRange{};
     pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pushRange.offset     = 0;
-    pushRange.size       = 80;  // mat4 + vec3 + int
+    pushRange.size       = 112;
 
-    VkDescriptorSetLayout setLayouts[2] = {uboLayout->get(), textureSetLayout->get()};
+    VkDescriptorSetLayout setLayouts[2] = {uboLayout->get(), materialSetLayout->get()};
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     layoutInfo.setLayoutCount         = 2;
@@ -580,6 +704,74 @@ void Renderer::recreateSwapchain(GpuDevice& gpu, Window& window) {
 // Command buffer recording
 // ---------------------------------------------------------------------------
 
+// Per-object PBR push constants. Must match triangle.vert/.frag and pushRange (112 bytes).
+namespace {
+struct PBRPush {
+    math::Mat4 model;       // 64
+    float      albedo[4];   // 16  rgb + a
+    float      mrn[4];      // 16  metallic, roughness, normalScale, _
+    float      emissive[4]; // 16  rgb + _
+};
+static_assert(sizeof(PBRPush) == 112, "PBRPush must match pushRange size");
+}
+
+void Renderer::recordSceneMeshes(VkCommandBuffer cmd, World& world, AssetManager& assets) {
+    auto& reg = world.getRegistry();
+
+    if (!world.debugPhysics) {
+        for (auto [entity, tf, mr] : reg.view<Transform, ecs::MeshRenderer>()) {
+            if (!mr.mesh || !mr.mesh->transformReady || !mr.mesh->visible) continue;
+
+            PBRPush push{};
+            push.model = mr.mesh->modelMatrix;
+
+            VkDescriptorSet matSet;
+            ecs::Material* m = reg.has<ecs::Material>(entity) ? reg.get<ecs::Material>(entity) : nullptr;
+            if (m) {
+                if (!m->resolved) m->resolved = assets.resolveMaterial(*m);
+                matSet = m->resolved->set;
+                push.albedo[0] = m->albedoFactor[0]; push.albedo[1] = m->albedoFactor[1];
+                push.albedo[2] = m->albedoFactor[2]; push.albedo[3] = m->albedoFactor[3];
+                push.mrn[0] = m->metallicFactor; push.mrn[1] = m->roughnessFactor;
+                push.mrn[2] = m->normalScale;    push.mrn[3] = 0.0f;
+                push.emissive[0] = m->emissiveFactor[0];
+                push.emissive[1] = m->emissiveFactor[1];
+                push.emissive[2] = m->emissiveFactor[2];
+            } else {
+                // Legacy mesh: synthesise a default material from texture + color.
+                matSet = assets.defaultMaterialSet(mr.mesh->texture);
+                push.albedo[0] = mr.mesh->color[0]; push.albedo[1] = mr.mesh->color[1];
+                push.albedo[2] = mr.mesh->color[2]; push.albedo[3] = 1.0f;
+                push.mrn[0] = 0.0f; push.mrn[1] = 0.6f; push.mrn[2] = 1.0f; push.mrn[3] = 0.0f;
+            }
+
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+                1, 1, &matSet, 0, nullptr);
+            vkCmdPushConstants(cmd, pipelineLayout,
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                0, sizeof(PBRPush), &push);
+            mr.mesh->draw(cmd);
+        }
+    } else {
+        // Debug physics overlay meshes: default material, per-mesh verdict color.
+        VkDescriptorSet matSet = assets.defaultMaterialSet(nullptr);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+            1, 1, &matSet, 0, nullptr);
+        for (const auto& dm : world.getDebugMeshes()) {
+            if (!dm) continue;
+            PBRPush push{};
+            push.model     = dm->modelMatrix;
+            push.albedo[0] = dm->color[0]; push.albedo[1] = dm->color[1];
+            push.albedo[2] = dm->color[2]; push.albedo[3] = 1.0f;
+            push.mrn[0] = 0.0f; push.mrn[1] = 0.9f; push.mrn[2] = 1.0f; push.mrn[3] = 0.0f;
+            vkCmdPushConstants(cmd, pipelineLayout,
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                0, sizeof(PBRPush), &push);
+            dm->draw(cmd);
+        }
+    }
+}
+
 void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, World& world,
                                   AssetManager& assets) {
     VkCommandBufferBeginInfo bi{};
@@ -650,6 +842,12 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
             0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
+        // Skybox first (depth LEQUAL, no write), then re-bind the main pipeline.
+        recordSkybox(cmd);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+            0, 1, &descriptorSets[currentFrame], 0, nullptr);
+
         if (!world.debugPhysics) {
             auto& reg = world.getRegistry();
             // Query-only sentinel walk — measures pure ECS iteration cost over the
@@ -666,54 +864,9 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
                 }
                 sink = acc;
             }
-            for (auto [entity, tf, mr] : reg.view<Transform, ecs::MeshRenderer>()) {
-                if (!mr.mesh || !mr.mesh->transformReady || !mr.mesh->visible) continue;
-
-                math::Mat4 model = mr.mesh->modelMatrix;
-
-                Texture* textureToUse = mr.mesh->texture ? mr.mesh->texture : assets.getDefaultTexture();
-                VkDescriptorSet textureSet = textureToUse->getDescriptorSet();
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-                    1, 1, &textureSet, 0, nullptr);
-
-                struct PushConstants {
-                    math::Mat4 model;
-                    float      color[3];
-                    int32_t    state;
-                } push{};
-                push.model    = model;
-                push.color[0] = mr.mesh->color[0];
-                push.color[1] = mr.mesh->color[1];
-                push.color[2] = mr.mesh->color[2];
-                push.state    = mr.mesh->state;
-
-                vkCmdPushConstants(cmd, pipelineLayout,
-                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                    0, 80, &push);
-
-                mr.mesh->draw(cmd);
-            }
         }
 
-        if (world.debugPhysics) {
-            VkDescriptorSet defaultTex = assets.getDefaultTexture()->getDescriptorSet();
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-                1, 1, &defaultTex, 0, nullptr);
-
-            for (const auto& dm : world.getDebugMeshes()) {
-                if (!dm) continue;
-                struct PushConstants { math::Mat4 model; float color[3]; int32_t state; } push{};
-                push.model    = dm->modelMatrix;
-                // Per-mesh color: World stamps the default green, or a GJK-oracle
-                // verdict color (red/orange/green/gray), into each debug mesh.
-                push.color[0] = dm->color[0]; push.color[1] = dm->color[1]; push.color[2] = dm->color[2];
-                push.state    = 0;
-                vkCmdPushConstants(cmd, pipelineLayout,
-                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                    0, 80, &push);
-                dm->draw(cmd);
-            }
-        }
+        recordSceneMeshes(cmd, world, assets);
 
         // GJK CSO / simplex debug lines (always-on-top), then 3D world-space text.
         recordDebugLines(cmd);
@@ -1409,6 +1562,9 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, W
 
     vkResetFences(gpu.device(), 1, &inFlightFence[currentFrame]);
 
+    // (Re)load the cubemap skybox if the World marked it dirty (outside the pass).
+    updateSkybox(gpu, world);
+
     // Write camera matrices into this frame's UBO before recording commands.
     GlobalUBO uboData{};
     uboData.view         = camera.genViewMatrix();
@@ -1603,6 +1759,8 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
         throw std::runtime_error("beginFrameForEditor: failed to acquire image");
 
+    updateSkybox(gpu, world);
+
     vkResetFences(gpu.device(), 1, &inFlightFence[currentFrame]);
 
     // Upload per-frame data (UBO + light SSBO)
@@ -1697,44 +1855,14 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
 
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
             pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
-        
-        
-        auto& reg = world.getRegistry();
-        if (!world.debugPhysics) {
-            for (auto [entity, tf, mr] : reg.view<Transform, ecs::MeshRenderer>()) {
-                if (!mr.mesh || !mr.mesh->transformReady || !mr.mesh->visible) continue;
 
-                Texture* tex = mr.mesh->texture ? mr.mesh->texture : assets.getDefaultTexture();
-                VkDescriptorSet texSet = tex->getDescriptorSet();
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    pipelineLayout, 1, 1, &texSet, 0, nullptr);
+        // Skybox first (depth LEQUAL, no write), then re-bind the main pipeline.
+        recordSkybox(cmd);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-                struct PushConstants { math::Mat4 model; float color[3]; int32_t state; } push{};
-                push.model    = mr.mesh->modelMatrix;
-                push.color[0] = mr.mesh->color[0]; push.color[1] = mr.mesh->color[1]; push.color[2] = mr.mesh->color[2];
-                push.state    = mr.mesh->state;
-                vkCmdPushConstants(cmd, pipelineLayout,
-                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, 80, &push);
-                mr.mesh->draw(cmd);
-            }
-        }
-
-        if (world.debugPhysics) {
-            VkDescriptorSet defaultTex = assets.getDefaultTexture()->getDescriptorSet();
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-                1, 1, &defaultTex, 0, nullptr);
-            for (const auto& dm : world.getDebugMeshes()) {
-                if (!dm) continue;
-                struct PushConstants { math::Mat4 model; float color[3]; int32_t state; } push{};
-                push.model    = dm->modelMatrix;
-                // Per-mesh color (see runtime path above): default green or GJK verdict.
-                push.color[0] = dm->color[0]; push.color[1] = dm->color[1]; push.color[2] = dm->color[2];
-                push.state    = 0;
-                vkCmdPushConstants(cmd, pipelineLayout,
-                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, 80, &push);
-                dm->draw(cmd);
-            }
-        }
+        recordSceneMeshes(cmd, world, assets);
 
         // GJK CSO / simplex debug lines (always-on-top), then 3D world-space text.
         recordDebugLines(cmd);

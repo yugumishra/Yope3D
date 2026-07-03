@@ -46,10 +46,13 @@ void InspectorPanel::draw(EditorContext& ctx) {
     // 3D text label is addable to any entity with a world Transform.
     bool hasTransform = ctx.registry->has<Transform>(e);
     bool hasText3D    = ctx.registry->has<ecs::TextLabel3D>(e);
+    // Material is addable to any entity that has a MeshRenderer and no Material yet.
+    bool hasMeshRend  = ctx.registry->has<ecs::MeshRenderer>(e);
+    bool hasMaterial  = ctx.registry->has<ecs::Material>(e);
 
     // Check if any component can still be added — always show the button.
     bool anyAddable = !hasHull || (hasHull && !hasSpring) || !hasAudio || !hasLight || !hasScript
-                      || (hasTransform && !hasText3D);
+                      || (hasTransform && !hasText3D) || (hasMeshRend && !hasMaterial);
 
     if (ctx.history && ctx.world && anyAddable) {
         ImGui::Spacing();
@@ -120,6 +123,12 @@ void InspectorPanel::draw(EditorContext& ctx) {
                         std::strncpy(t.fontPath, "fonts/monaco.ttf", sizeof(t.fontPath) - 1);
                         std::strncpy(t.text, "Text", sizeof(t.text) - 1);
                         ctx.registry->add<ecs::TextLabel3D>(e, t);
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+                if (hasMeshRend && !hasMaterial) {
+                    if (ImGui::Selectable("Material (PBR)")) {
+                        ctx.registry->add<ecs::Material>(e, ecs::Material{});
                         ImGui::CloseCurrentPopup();
                     }
                 }

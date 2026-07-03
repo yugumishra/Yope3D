@@ -57,7 +57,8 @@ struct Engine {
 
     ~Engine();
 
-    bool init();
+    // sceneOverride: non-empty replaces cfg.startupScene (the --scene CLI arg).
+    bool init(const std::string& sceneOverride = "");
     void update();
     void render();
     void cleanup();

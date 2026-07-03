@@ -17,7 +17,7 @@
 
 Engine::~Engine() = default;
 
-bool Engine::init() {
+bool Engine::init(const std::string& sceneOverride) {
     input = std::make_unique<Input>();
     if (!glfwInit()) return false;
 
@@ -34,6 +34,7 @@ bool Engine::init() {
 #endif
 
     Config cfg = Config::load(resDir.empty() ? "yope3d.cfg" : resDir + "/yope3d.cfg");
+    if (!sceneOverride.empty()) cfg.startupScene = sceneOverride;
 
     int screenW = 1920, screenH = 1080;
     if (GLFWmonitor* primary = glfwGetPrimaryMonitor())
@@ -60,10 +61,12 @@ bool Engine::init() {
     gpu      = std::make_unique<GpuDevice>(*window);
     renderer = std::make_unique<Renderer>(*gpu, *window);
     assets   = std::make_unique<AssetManager>();
-    assets->init(*gpu, renderer->getCommandPool(), renderer->getTextureSetLayout());
+    assets->init(*gpu, renderer->getCommandPool(), renderer->getTextureSetLayout(),
+                 renderer->getMaterialSetLayout());
 
     world = std::make_unique<World>();
     world->init(*gpu, renderer->getCommandPool());
+    world->setAssetManager(assets.get());
 
     camera = std::make_unique<Camera>(screenW, screenH, math::toRadians(70.0f));
 

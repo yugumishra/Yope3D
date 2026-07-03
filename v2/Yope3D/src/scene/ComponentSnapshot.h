@@ -37,6 +37,9 @@ struct ComponentSnapshot {
     std::vector<uint32_t> cpuInds;
     std::string meshSourcePath;  // Absolute .obj path; non-empty only for drag-dropped meshes
 
+    // PBR material (resolved GPU handle is never snapshotted; re-resolved on restore)
+    bool hasMaterial = false;  ecs::Material material;
+
     // UI components (Texture*/atlas pointers are never snapshotted)
     bool hasUITransform          = false;  ecs::UITransform          uiTransform;
     bool hasUIBackground         = false;  ecs::UIBackground         uiBackground;

@@ -1,6 +1,8 @@
 #pragma once
 #include <memory>
 #include <vector>
+#include <array>
+#include <string>
 #include <atomic>
 #include <mutex>
 #include <unordered_map>
@@ -23,6 +25,7 @@
 
 class GpuDevice;
 class ThreadPool;
+class AssetManager;
 
 // World — owns all meshes in meshPool_. ECS registry owns all physics/transform data.
 // Physics inner loop reads/writes ecs::Hull + Transform directly.
@@ -50,6 +53,11 @@ public:
     ecs::Entity addRenderObject(const std::vector<Vertex>&   vertices,
                                 const std::vector<uint32_t>& indices);
     ecs::Entity addRenderObject(const LoadedMesh& mesh);
+
+    // Load a model (.obj = single mesh; .gltf/.glb = one entity per primitive)
+    // from a path relative to YOPE_ASSETS_DIR. Attaches an ecs::Material when the
+    // source defines one. Uses the Engine-wired AssetManager for glTF textures.
+    std::vector<ecs::Entity> addModel(const std::string& path);
 
     // Attach a mesh to an existing entity. Returns the new RenderMesh* for configuration.
     RenderMesh* attachMesh(ecs::Entity e,
@@ -139,6 +147,17 @@ public:
 
     // Wire the AudioSystem so removeEntity can deallocate orphaned OpenAL sources.
     void setAudioSystem(class AudioSystem* a) { audio_ = a; }
+    void setAssetManager(AssetManager* a) { assets_ = a; }
+
+    // Cubemap skybox (producer = scripts/editor, consumer = Renderer). Faces in
+    // order +X,-X,+Y,-Y,+Z,-Z, asset-relative. The Renderer (re)loads it when dirty.
+    void setSkybox(const std::array<std::string, 6>& faces) {
+        skyboxFaces_ = faces; skyboxDirty_ = true; hasSkybox_ = true;
+    }
+    bool hasSkybox()    const { return hasSkybox_; }
+    bool skyboxDirty()  const { return skyboxDirty_; }
+    void clearSkyboxDirty()   { skyboxDirty_ = false; }
+    const std::array<std::string, 6>& skyboxFaces() const { return skyboxFaces_; }
     int  getLightCount() const { return static_cast<int>(lightEntities_.size()); }
 
     // ---- Simulation ----
@@ -243,6 +262,11 @@ private:
     GpuDevice*    gpu_   = nullptr;
     VkCommandPool pool_  = VK_NULL_HANDLE;
     AudioSystem*  audio_ = nullptr;   // wired by Engine; used to free Sources on removeEntity
+    AssetManager* assets_ = nullptr;  // wired by Engine; used by addModel for glTF textures
+
+    std::array<std::string, 6> skyboxFaces_{};
+    bool                       skyboxDirty_ = false;
+    bool                       hasSkybox_   = false;
 
     std::vector<TransformSnapshot> snapshotBack_, snapshotFront_;
     std::vector<SpringSnapshot>    springSnapshotBack_, springSnapshotFront_;

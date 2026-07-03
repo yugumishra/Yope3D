@@ -590,6 +590,47 @@ class TextLabel3D:
     billboard: int
     """Non-zero = always face the camera."""
 
+class Material:
+    """PBR metallic-roughness material (pairs with a MeshRenderer).
+
+    Map paths are asset-relative (empty = engine default for that slot); setting
+    any map path invalidates the cached GPU descriptor set so the renderer
+    re-resolves it next frame. Scalar factors ride push constants and can be
+    changed freely without triggering a re-resolve.
+
+    **sRGB vs linear:** the engine loads each slot with the correct gamma:
+
+    * ``albedo_map`` — **sRGB** (perceptual color; gamma-decoded by the sampler).
+    * ``normal_map`` — **linear** (tangent-space vectors; must not be gamma-decoded).
+    * ``metal_rough_map`` — **linear** (G = roughness, B = metallic; physical scalars).
+    * ``occlusion_map`` — **linear** (R = ambient occlusion; physical scalar).
+    * ``emissive_map`` — **sRGB** (perceptual color; gamma-decoded by the sampler).
+
+    Mixing these up (e.g. loading a normal map as sRGB) produces subtly wrong
+    lighting that is difficult to diagnose — use the correct slot for each map.
+    """
+
+    albedo_map: str
+    """Asset-relative path to the base-color texture (**sRGB**). Empty = 1×1 white."""
+    normal_map: str
+    """Asset-relative path to the tangent-space normal map (**linear**). Empty = 1×1 flat (0.5, 0.5, 1)."""
+    metal_rough_map: str
+    """Asset-relative path to the metallic-roughness map (**linear**). glTF packing: G = roughness, B = metallic. Empty = 1×1 (r=1, g=1)."""
+    occlusion_map: str
+    """Asset-relative path to the ambient-occlusion map (**linear**). R channel only. Empty = 1×1 white (no occlusion)."""
+    emissive_map: str
+    """Asset-relative path to the emissive map (**sRGB**). Empty = 1×1 black (no emission)."""
+    albedo: tuple[float, float, float, float]
+    """Base-color factor (rgba). Multiplies the sampled albedo_map value."""
+    metallic: float
+    """Metallic factor [0, 1]. Multiplies the B channel of metal_rough_map."""
+    roughness: float
+    """Roughness factor [0, 1]. Multiplies the G channel of metal_rough_map."""
+    normal_scale: float
+    """Scales the XY components of the sampled normal before TBN transform. 1.0 = full strength."""
+    emissive: tuple[float, float, float]
+    """Emissive factor (rgb). Multiplies the sampled emissive_map value."""
+
 class AudioSource:
     """Spatial audio emitter component (pairs with a Transform anchor)."""
 
@@ -612,6 +653,7 @@ ComponentName = Literal[
     "OBBForm",
     "CapsuleForm",
     "CylinderForm",
+    "Material",
     "LightSource",
     "Name",
     "SpringConstraint",
@@ -1059,6 +1101,23 @@ class World:
             The new UI entity. Mutate later with ``yope3d.set_text(e, "...")`` or
             ``reg_get(e, "UIText").text``.
         """
+    def add_model(self, path: str) -> list[Entity]:
+        """Load a model and spawn it into the scene.
+
+        ``.obj`` yields one entity; ``.gltf`` / ``.glb`` yield one entity per
+        primitive. Each entity gets a Transform + MeshRenderer, plus a
+        :class:`Material` when the source defines one (glTF metallic-roughness or
+        OBJ/MTL). ``path`` is relative to the assets directory.
+
+        Returns:
+            The created entities (one per primitive).
+        """
+    def set_skybox(self, faces: list[str]) -> None:
+        """Set a cubemap skybox from six asset-relative face images.
+
+        Args:
+            faces: Exactly six paths in order ``+X, -X, +Y, -Y, +Z, -Z``.
+        """
     def add_text_label_3d(self, font: str, text: str, pos: Vec3) -> Entity:
         """Add a world-space text label anchored at ``pos`` (Transform + TextLabel3D).
 
@@ -1387,6 +1446,8 @@ def reg_get(e: Entity, name: Literal["CapsuleForm"]) -> CapsuleForm | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["CylinderForm"]) -> CylinderForm | None: ...
 @overload
+def reg_get(e: Entity, name: Literal["Material"]) -> Material | None: ...
+@overload
 def reg_get(e: Entity, name: Literal["LightSource"]) -> LightSource | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["Name"]) -> Name | None: ...
@@ -1603,6 +1664,20 @@ def time() -> float:
 
     Note:
         For physics ticks use ``yope3d.world.tick_count`` instead.
+    """
+
+def set_profile_scene(name: str) -> None:
+    """Stamp the profiler CSV's ``scene`` column for all subsequent records.
+
+    Call once from ``init()`` so profile rows are attributable to the scene
+    (e.g. the stress-test scene stamps ``"Stress Test"`` for
+    ``tools/analyze_profile.py`` runs).
+
+    Args:
+        name: Scene label written into every following CSV row.
+
+    Note:
+        Profiling is debug-build-only; in release builds this is a no-op.
     """
 
 def draw_line(a: Vec3, b: Vec3, color: Vec3 | None = None) -> None:

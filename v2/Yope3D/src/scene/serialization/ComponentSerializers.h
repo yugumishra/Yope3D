@@ -33,6 +33,10 @@ bool deserializeCylinderForm   (const JsonNode& node, void* comp);
 void serializeMeshRenderer     (const void* comp, JsonWriter& w);
 bool deserializeMeshRenderer   (const JsonNode& node, void* comp);
 
+// Material (PBR map paths + factors; resolved GPU handle is runtime-only)
+void serializeMaterial         (const void* comp, JsonWriter& w);
+bool deserializeMaterial       (const JsonNode& node, void* comp);
+
 // LightSource
 void serializeLightSource      (const void* comp, JsonWriter& w);
 bool deserializeLightSource    (const JsonNode& node, void* comp);
