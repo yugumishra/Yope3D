@@ -15,6 +15,7 @@ void drawOBBFormComponent                (void*, EditorContext&, ecs::Entity);
 void drawCapsuleFormComponent            (void*, EditorContext&, ecs::Entity);
 void drawCylinderFormComponent           (void*, EditorContext&, ecs::Entity);
 void drawMeshRendererComponent           (void*, EditorContext&, ecs::Entity);
+void drawMaterialComponent               (void*, EditorContext&, ecs::Entity);
 void drawLightSourceComponent            (void*, EditorContext&, ecs::Entity);
 void drawAudioSourceComponent            (void*, EditorContext&, ecs::Entity);
 void drawSpringConstraintComponent       (void*, EditorContext&, ecs::Entity);
@@ -40,6 +41,7 @@ void registerAllInspectors() {
         { ecs::typeId<ecs::CapsuleForm>(),           drawCapsuleFormComponent           },
         { ecs::typeId<ecs::CylinderForm>(),          drawCylinderFormComponent          },
         { ecs::typeId<ecs::MeshRenderer>(),          drawMeshRendererComponent          },
+        { ecs::typeId<ecs::Material>(),              drawMaterialComponent              },
         { ecs::typeId<ecs::LightSource>(),           drawLightSourceComponent           },
         { ecs::typeId<ecs::AudioSource>(),           drawAudioSourceComponent           },
         { ecs::typeId<ecs::SpringConstraint>(),      drawSpringConstraintComponent      },

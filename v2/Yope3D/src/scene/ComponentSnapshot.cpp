@@ -2,6 +2,7 @@
 #include "world/World.h"
 #include "assets/Primitives.h"
 #include "assets/ObjLoader.h"
+#include <cstring>
 
 ecs::Entity ComponentSnapshot::restore(World& world) const {
     ecs::Registry& reg = world.getRegistry();
@@ -131,6 +132,17 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
             } else {
                 e = world.addRenderObject(Primitives::rect(primExtents));
             }
+        }
+        // ---- Bare logic entity (ScriptComponent with no physical presence,
+        // e.g. a scene-logic host like the stress-test driver) ----
+        if (!reg.valid(e) && hasScript) {
+            e = reg.create();
+            ecs::Name n{};
+            std::strncpy(n.value, "Script", sizeof(n.value) - 1);
+            reg.add<ecs::Name>(e, n);   // hasName block below assigns, never adds
+#ifdef YOPE_EDITOR
+            reg.add<ecs::EditorSelectable>(e);
+#endif
         }
         if (!reg.valid(e)) return ecs::NullEntity;
     }
@@ -280,6 +292,12 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
         if (!reg.has<ecs::TextLabel3D>(e)) reg.add<ecs::TextLabel3D>(e, textLabel3D);
         else if (auto* t = reg.get<ecs::TextLabel3D>(e)) *t = textLabel3D;
     }
+    if (hasMaterial) {
+        ecs::Material m = material;
+        m.resolved = nullptr;   // never restore a stale GPU handle
+        if (!reg.has<ecs::Material>(e)) reg.add<ecs::Material>(e, m);
+        else if (auto* t = reg.get<ecs::Material>(e)) *t = m;
+    }
 
     return e;
 }
@@ -305,6 +323,11 @@ ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world
         s.hasScript          = true;
         s.script             = *sc;
         s.script.instance    = nullptr;   // never snapshot the live Script*
+    }
+    if (auto* mt = reg.get<ecs::Material>(e)) {
+        s.hasMaterial      = true;
+        s.material         = *mt;
+        s.material.resolved = nullptr;     // never snapshot the GPU descriptor handle
     }
     if (auto* sp = reg.get<ecs::SpringConstraint>(e)) {
         s.hasSpring = true;

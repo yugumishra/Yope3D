@@ -9,6 +9,7 @@ class RenderMesh;
 class Source;
 class Script;
 class Texture;
+struct ResolvedMaterial;   // rendering/MaterialCache.h — runtime GPU handle for a Material
 
 namespace ecs {
 
@@ -64,6 +65,27 @@ struct CylinderForm {
 // ---- Visual ----
 struct MeshRenderer {
     RenderMesh* mesh = nullptr;   // non-owning; World still owns the RenderMesh
+};
+
+// ---- PBR material (metallic-roughness) ----
+// Pairs with a MeshRenderer. The five *Path fields select texture maps (relative
+// to YOPE_ASSETS_DIR; empty = the engine default for that slot). Factors multiply
+// the sampled value. `resolved` caches the GPU descriptor set built by
+// MaterialCache — runtime-only, rebuilt on load/edit, never serialized. When an
+// entity has no Material, the renderer synthesises a default material from the
+// RenderMesh's legacy texture/color instead.
+struct Material {
+    char  albedoPath[256]     = {};   // sRGB base color
+    char  normalPath[256]     = {};   // tangent-space normal map (linear)
+    char  metalRoughPath[256] = {};   // linear; glTF packs G=roughness, B=metallic
+    char  occlusionPath[256]  = {};   // linear; R channel = ambient occlusion
+    char  emissivePath[256]   = {};   // sRGB emissive
+    float albedoFactor[4]     = {1, 1, 1, 1};
+    float metallicFactor      = 1.0f;
+    float roughnessFactor     = 1.0f;
+    float emissiveFactor[3]   = {0, 0, 0};
+    float normalScale         = 1.0f;
+    ResolvedMaterial* resolved = nullptr;   // runtime-only; built lazily by MaterialCache
 };
 
 // ---- Lighting (flat POD superstruct — avoids std::variant, stays trivially relocatable) ----

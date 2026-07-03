@@ -16,7 +16,8 @@ AssetManager::~AssetManager() {
 }
 
 void AssetManager::init(GpuDevice& gpu, VkCommandPool commandPool,
-                       VkDescriptorSetLayout textureSetLayout)
+                       VkDescriptorSetLayout textureSetLayout,
+                       VkDescriptorSetLayout materialSetLayout)
 {
     gpu_ = &gpu;
     device = gpu.device();
@@ -50,6 +51,24 @@ void AssetManager::init(GpuDevice& gpu, VkCommandPool commandPool,
         Texture::load(gpu, commandPool, textureSetLayout, descriptorPool,
                      whitePixel, 1, 1)
     );
+
+    // ---------------------------------------------------------------------------
+    // Default 1×1 PBR maps for unfilled material slots. Data maps are UNORM
+    // (linear, no gamma decode); only the color maps are sRGB.
+    // ---------------------------------------------------------------------------
+    auto makeDefault = [&](uint8_t r, uint8_t g, uint8_t b, uint8_t a, bool srgb) {
+        uint8_t px[4] = {r, g, b, a};
+        return std::make_unique<Texture>(
+            Texture::load(gpu, commandPool, textureSetLayout, descriptorPool,
+                          px, 1, 1, /*generateMipmaps*/ false, srgb));
+    };
+    defaultNormal     = makeDefault(128, 128, 255, 255, false);  // tangent-space (0,0,1)
+    defaultMetalRough = makeDefault(255, 255, 255, 255, false);  // neutral multiply
+    defaultOcclusion  = makeDefault(255, 255, 255, 255, false);  // unoccluded
+    defaultEmissive   = makeDefault(0,   0,   0,   255, false);  // no emission
+
+    // MaterialCache shares the 5-sampler material set layout (owned by Renderer).
+    materialCache_.init(device, materialSetLayout, this);
 }
 
 void AssetManager::cleanup(VkDevice dev)
@@ -70,11 +89,19 @@ void AssetManager::cleanup(VkDevice dev)
     }
     textures.clear();
 
-    // Destroy default texture.
-    if (defaultTexture) {
-        defaultTexture->destroy(dev);
+    // Destroy default textures.
+    for (Texture* t : { defaultTexture.get(), defaultNormal.get(), defaultMetalRough.get(),
+                        defaultOcclusion.get(), defaultEmissive.get() }) {
+        if (t) t->destroy(dev);
     }
     defaultTexture.reset();
+    defaultNormal.reset();
+    defaultMetalRough.reset();
+    defaultOcclusion.reset();
+    defaultEmissive.reset();
+
+    // Destroy the material descriptor pool before its referenced textures are gone.
+    materialCache_.cleanup(dev);
 
     // Destroy descriptor pool.
     if (descriptorPool != VK_NULL_HANDLE) {
@@ -83,10 +110,12 @@ void AssetManager::cleanup(VkDevice dev)
     }
 }
 
-Texture* AssetManager::loadTexture(GpuDevice& gpu, const std::string& path)
+Texture* AssetManager::loadTextureSrgb(const std::string& path, bool srgb)
 {
-    // Check if already loaded.
-    auto it = textures.find(path);
+    // Cache key distinguishes the color space so the same file can serve as both
+    // an sRGB color map and a linear data map without aliasing.
+    std::string key = srgb ? path : (path + "#lin");
+    auto it = textures.find(key);
     if (it != textures.end())
         return it->second.get();
 
@@ -114,18 +143,41 @@ Texture* AssetManager::loadTexture(GpuDevice& gpu, const std::string& path)
     // ---------------------------------------------------------------------------
 
     auto texture = std::make_unique<Texture>(
-        Texture::load(gpu, commandPool, descriptorSetLayout, descriptorPool,
-                     image.pixels.data(), image.width, image.height)
+        Texture::load(*gpu_, commandPool, descriptorSetLayout, descriptorPool,
+                     image.pixels.data(), image.width, image.height,
+                     /*generateMipmaps*/ true, srgb)
     );
 
     Texture* texturePtr = texture.get();
-    textures[path] = std::move(texture);
+    textures[key] = std::move(texture);
     return texturePtr;
+}
+
+Texture* AssetManager::loadTexture(GpuDevice& gpu, const std::string& path)
+{
+    return loadTextureSrgb(path, true);
 }
 
 Texture* AssetManager::loadTexture(const std::string& path)
 {
-    return loadTexture(*gpu_, path);
+    return loadTextureSrgb(path, true);
+}
+
+Texture* AssetManager::registerDecodedTexture(const std::string& path, bool srgb,
+                                              const uint8_t* pixels, int width, int height)
+{
+    std::string key = srgb ? path : (path + "#lin");
+    auto it = textures.find(key);
+    if (it != textures.end())
+        return it->second.get();
+
+    auto texture = std::make_unique<Texture>(
+        Texture::load(*gpu_, commandPool, descriptorSetLayout, descriptorPool,
+                      pixels, width, height, /*generateMipmaps*/ true, srgb)
+    );
+    Texture* ptr = texture.get();
+    textures[key] = std::move(texture);
+    return ptr;
 }
 
 Texture* AssetManager::getDefaultTexture() const

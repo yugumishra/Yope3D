@@ -1,13 +1,18 @@
 #include "RenderMesh.h"
 #include "../gpu/GpuDevice.h"
+#include "../rendering/MeshBuild.h"
 
 RenderMesh::RenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
                        const std::vector<Vertex>&   vertices,
                        const std::vector<uint32_t>& indices)
     : cpuVertices(vertices), cpuIndices(indices)
 {
+    // Derive a tangent frame and pack into the 32-byte octahedral GPU format.
+    // cpuVertices keeps the plain float Vertex (positions feed the raytracer).
+    const std::vector<PackedVertex> packed = meshbuild::buildPacked(vertices, indices);
+
     vertexBuffer = Buffer::uploadStaged(gpu, commandPool,
-        vertices.data(), sizeof(Vertex) * vertices.size(),
+        packed.data(), sizeof(PackedVertex) * packed.size(),
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
     indexBuffer = Buffer::uploadStaged(gpu, commandPool,

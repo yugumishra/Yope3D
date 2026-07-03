@@ -15,7 +15,9 @@
 #include "world/RenderMesh.h"
 #include "ecs/Components.h"
 #include "math/Mat3.h"
+#include "debug/Profiler.h"
 #include <GLFW/glfw3.h>
+#include <unordered_set>
 
 namespace py = pybind11;
 
@@ -108,6 +110,17 @@ void bind_world(py::module_& m) {
              py::arg("radius"), py::arg("half_height"), py::arg("mass"), py::arg("pos") = math::Vec3{})
         .def("add_cylinder", &World::addCylinder,
              py::arg("radius"), py::arg("half_height"), py::arg("mass"), py::arg("pos") = math::Vec3{})
+        // ---- Model loading (.obj / .gltf / .glb) ----
+        // Returns the list of created entities (one per glTF primitive).
+        .def("add_model", &World::addModel, py::arg("path"))
+        // ---- Cubemap skybox: 6 asset-relative faces (+X,-X,+Y,-Y,+Z,-Z) ----
+        .def("set_skybox", [](World& w, const std::vector<std::string>& faces) {
+            if (faces.size() != 6)
+                throw std::runtime_error("set_skybox expects 6 face paths (+X,-X,+Y,-Y,+Z,-Z)");
+            std::array<std::string, 6> a;
+            for (int i = 0; i < 6; ++i) a[i] = faces[i];
+            w.setSkybox(a);
+        }, py::arg("faces"))
         // ---- Collider attach / detach (World methods lock internally) ----
         .def("attach_sphere_collider",   &World::attachSphereCollider,
              py::arg("entity"), py::arg("mass"), py::arg("radius"), py::arg("static_") = false)
@@ -357,6 +370,18 @@ void bind_world(py::module_& m) {
 
     // Wall-clock seconds since engine startup (GLFW timer).
     m.def("time", []() { return glfwGetTime(); });
+
+    // Stamp the profiler CSV's `scene` column (debug builds; no-op under NDEBUG).
+    // Profiler::setScene stores the pointer directly (string-literal contract),
+    // so Python strings are interned here to give them static lifetime.
+    m.def("set_profile_scene", [](const std::string& name) {
+#ifndef NDEBUG
+        static std::unordered_set<std::string> interned;
+        Profiler::setScene(interned.insert(name).first->c_str());
+#else
+        (void)name;
+#endif
+    }, py::arg("name"));
 
     // Per-frame debug overlay: accumulate a world-space segment / ray (drawn always-on-top).
     // Cleared automatically each frame before scripts run, so call from update().

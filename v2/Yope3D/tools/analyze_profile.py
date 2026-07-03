@@ -149,11 +149,14 @@ def classify_stage(stage: str, thread: str) -> str:
 # ============================================================================
 
 _N_PAT     = re.compile(r"_N(\d+)", re.IGNORECASE)
-# Shape suffix from sweep harness: yope_profile_N<N>_<shape>.csv.
-# Known shapes recognized by SandboxScript::loadStressTest; unrecognized
+# Shape + optional scenario suffix from the sweep harness:
+#   yope_profile_N<N>_<shape>.csv              (grid runs — legacy naming kept)
+#   yope_profile_N<N>_<shape>_<scenario>.csv   (other scenarios, e.g. funnel)
+# Shapes recognized by scripts/behaviors/stress_test.py; unrecognized
 # suffixes (or no suffix at all — legacy single-shape sweeps) fall through
 # to "sphere" as a sensible default since that was the original behavior.
-_SHAPE_PAT = re.compile(r"_N\d+_(sphere|aabb|obb)\.csv$", re.IGNORECASE)
+_SHAPE_PAT = re.compile(r"_N\d+_(sphere|aabb|obb|mixed)(?:_([a-z]+))?\.csv$",
+                        re.IGNORECASE)
 
 
 def n_from_filename(path: str) -> int | None:
@@ -164,6 +167,11 @@ def n_from_filename(path: str) -> int | None:
 def shape_from_filename(path: str) -> str:
     m = _SHAPE_PAT.search(os.path.basename(path))
     return m.group(1).lower() if m else "sphere"
+
+
+def scenario_from_filename(path: str) -> str:
+    m = _SHAPE_PAT.search(os.path.basename(path))
+    return m.group(2).lower() if m and m.group(2) else "grid"
 
 
 def load_one(path: str) -> pd.DataFrame:
@@ -183,6 +191,7 @@ def load_one(path: str) -> pd.DataFrame:
     n = n_from_filename(path)
     df["N"] = n if n is not None else df["object_count"].median()
     df["shape"] = shape_from_filename(path)
+    df["scenario"] = scenario_from_filename(path)
     return df
 
 

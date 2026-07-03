@@ -38,6 +38,8 @@ set(SHADER_SOURCES
     "${SHADER_SRC_DIR}/text3d.frag"
     "${SHADER_SRC_DIR}/line3d.vert"
     "${SHADER_SRC_DIR}/line3d.frag"
+    "${SHADER_SRC_DIR}/skybox.vert"
+    "${SHADER_SRC_DIR}/skybox.frag"
     "${SHADER_SRC_DIR}/raytracer.comp"
     "${SHADER_SRC_DIR}/fullscreen.vert"
     "${SHADER_SRC_DIR}/fullscreen.frag"
@@ -183,6 +185,9 @@ set(ENGINE_SOURCES
     src/gpu/Texture.cpp
     src/rendering/Renderer.cpp
     src/rendering/Raytracer.cpp
+    src/rendering/MeshBuild.cpp
+    src/rendering/MaterialCache.cpp
+    src/rendering/Skybox.cpp
     src/rendering/Camera.cpp
     src/rendering/Light.cpp
     src/gpu/StorageImage.cpp
@@ -191,6 +196,7 @@ set(ENGINE_SOURCES
     src/world/RenderMesh.cpp
     src/assets/AssetManager.cpp
     src/assets/ObjLoader.cpp
+    src/assets/GltfLoader.cpp
     src/assets/ImageLoader.cpp
     src/assets/AudioLoader.cpp
     src/assets/Primitives.cpp
@@ -242,6 +248,7 @@ set(EDITOR_SOURCES
     src/editor/inspectors/TransformInspector.cpp
     src/editor/inspectors/HullInspector.cpp
     src/editor/inspectors/MeshRendererInspector.cpp
+    src/editor/inspectors/MaterialInspector.cpp
     src/editor/inspectors/ShapeFormInspector.cpp
     src/editor/inspectors/LightSourceInspector.cpp
     src/editor/inspectors/NameInspector.cpp
@@ -415,6 +422,20 @@ add_executable(yope_physics_tests
 
 target_include_directories(yope_physics_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(yope_physics_tests PRIVATE Catch2::Catch2WithMain)
+
+# ---------------------------------------------------------------------------
+# glTF loader test — headless (loader is decoupled from GPU via a callback).
+# Needs Vulkan headers only (RenderMesh.h includes them), not the Vulkan lib.
+# ---------------------------------------------------------------------------
+
+add_executable(yope_gltf_tests
+    tests/gltf_tests.cpp
+    src/assets/GltfLoader.cpp
+    src/scene/serialization/JsonParser.cpp
+)
+target_include_directories(yope_gltf_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+target_compile_definitions(yope_gltf_tests PRIVATE YOPE_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
+target_link_libraries(yope_gltf_tests PRIVATE Catch2::Catch2WithMain Vulkan::Vulkan)
 
 # ---------------------------------------------------------------------------
 # ECS test executable — no Vulkan/GLFW/OpenAL dependency

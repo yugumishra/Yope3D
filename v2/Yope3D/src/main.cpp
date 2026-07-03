@@ -1,9 +1,24 @@
 #include "Engine.h"   // was "world/Engine.h" — Engine lives at src/ root
+#include <cstdio>
+#include <cstring>
+#include <string>
 
-int main() {
+int main(int argc, char** argv) {
+    // --scene <path>: startup scene override (relative paths resolve against
+    // the assets dir, same as the startupScene= config key it replaces).
+    std::string sceneOverride;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--scene") == 0 && i + 1 < argc) {
+            sceneOverride = argv[++i];
+        } else {
+            std::fprintf(stderr, "usage: %s [--scene <path>]\n", argv[0]);
+            return -1;
+        }
+    }
+
     Engine engine;
 
-    if (!engine.init()) {
+    if (!engine.init(sceneOverride)) {
         engine.cleanup();   // tear down whatever subsystems came up before the failure
         return -1;
     }

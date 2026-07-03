@@ -9,28 +9,51 @@ layout(set = 0, binding = 0) uniform GlobalUBO {
 
 layout(push_constant) uniform PushConstants {
     mat4 model;
-    vec3 color;
-    int  state;
+    vec4 albedo;
+    vec4 mrn;       // metallic, roughness, normalScale, _
+    vec4 emissive;  // rgb, _
 } push;
 
-layout(location = 0) in vec3 inPosition;
-layout(location = 1) in vec3 inNormal;
-layout(location = 2) in vec2 inUV;
+// 32-byte octahedral vertex layout (see PackedVertex / OctEncode.h).
+layout(location = 0) in vec3  inPosition;
+layout(location = 1) in vec2  inUV;
+layout(location = 2) in vec2  inNormalOct;
+layout(location = 3) in vec2  inTangentOct;
+layout(location = 4) in float inHandedness;
 
 layout(location = 0) out vec3 fragNormal;
 layout(location = 1) out vec2 fragUV;
 layout(location = 2) out vec3 fragPos;
+layout(location = 3) out vec3 fragTangent;
+layout(location = 4) out vec3 fragBitangent;
+
+// Octahedral decode: [-1,1]^2 -> unit vector. Inverse of math::octEncode.
+vec3 octDecode(vec2 e) {
+    vec3 n = vec3(e.xy, 1.0 - abs(e.x) - abs(e.y));
+    float t = max(-n.z, 0.0);
+    n.x += (n.x >= 0.0) ? -t : t;
+    n.y += (n.y >= 0.0) ? -t : t;
+    return normalize(n);
+}
 
 void main() {
     gl_Position = ubo.proj * ubo.view * push.model * vec4(inPosition, 1.0);
-
-    // World-space position for lighting calculations.
     fragPos = (push.model * vec4(inPosition, 1.0)).xyz;
+    fragUV  = inUV;
 
-    // Normal matrix: inverse-transpose of the upper-left 3x3 of the model matrix.
-    // This correctly handles non-uniform scaling; for uniform/identity scale it's just the 3x3 rotation.
-    mat3 normalMatrix = transpose(inverse(mat3(push.model)));
-    fragNormal = normalize(normalMatrix * inNormal);
+    vec3 n = octDecode(inNormalOct);
+    vec3 t = octDecode(inTangentOct);
 
-    fragUV = inUV;
+    // Normals transform by the inverse-transpose; tangents by the model 3x3.
+    mat3 M = mat3(push.model);
+    mat3 normalMatrix = transpose(inverse(M));
+
+    vec3 N = normalize(normalMatrix * n);
+    vec3 T = normalize(M * t);
+    // Re-orthogonalise the tangent against the normal (Gram-Schmidt).
+    T = normalize(T - dot(T, N) * N);
+
+    fragNormal    = N;
+    fragTangent   = T;
+    fragBitangent = cross(N, T) * inHandedness;
 }

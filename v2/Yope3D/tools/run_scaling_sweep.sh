@@ -23,31 +23,33 @@
 
 set -euo pipefail
 
-# Engine reads yope3d.cfg via relative path — it must run from the project root
-# (one level above tools/). Resolve via the script's own directory so the
-# sweep behaves the same whether invoked as `tools/run_scaling_sweep.sh`,
+# Run from the project root (one level above tools/) so the profile CSV lands
+# there and relative BIN paths work. Resolve via the script's own directory so
+# the sweep behaves the same whether invoked as `tools/run_scaling_sweep.sh`,
 # `./run_scaling_sweep.sh` (from inside tools/), or via an absolute path.
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 cd "$PROJECT_ROOT"
 
-if [[ ! -f yope3d.cfg ]]; then
-    echo "warning: no yope3d.cfg in $PROJECT_ROOT — engine will fall back to" >&2
-    echo "         the default script name ('Sandbox') which isn't registered." >&2
-    echo "         Create yope3d.cfg with: script=SandboxScript" >&2
-fi
-
 BIN="${BIN:-./build/mac-debug/yope3d}"
+# Stress scene (ScriptComponent → behaviors/stress_test.py); passed via --scene
+# so yope3d.cfg's startupScene is left alone. Relative to assets/.
+SCENE="${SCENE:-scenes/stress.json}"
 DURATION="${DURATION:-30}"
 COOLDOWN="${COOLDOWN:-10}"
 OUT_DIR="${OUT_DIR:-profile_runs}"
 # Comma-separated list of shapes to sweep. Each shape × each N is one run.
-# Recognized by SandboxScript::loadStressTest via YOPE_STRESS_SHAPE:
-#   sphere (default) — addSphere + icosphere mesh
-#   aabb             — addAABB   + rect mesh
-#   obb              — addOBB    + rect mesh
+# Recognized by scripts/behaviors/stress_test.py via YOPE_STRESS_SHAPE:
+#   sphere (default) — add_sphere + icosphere mesh
+#   aabb             — add_aabb   + box mesh
+#   obb              — add_obb    + box mesh
+#   mixed            — random shape per body (cross-shape narrowphase pairs)
 # Mix-and-match e.g. SHAPES=sphere,obb tools/run_scaling_sweep.sh 8000 16000
 SHAPES="${SHAPES:-sphere}"
+# Scenario (YOPE_STRESS_SCENARIO): grid (default, classic Phase E stacks) or
+# funnel (bodies rain through angled plates into one large pile). Non-grid
+# runs get a _<scenario> filename suffix, which the analyzer parses.
+SCENARIO="${SCENARIO:-grid}"
 
 if [[ ! -x "$BIN" ]]; then
     echo "error: $BIN not found or not executable" >&2
@@ -76,6 +78,7 @@ echo "cooldown:   ${COOLDOWN}s between runs"
 echo "output:     $OUT_DIR"
 echo "N values:   ${N_VALUES[*]}"
 echo "shapes:     ${SHAPE_VALUES[*]}"
+echo "scenario:   $SCENARIO"
 echo "total runs: $TOTAL_RUNS"
 echo
 
@@ -92,8 +95,8 @@ for SHAPE_IDX in "${!SHAPE_VALUES[@]}"; do
         START=$(date +%s)
         LOG="$OUT_DIR/engine_N${N}_${SHAPE}.log"
         set +e
-        YOPE_STRESS_N=$N YOPE_STRESS_SHAPE=$SHAPE \
-            YOPE_PROFILE_DURATION=$DURATION "$BIN" 2>&1 | tee "$LOG"
+        YOPE_STRESS_N=$N YOPE_STRESS_SHAPE=$SHAPE YOPE_STRESS_SCENARIO=$SCENARIO \
+            YOPE_PROFILE_DURATION=$DURATION "$BIN" --scene "$SCENE" 2>&1 | tee "$LOG"
         EXIT=${PIPESTATUS[0]}
         set -e
         if (( EXIT != 0 )); then
@@ -122,7 +125,13 @@ for SHAPE_IDX in "${!SHAPE_VALUES[@]}"; do
             # Filename pattern: yope_profile_N<N>_<shape>.csv
             # The analyzer regex matches _N<digits> for the N field and
             # _<shape>.csv for the shape field — both stay independent.
-            DEST="$OUT_DIR/yope_profile_N${N}_${SHAPE}.csv"
+            # Grid keeps the legacy name (comparable with old Phase E CSVs);
+            # other scenarios append their name for the analyzer to parse.
+            if [[ "$SCENARIO" == "grid" ]]; then
+                DEST="$OUT_DIR/yope_profile_N${N}_${SHAPE}.csv"
+            else
+                DEST="$OUT_DIR/yope_profile_N${N}_${SHAPE}_${SCENARIO}.csv"
+            fi
             mv "$LATEST" "$DEST"
             ROWS=$(wc -l <"$DEST" | tr -d ' ')
             echo "    -> $DEST  ($ROWS rows)"

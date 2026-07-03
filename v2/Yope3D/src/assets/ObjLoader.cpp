@@ -77,13 +77,30 @@ namespace {
                     break;  // We found a different material, stop searching
                 }
                 inMaterial = (tokens.size() > 1 && tokens[1] == materialName);
+                if (inMaterial) mtl.hasMaterial = true;
             } else if (inMaterial) {
                 if (tokens[0] == "Kd" && tokens.size() >= 4) {
-                    mtl.diffuseColor.x = std::stof(tokens[1]);
-                    mtl.diffuseColor.y = std::stof(tokens[2]);
-                    mtl.diffuseColor.z = std::stof(tokens[3]);
+                    mtl.albedoFactor.x = std::stof(tokens[1]);
+                    mtl.albedoFactor.y = std::stof(tokens[2]);
+                    mtl.albedoFactor.z = std::stof(tokens[3]);
                 } else if (tokens[0] == "map_Kd" && tokens.size() >= 2) {
-                    mtl.diffuseTexturePath = tokens[1];
+                    mtl.albedoPath = tokens.back();
+                } else if ((tokens[0] == "map_Kn" || tokens[0] == "map_Bump" ||
+                            tokens[0] == "bump") && tokens.size() >= 2) {
+                    mtl.normalPath = tokens.back();
+                } else if (tokens[0] == "Pr" && tokens.size() >= 2) {
+                    mtl.roughnessFactor = std::stof(tokens[1]);
+                } else if (tokens[0] == "Pm" && tokens.size() >= 2) {
+                    mtl.metallicFactor = std::stof(tokens[1]);
+                } else if ((tokens[0] == "map_Pr" || tokens[0] == "map_Pm") &&
+                           tokens.size() >= 2) {
+                    mtl.metalRoughPath = tokens.back();   // OBJ separates; glTF combines
+                } else if (tokens[0] == "Ke" && tokens.size() >= 4) {
+                    mtl.emissiveFactor.x = std::stof(tokens[1]);
+                    mtl.emissiveFactor.y = std::stof(tokens[2]);
+                    mtl.emissiveFactor.z = std::stof(tokens[3]);
+                } else if (tokens[0] == "map_Ke" && tokens.size() >= 2) {
+                    mtl.emissivePath = tokens.back();
                 }
             }
         }

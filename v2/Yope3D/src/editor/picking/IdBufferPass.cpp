@@ -292,25 +292,21 @@ void IdBufferPass::createPipeline(VkDevice device, VkDescriptorSetLayout uboSetL
     // Same vertex format as the raster pipeline
     VkVertexInputBindingDescription binding{};
     binding.binding   = 0;
-    binding.stride    = sizeof(Vertex);
+    // Same vertex buffer as the raster pipeline (32-byte PackedVertex), but the
+    // picking shader only consumes position, so a single attribute is enough.
+    binding.stride    = sizeof(PackedVertex);
     binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    VkVertexInputAttributeDescription attrs[3]{};
+    VkVertexInputAttributeDescription attrs[1]{};
     attrs[0].location = 0; attrs[0].binding = 0;
     attrs[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
-    attrs[0].offset   = offsetof(Vertex, position);
-    attrs[1].location = 1; attrs[1].binding = 0;
-    attrs[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
-    attrs[1].offset   = offsetof(Vertex, normal);
-    attrs[2].location = 2; attrs[2].binding = 0;
-    attrs[2].format   = VK_FORMAT_R32G32_SFLOAT;
-    attrs[2].offset   = offsetof(Vertex, uv);
+    attrs[0].offset   = offsetof(PackedVertex, position);
 
     VkPipelineVertexInputStateCreateInfo vertexInput{};
     vertexInput.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInput.vertexBindingDescriptionCount   = 1;
     vertexInput.pVertexBindingDescriptions      = &binding;
-    vertexInput.vertexAttributeDescriptionCount = 3;
+    vertexInput.vertexAttributeDescriptionCount = 1;
     vertexInput.pVertexAttributeDescriptions    = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};

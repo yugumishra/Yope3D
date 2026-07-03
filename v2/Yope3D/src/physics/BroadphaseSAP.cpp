@@ -35,8 +35,20 @@ void BroadphaseSAP::collectPairs(const std::vector<ecs::Entity>& entities,
                 ext = {sf->radius, sf->radius, sf->radius};
             else if (auto* af = reg.get<ecs::AABBForm>(e))
                 ext = af->extent;
-            else if (auto* of = reg.get<ecs::OBBForm>(e))
-                ext = of->extent; // conservative AABB: use half-extents directly
+            else if (auto* of = reg.get<ecs::OBBForm>(e)) {
+                // World AABB of a rotated box: half-extent along world axis i
+                // is sum_j |R[i][j]| * ext[j]. Using the unrotated extents
+                // under-covers (a rotated cube's world AABB is up to sqrt(3)x
+                // larger), silently dropping pairs for corner contacts.
+                // Column-major: R[i][j] = m[3j + i].
+                const math::Mat3 R = math::Mat3::rotation(tf->rotation);
+                const math::Vec3& x = of->extent;
+                ext = {
+                    std::fabs(R.m[0]) * x.x + std::fabs(R.m[3]) * x.y + std::fabs(R.m[6]) * x.z,
+                    std::fabs(R.m[1]) * x.x + std::fabs(R.m[4]) * x.y + std::fabs(R.m[7]) * x.z,
+                    std::fabs(R.m[2]) * x.x + std::fabs(R.m[5]) * x.y + std::fabs(R.m[8]) * x.z,
+                };
+            }
             else
                 continue; // no known shape
             entries_.push_back({
