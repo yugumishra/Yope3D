@@ -1,0 +1,1366 @@
+{
+    "version": 1,
+    "gravity": [0, -9.80665, 0],
+    "exposure": 1,
+    "entities": [
+        {
+            "fileId": 0,
+            "runtimeId": 0,
+            "Name":             {
+                "value": "PointLight"
+            },
+            "LightSource":             {
+                "type": 0,
+                "color": [1, 1, 1],
+                "intensity": 1.5,
+                "position": [0, 4, 0],
+                "direction": [0, -1, 0],
+                "constant": 1,
+                "linear": 0.09,
+                "quadratic": 0.032,
+                "innerConeAngle": 0.2,
+                "outerConeAngle": 0.5
+            }
+        },
+        {
+            "fileId": 1,
+            "runtimeId": 1,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img6",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img7",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img8",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img8",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 2,
+            "runtimeId": 2,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img9",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img10",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img11",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img11",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 3,
+            "runtimeId": 3,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img12",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img13",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img14",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img14",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 4,
+            "runtimeId": 4,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img15",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img16",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img17",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img17",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 5,
+            "runtimeId": 5,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img18",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img19",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img20",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img20",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 6,
+            "runtimeId": 6,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 7,
+            "runtimeId": 7,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 8,
+            "runtimeId": 8,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 9,
+            "runtimeId": 9,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 10,
+            "runtimeId": 10,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 11,
+            "runtimeId": 11,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 12,
+            "runtimeId": 12,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 13,
+            "runtimeId": 13,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 14,
+            "runtimeId": 14,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 15,
+            "runtimeId": 15,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 16,
+            "runtimeId": 16,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 17,
+            "runtimeId": 17,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 18,
+            "runtimeId": 18,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 19,
+            "runtimeId": 19,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 20,
+            "runtimeId": 20,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 21,
+            "runtimeId": 21,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 22,
+            "runtimeId": 22,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 23,
+            "runtimeId": 23,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 24,
+            "runtimeId": 24,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 25,
+            "runtimeId": 25,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 26,
+            "runtimeId": 26,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 27,
+            "runtimeId": 27,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 28,
+            "runtimeId": 28,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 29,
+            "runtimeId": 29,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 30,
+            "runtimeId": 30,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 31,
+            "runtimeId": 31,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 32,
+            "runtimeId": 32,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 33,
+            "runtimeId": 33,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 34,
+            "runtimeId": 34,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 35,
+            "runtimeId": 35,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 36,
+            "runtimeId": 36,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 37,
+            "runtimeId": 37,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 38,
+            "runtimeId": 38,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img25",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img26",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 39,
+            "runtimeId": 39,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img25",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img26",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 40,
+            "runtimeId": 40,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img28",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img26",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 41,
+            "runtimeId": 41,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img28",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img26",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 42,
+            "runtimeId": 42,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img29",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img30",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 43,
+            "runtimeId": 43,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img29",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img30",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 44,
+            "runtimeId": 44,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img32",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img30",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 45,
+            "runtimeId": 45,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img32",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img30",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 46,
+            "runtimeId": 46,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img3",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img4",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img5",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img5",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 47,
+            "runtimeId": 47,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img3",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img4",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img5",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img5",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 48,
+            "runtimeId": 48,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img0",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img1",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img2",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img2",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        },
+        {
+            "fileId": 49,
+            "runtimeId": 49,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [0, 2.87814, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [13.2957, 13.3035, 13.2943]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img0",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img1",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img2",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img2",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            }
+        }
+    ]
+}

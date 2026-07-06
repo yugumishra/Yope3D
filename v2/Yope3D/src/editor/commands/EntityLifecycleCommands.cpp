@@ -134,6 +134,25 @@ void CreateEntityCommand::undo(EditorContext& ctx) {
     created_ = ecs::NullEntity;
 }
 
+// ----- ImportModelCommand -----
+
+void ImportModelCommand::redo(EditorContext& ctx) {
+    if (!ctx.world) return;
+    created_ = ctx.world->importModel(absPath_);
+    if (ctx.selection && !created_.empty()) {
+        ctx.selection->clear();
+        for (ecs::Entity e : created_)
+            if (ctx.world->getRegistry().valid(e)) ctx.selection->add(e);
+    }
+}
+
+void ImportModelCommand::undo(EditorContext& ctx) {
+    if (ctx.selection) ctx.selection->clear();
+    for (ecs::Entity e : created_)
+        if (ctx.world->getRegistry().valid(e)) ctx.world->removeEntity(e);
+    created_.clear();
+}
+
 // ----- DeleteEntityCommand -----
 
 void DeleteEntityCommand::redo(EditorContext& ctx) {

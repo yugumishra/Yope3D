@@ -59,6 +59,12 @@ public:
     // source defines one. Uses the Engine-wired AssetManager for glTF textures.
     std::vector<ecs::Entity> addModel(const std::string& path);
 
+    // Same as addModel but takes an absolute filesystem path (e.g. from the
+    // editor's native file picker / asset drag-drop, which may live outside the
+    // assets tree). Embedded glTF textures load; external-URI textures resolve
+    // relative to YOPE_ASSETS_DIR (loader limitation).
+    std::vector<ecs::Entity> importModel(const std::string& absPath);
+
     // Attach a mesh to an existing entity. Returns the new RenderMesh* for configuration.
     RenderMesh* attachMesh(ecs::Entity e,
                            const std::vector<Vertex>&   vertices,
@@ -198,6 +204,9 @@ public:
     int getThreadCount() const;
 
     math::Vec3 gravity = {0.0f, physics::GRAVITY_Y, 0.0f};
+
+    // Global scene exposure applied pre-tonemap in the PBR shader (World Settings).
+    float exposure = 1.0f;
 
     physics::CollisionLayers layers;
 

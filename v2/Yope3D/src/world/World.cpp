@@ -424,9 +424,14 @@ static void applyMaterialData(ecs::Registry& reg, ecs::Entity e, const MaterialD
 }
 
 std::vector<ecs::Entity> World::addModel(const std::string& path) {
-    AssetManager* assets = assets_;
     std::string fullPath = (std::filesystem::path(YOPE_ASSETS_DIR) / path).string();
-    std::string ext = std::filesystem::path(path).extension().string();
+    return importModel(fullPath);
+}
+
+std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
+    AssetManager* assets = assets_;
+    const std::string& fullPath = absPath;
+    std::string ext = std::filesystem::path(absPath).extension().string();
     for (char& c : ext) c = static_cast<char>(std::tolower(c));
 
     std::vector<LoadedMesh> meshes;

@@ -5,6 +5,7 @@
 #include "editor/commands/SetComponentCommand.h"
 #include "editor/commands/CompoundCommand.h"
 #include "editor/commands/TransformEditSession.h"
+#include "editor/commands/EntityLifecycleCommands.h"
 #include "editor/picking/IdBufferPass.h"
 #include "rendering/ViewportTarget.h"
 #include "ecs/Registry.h"
@@ -22,6 +23,8 @@
 #include <vulkan/vulkan.h>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <string>
 
 // Project a world-space point through the editor camera into pixel coordinates
 // inside the viewport image. Returns false if the point is behind the camera.
@@ -147,6 +150,20 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
     // must be called before any other item is rendered.
     bool   imageHovered = ImGui::IsItemHovered();
     ImVec2 imgTopLeft   = ImGui::GetItemRectMin();
+
+    // ---- Drop target: import a model dragged from the Asset Browser onto the
+    // 3D view. Creates entities (one per glTF primitive) with materials. Also
+    // targets the Image item, so it must run before any other item is submitted.
+    if (!playing && ctx.viewportTarget && ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+            const char* dropped = static_cast<const char*>(payload->Data);
+            std::string ext = std::filesystem::path(dropped).extension().string();
+            for (char& c : ext) c = static_cast<char>(std::tolower(c));
+            if ((ext == ".obj" || ext == ".gltf" || ext == ".glb") && ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<ImportModelCommand>(dropped));
+        }
+        ImGui::EndDragDropTarget();
+    }
 
     // Determined by icon hit-test below; suppresses ID buffer readback so the
     // mesh under the icon doesn't overwrite the icon-driven selection a frame later.
@@ -294,10 +311,11 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                 }
                 if (tfCount > 0) centroid = centroid * (1.f / float(tfCount));
 
-                // Build a translation-only model matrix at the centroid.
-                // Rotate/scale gizmos still work on the primary entity only.
+                // Build the gizmo's model matrix. For a multi-select the gizmo sits
+                // at the group centroid with identity rotation/scale, so the decomposed
+                // gizmo delta can be re-applied about that pivot to every selected entity.
                 float modelF[16];
-                if (isMulti && gizmoOp_ == ImGuizmo::TRANSLATE) {
+                if (isMulti) {
                     Transform centTf{};
                     centTf.position = centroid;
                     math::Mat4 m = centTf.getModelMatrix();
@@ -314,23 +332,69 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                     float t[3], r[3], s[3];
                     ImGuizmo::DecomposeMatrixToComponents(modelF, t, r, s);
 
-                    if (isMulti && gizmoOp_ == ImGuizmo::TRANSLATE) {
-                        // Multi-select translate: snapshot all on drag start.
+                    if (isMulti) {
+                        // Snapshot every selected Transform (+ collider anchors) on
+                        // drag start, so each frame applies an absolute delta from the
+                        // start pose about the group pivot — no per-frame drift.
                         if (!gizmoWasUsing_) {
                             multiDragStarts_.clear();
+                            multiAnchors_.clear();
                             for (auto e : selSpan) {
-                                if (auto* et = ctx.registry->get<Transform>(e))
+                                if (auto* et = ctx.registry->get<Transform>(e)) {
                                     multiDragStarts_.push_back({e, *et});
+                                    TransformEditAnchor a{};
+                                    transform_edit::begin(a, e, *ctx.registry);
+                                    multiAnchors_.push_back(a);
+                                }
                             }
                             multiCentroidStart_ = centroid;
                             gizmoDragEntity_ = sel;
                         }
-                        // Apply delta from centroid start to all selected entities.
-                        math::Vec3 newCentroid{t[0], t[1], t[2]};
-                        math::Vec3 delta = newCentroid - multiCentroidStart_;
-                        for (auto& [e, startTf] : multiDragStarts_) {
-                            if (auto* et = ctx.registry->get<Transform>(e))
-                                et->position = startTf.position + delta;
+
+                        if (gizmoOp_ == ImGuizmo::TRANSLATE) {
+                            // Uniform position delta from the centroid's movement.
+                            math::Vec3 newCentroid{t[0], t[1], t[2]};
+                            math::Vec3 delta = newCentroid - multiCentroidStart_;
+                            for (auto& [e, startTf] : multiDragStarts_) {
+                                if (auto* et = ctx.registry->get<Transform>(e))
+                                    et->position = startTf.position + delta;
+                            }
+                        } else if (gizmoOp_ == ImGuizmo::ROTATE) {
+                            // The gizmo source was identity-rotation, so the decomposed
+                            // euler IS the delta rotation. Rebuild it as a quaternion
+                            // (same convention as the single-entity path) and apply it
+                            // about the pivot to every entity's rotation and position.
+                            float rx = r[0]*0.0174532925f, ry = r[1]*0.0174532925f, rz = r[2]*0.0174532925f;
+                            float cx = std::cos(rx*.5f), sx = std::sin(rx*.5f);
+                            float cy = std::cos(ry*.5f), sy = std::sin(ry*.5f);
+                            float cz = std::cos(rz*.5f), sz = std::sin(rz*.5f);
+                            math::Quat dq{ sx*cy*cz - cx*sy*sz, cx*sy*cz + sx*cy*sz,
+                                           cx*cy*sz - sx*sy*cz, cx*cy*cz + sx*sy*sz };
+                            math::Mat3 dr = math::Mat3::rotation(dq);
+                            for (auto& [e, startTf] : multiDragStarts_) {
+                                if (auto* et = ctx.registry->get<Transform>(e)) {
+                                    et->rotation = dq * startTf.rotation;
+                                    et->position = multiCentroidStart_ +
+                                                   dr * (startTf.position - multiCentroidStart_);
+                                }
+                            }
+                        } else { // SCALE
+                            // Source scale was 1, so s[] is the group scale factor.
+                            // Scale each entity's own scale and its offset from the pivot,
+                            // then resize any collider Form to match (single-entity parity).
+                            for (size_t i = 0; i < multiDragStarts_.size(); ++i) {
+                                auto& [e, startTf] = multiDragStarts_[i];
+                                auto* et = ctx.registry->get<Transform>(e);
+                                if (!et) continue;
+                                et->scale = { startTf.scale.x * s[0],
+                                              startTf.scale.y * s[1],
+                                              startTf.scale.z * s[2] };
+                                math::Vec3 off = startTf.position - multiCentroidStart_;
+                                et->position = multiCentroidStart_ +
+                                    math::Vec3{ off.x * s[0], off.y * s[1], off.z * s[2] };
+                                if (i < multiAnchors_.size())
+                                    transform_edit::applyScaleRatio(multiAnchors_[i], e, *ctx.registry);
+                            }
                         }
                     } else {
                         // Single-entity drag (or rotate/scale even in multi mode).
@@ -362,17 +426,33 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                 }
 
                 if (gizmoWasUsing_ && !isUsing) {
-                    if (isMulti && gizmoOp_ == ImGuizmo::TRANSLATE && !multiDragStarts_.empty()) {
-                        // Commit as a compound of one SetComponentCommand per entity.
-                        auto compound = std::make_unique<CompoundCommand>("Gizmo Translate");
-                        for (auto& [e, startTf] : multiDragStarts_) {
-                            if (auto* et = ctx.registry->get<Transform>(e)) {
+                    if (isMulti && !multiDragStarts_.empty()) {
+                        const char* label =
+                            (gizmoOp_ == ImGuizmo::TRANSLATE) ? "Gizmo Translate" :
+                            (gizmoOp_ == ImGuizmo::ROTATE)    ? "Gizmo Rotate"    :
+                                                                "Gizmo Scale";
+                        // Commit the whole group as one undoable compound. Scale routes
+                        // through appendCommit so collider Forms restore atomically;
+                        // translate/rotate leave Forms untouched (Transform-only).
+                        auto compound = std::make_unique<CompoundCommand>(label);
+                        for (size_t i = 0; i < multiDragStarts_.size(); ++i) {
+                            auto& [e, startTf] = multiDragStarts_[i];
+                            if (!ctx.registry->valid(e)) continue;
+                            if (gizmoOp_ == ImGuizmo::SCALE && i < multiAnchors_.size()) {
+                                transform_edit::appendCommit(*compound, multiAnchors_[i], e, *ctx.registry);
+                            } else if (auto* et = ctx.registry->get<Transform>(e)) {
                                 compound->add(std::make_unique<SetComponentCommand<Transform>>(
-                                    e, startTf, *et, "Gizmo Translate"));
+                                    e, startTf, *et, label));
                             }
                         }
                         if (ctx.history) ctx.history->execute(ctx, std::move(compound));
+                        // Capsules use baked meshes — rebuild after a scale.
+                        if (ctx.world && gizmoOp_ == ImGuizmo::SCALE) {
+                            for (auto& a : multiAnchors_)
+                                if (a.hasCapsule) ctx.world->rebuildCapsuleMesh(a.entity);
+                        }
                         multiDragStarts_.clear();
+                        multiAnchors_.clear();
                     } else {
                         const char* label =
                             (gizmoOp_ == ImGuizmo::TRANSLATE) ? "Gizmo Translate" :

@@ -83,9 +83,10 @@ void AssetBrowserPanel::drawDirectory(const std::string& dirPath, EditorContext&
 
             if (isModified) ImGui::PopStyleColor();
 
-            // Drag source: .obj for MeshRenderer, .wav/.ogg for AudioSource.
-            // Payload type is "ASSET_PATH"; targets disambiguate by extension.
+            // Drag source: model files (mesh swap / viewport import), .wav/.ogg
+            // for AudioSource. Payload "ASSET_PATH"; targets disambiguate by extension.
             bool draggable = (ext == ".obj" || ext == ".fbx" ||
+                              ext == ".gltf" || ext == ".glb" ||
                               ext == ".wav" || ext == ".ogg" || ext == ".mp3");
             if (draggable && ImGui::BeginDragDropSource()) {
                 ImGui::SetDragDropPayload("ASSET_PATH", absPath.c_str(), absPath.size() + 1);

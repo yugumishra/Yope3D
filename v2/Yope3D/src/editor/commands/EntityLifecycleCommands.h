@@ -53,6 +53,22 @@ struct CreateEntityCommand : ICommand {
     const char* label() const override { return "Create Entity"; }
 };
 
+// Imports a model file (.obj / .gltf / .glb) from an absolute path, creating one
+// entity per primitive with materials attached (mirrors World::importModel /
+// Python add_model). redo() loads + creates; undo() removes the created entities.
+// Used by the "Import Model..." menu, viewport drops, and asset-browser drags.
+struct ImportModelCommand : ICommand {
+    explicit ImportModelCommand(std::string absPath) : absPath_(std::move(absPath)) {}
+
+    void        redo(EditorContext& ctx) override;
+    void        undo(EditorContext& ctx) override;
+    const char* label() const override { return "Import Model"; }
+
+private:
+    std::string              absPath_;
+    std::vector<ecs::Entity> created_;
+};
+
 // Deletes an entity. redo() snapshots then removes it. undo() restores from snapshot.
 struct DeleteEntityCommand : ICommand {
     explicit DeleteEntityCommand(ecs::Entity e) : entity_(e) {}

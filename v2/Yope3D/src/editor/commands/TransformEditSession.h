@@ -109,6 +109,42 @@ inline void applyScaleRatio(const TransformEditAnchor& anchor,
     }
 }
 
+// Append the Transform + every captured Form's restore command into an existing
+// compound, WITHOUT pushing or clearing the anchor. This lets a multi-select
+// gizmo drag bundle many entities' edits into a single undo step (call once per
+// entity, then execute the compound). commit() is the single-entity wrapper.
+inline void appendCommit(CompoundCommand& group, const TransformEditAnchor& anchor,
+                         ecs::Entity e, ecs::Registry& reg) {
+    if (auto* tf = reg.get<Transform>(e))
+        group.add(std::make_unique<SetComponentCommand<Transform>>(
+            e, anchor.tfBefore, *tf, "Transform"));
+    if (anchor.hasSphere) {
+        if (auto* sf = reg.get<ecs::SphereForm>(e))
+            group.add(std::make_unique<SetComponentCommand<ecs::SphereForm>>(
+                e, anchor.sphereBefore, *sf, "Resize Sphere"));
+    }
+    if (anchor.hasAABB) {
+        if (auto* a = reg.get<ecs::AABBForm>(e))
+            group.add(std::make_unique<SetComponentCommand<ecs::AABBForm>>(
+                e, anchor.aabbBefore, *a, "Resize AABB"));
+    }
+    if (anchor.hasOBB) {
+        if (auto* o = reg.get<ecs::OBBForm>(e))
+            group.add(std::make_unique<SetComponentCommand<ecs::OBBForm>>(
+                e, anchor.obbBefore, *o, "Resize OBB"));
+    }
+    if (anchor.hasCapsule) {
+        if (auto* c = reg.get<ecs::CapsuleForm>(e))
+            group.add(std::make_unique<SetComponentCommand<ecs::CapsuleForm>>(
+                e, anchor.capsuleBefore, *c, "Resize Capsule"));
+    }
+    if (anchor.hasCylinder) {
+        if (auto* c = reg.get<ecs::CylinderForm>(e))
+            group.add(std::make_unique<SetComponentCommand<ecs::CylinderForm>>(
+                e, anchor.cylinderBefore, *c, "Resize Cylinder"));
+    }
+}
+
 // Push a single undoable CompoundCommand that restores Transform plus every
 // Form that was captured. Clears the anchor. Call on edit release
 // (IsItemDeactivatedAfterEdit, gizmo IsUsing transition true→false).
@@ -119,34 +155,7 @@ inline void commit(TransformEditAnchor& anchor, ecs::Entity e,
         return;
     }
     auto group = std::make_unique<CompoundCommand>(label);
-    if (auto* tf = ctx.registry->get<Transform>(e))
-        group->add(std::make_unique<SetComponentCommand<Transform>>(
-            e, anchor.tfBefore, *tf, label));
-    if (anchor.hasSphere) {
-        if (auto* sf = ctx.registry->get<ecs::SphereForm>(e))
-            group->add(std::make_unique<SetComponentCommand<ecs::SphereForm>>(
-                e, anchor.sphereBefore, *sf, "Resize Sphere"));
-    }
-    if (anchor.hasAABB) {
-        if (auto* a = ctx.registry->get<ecs::AABBForm>(e))
-            group->add(std::make_unique<SetComponentCommand<ecs::AABBForm>>(
-                e, anchor.aabbBefore, *a, "Resize AABB"));
-    }
-    if (anchor.hasOBB) {
-        if (auto* o = ctx.registry->get<ecs::OBBForm>(e))
-            group->add(std::make_unique<SetComponentCommand<ecs::OBBForm>>(
-                e, anchor.obbBefore, *o, "Resize OBB"));
-    }
-    if (anchor.hasCapsule) {
-        if (auto* c = ctx.registry->get<ecs::CapsuleForm>(e))
-            group->add(std::make_unique<SetComponentCommand<ecs::CapsuleForm>>(
-                e, anchor.capsuleBefore, *c, "Resize Capsule"));
-    }
-    if (anchor.hasCylinder) {
-        if (auto* c = ctx.registry->get<ecs::CylinderForm>(e))
-            group->add(std::make_unique<SetComponentCommand<ecs::CylinderForm>>(
-                e, anchor.cylinderBefore, *c, "Resize Cylinder"));
-    }
+    appendCommit(*group, anchor, e, *ctx.registry);
     ctx.history->execute(ctx, std::move(group));
     // Capsule: rebuild the baked render mesh so caps are correct after resize.
     if (anchor.hasCapsule && ctx.world) ctx.world->rebuildCapsuleMesh(e);
