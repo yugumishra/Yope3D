@@ -14,6 +14,10 @@ void WorldSettingsPanel::draw(EditorContext& ctx) {
     if (ImGui::DragFloat3("Gravity", g, 0.1f))
         ctx.world->gravity = { g[0], g[1], g[2] };
 
+    ImGui::SliderFloat("Exposure", &ctx.world->exposure, 0.0f, 4.0f, "%.2f");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset##exposure")) ctx.world->exposure = 1.0f;
+
     if (ctx.engine) {
         const char* modes[] = { "RASTER", "RAYTRACE" };
         int mode = static_cast<int>(ctx.engine->renderMode_);

@@ -5,6 +5,7 @@ layout(set = 0, binding = 0) uniform GlobalUBO {
     mat4 proj;
     vec3 cameraPos;
     int  numLights;
+    float exposure;   // global scene exposure, applied pre-tonemap
 } ubo;
 
 layout(std430, set = 0, binding = 1) readonly buffer LightBuffer {
@@ -169,14 +170,20 @@ void main() {
 
         vec3 specular = (D * G * F) / max(4.0 * NdotV * NdotL, 1e-4);
         vec3 kd = (vec3(1.0) - F) * (1.0 - metallic);
-        Lo += (kd * albedo / PI + specular) * radiance * NdotL;
+        // NOTE: the Lambertian term intentionally omits the physical 1/PI factor.
+        // Light intensities are authored against the pre-M15 (non-energy-conserving)
+        // model, so dividing by PI here made unchanged scenes ~3.14x too dim. Keeping
+        // kd*albedo restores the historical diffuse brightness; the GGX specular lobe
+        // is unaffected. Use ubo.exposure for global brightness control.
+        Lo += (kd * albedo + specular) * radiance * NdotL;
     }
 
     // Constant ambient term modulated by occlusion (no IBL yet), plus emissive.
     vec3 ambient = vec3(0.03) * albedo * occlusion;
     vec3 color   = ambient + Lo + emissive;
 
-    // Reinhard tonemap keeps PBR highlights in range, then back to display.
+    // Global exposure, then Reinhard tonemap keeps PBR highlights in range.
+    color *= ubo.exposure;
     color = color / (color + vec3(1.0));
     outColor = vec4(clamp(color, 0.0, 1.0), 1.0);
 }

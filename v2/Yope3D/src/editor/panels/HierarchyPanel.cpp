@@ -2,6 +2,7 @@
 #include "editor/EditorContext.h"
 #include "editor/Selection.h"
 #include "editor/CommandHistory.h"
+#include "editor/FileDialog.h"
 #include "editor/commands/EntityLifecycleCommands.h"
 #include "ecs/Registry.h"
 #include "ecs/Components.h"
@@ -32,6 +33,13 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                 ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
                     EntityKind::RenderObject, math::Vec3{0.f, 0.f, 0.f},
                     math::Vec3{1.f, 1.f, 1.f}));
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::MenuItem("Import Model...")) {
+            if (ctx.world && ctx.history) {
+                if (auto p = FileDialog::openFile({{"Model", "glb,gltf,obj"}}, YOPE_ASSETS_DIR))
+                    ctx.history->execute(ctx, std::make_unique<ImportModelCommand>(*p));
+            }
             ImGui::CloseCurrentPopup();
         }
         ImGui::Separator();
@@ -171,6 +179,19 @@ void HierarchyPanel::draw(EditorContext& ctx) {
         return (ta ? ta->depth : 0) < (tb ? tb->depth : 0);
     });
 
+    // Flat display order (must match the draw order below): non-UI, then UI.
+    // Used to resolve Shift+click ranges by row index.
+    std::vector<ecs::Entity> ordered;
+    ordered.reserve(nonUI.size() + uiEnts.size());
+    ordered.insert(ordered.end(), nonUI.begin(), nonUI.end());
+    ordered.insert(ordered.end(), uiEnts.begin(), uiEnts.end());
+
+    auto indexOf = [&](ecs::Entity e) -> int {
+        for (int i = 0; i < static_cast<int>(ordered.size()); ++i)
+            if (ordered[i] == e) return i;
+        return -1;
+    };
+
     // Draw a single entity row with selection and context menu.
     auto drawRow = [&](ecs::Entity e) {
         char label[96];
@@ -185,9 +206,24 @@ void HierarchyPanel::draw(EditorContext& ctx) {
         bool selected = ctx.selection && ctx.selection->contains(e);
         if (ImGui::Selectable(label, selected)) {
             if (ctx.selection) {
-                bool additive = ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift;
-                if (additive) ctx.selection->add(e);
-                else          ctx.selection->set(e);
+                bool shift = ImGui::GetIO().KeyShift;
+                bool ctrl  = ImGui::GetIO().KeyCtrl;
+                int anchorIdx = indexOf(shiftAnchor_);
+                if (shift && anchorIdx >= 0) {
+                    // Range select from the anchor row to this row (inclusive).
+                    int target = indexOf(e);
+                    int lo = std::min(anchorIdx, target);
+                    int hi = std::max(anchorIdx, target);
+                    ctx.selection->clear();
+                    for (int i = lo; i <= hi; ++i) ctx.selection->add(ordered[i]);
+                    // Anchor stays put so the range can be re-adjusted.
+                } else if (ctrl) {
+                    ctx.selection->add(e);   // toggle-style additive select
+                    shiftAnchor_ = e;
+                } else {
+                    ctx.selection->set(e);
+                    shiftAnchor_ = e;
+                }
             }
         }
         if (ImGui::BeginPopupContextItem()) {

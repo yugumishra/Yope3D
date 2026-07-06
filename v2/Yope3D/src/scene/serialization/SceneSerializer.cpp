@@ -66,6 +66,7 @@ bool save(const char* path, ecs::Registry& reg, World& world) {
 
     // World settings
     w.writeFloat3("gravity", world.gravity.x, world.gravity.y, world.gravity.z);
+    w.writeFloat("exposure", world.exposure);
 
     // Build a runtime-id → fileId map so SpringConstraint can write the
     // target's *fileId* (stable across runs) instead of its runtime ID
@@ -140,6 +141,9 @@ std::string load(const char* path, ecs::Registry& reg, World& world,
         if (arr.size() >= 3)
             world.gravity = {arr[0].asFloat(), arr[1].asFloat(), arr[2].asFloat()};
     }
+
+    // Exposure (older scenes without the key keep the 1.0 default).
+    world.exposure = root.contains("exposure") ? root["exposure"].asFloat() : 1.0f;
 
     if (!root.contains("entities")) return "";
 

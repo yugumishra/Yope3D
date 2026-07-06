@@ -55,10 +55,15 @@ private:
     void* iconSpeaker_ = nullptr;
     bool  iconsLoaded_ = false;
 
-    // Multi-select gizmo: positions of all selected entities at drag start,
-    // keyed by entity. Used to apply a uniform translate delta to the whole group.
+    // Multi-select gizmo: full Transform of every selected entity at drag start,
+    // keyed by entity. Translate applies a uniform delta; rotate/scale apply the
+    // gizmo delta about multiCentroidStart_ (the group pivot).
     std::vector<std::pair<ecs::Entity, Transform>> multiDragStarts_;
     math::Vec3 multiCentroidStart_{};
+    // Parallel per-entity anchors captured at drag start for a multi-select SCALE,
+    // so collider Forms resize with the Transform (mirrors the single-entity path)
+    // and the whole group commits as one undoable compound.
+    std::vector<TransformEditAnchor> multiAnchors_;
 
     // ---- 2D UI gizmo state ----
     // Active drag handle index (see UIHandleIndex enum in .cpp) or -1 if none.

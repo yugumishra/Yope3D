@@ -73,8 +73,9 @@ struct GlobalUBO {
     math::Mat4 proj;        // 64 bytes
     float      cameraPos[3]; // 12 bytes — vec3 body
     int        numLights;    //  4 bytes — std140 pads vec3 to vec4, now holds light count
+    float      exposure;     //  4 bytes — global pre-tonemap exposure
 };
-static_assert(sizeof(GlobalUBO) == 144, "GlobalUBO size must match std140 layout");
+static_assert(sizeof(GlobalUBO) == 148, "GlobalUBO size must match std140 layout");
 
 // ---------------------------------------------------------------------------
 // Default quad (normals pointing toward camera at +Z)
@@ -1587,6 +1588,7 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, W
         }
     }
     uboData.numLights = numLights;
+    uboData.exposure  = world.exposure;
 
     // Upload light data to the SSBO. Write only the actual packed size.
     if (!packedLights.empty()) {
@@ -1779,6 +1781,7 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
         ++numLights;
     }
     uboData.numLights = numLights;
+    uboData.exposure  = world.exposure;
     if (!packedLights.empty())
         lightBuffers[currentFrame].write(packedLights.data(), packedLights.size() * sizeof(float));
     uniformBuffers[currentFrame].write(&uboData, sizeof(GlobalUBO));

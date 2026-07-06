@@ -1,4 +1,5 @@
 #include "editor/inspectors/InspectorRegistry.h"
+#include "assets/GltfLoader.h"
 #ifdef YOPE_EDITOR
 #include "editor/EditorContext.h"
 #include "editor/CommandHistory.h"
@@ -10,12 +11,29 @@
 #include "assets/ObjLoader.h"
 #include <imgui.h>
 #include <cstdio>
+#include <iostream>
+#include <cstring>
+#include <filesystem>
+#include <vector>
 
+// Swap the mesh on an existing entity. For multi-primitive glTF, only the first
+// primitive is used — importing a full model (all primitives + materials) is the
+// job of the "Import Model" menu / viewport drop (ImportModelCommand).
 static void applyMesh(EditorContext& ctx, ecs::Entity e, ecs::MeshRenderer* mr,
                       const char* absPath) {
     std::string before = (mr->mesh ? mr->mesh->sourcePath : "");
+
     try {
-        LoadedMesh loaded = ObjLoader::load(absPath);
+        std::string ext = std::filesystem::path(absPath).extension().string();
+        for (char& c : ext) c = static_cast<char>(std::tolower(c));
+
+        LoadedMesh loaded;
+        if (ext == ".glb" || ext == ".gltf") {
+            std::vector<LoadedMesh> meshes = GltfLoader::load(absPath);
+            if (!meshes.empty()) loaded = std::move(meshes[0]);
+        } else {
+            loaded = ObjLoader::load(absPath);
+        }
         if (!loaded.vertices.empty() && ctx.world) {
             RenderMesh* rm = ctx.world->attachMesh(e, loaded.vertices, loaded.indices);
             if (rm) {
@@ -58,10 +76,10 @@ void drawMeshRendererComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
     std::snprintf(buf, sizeof(buf), "Mesh: %s", meshLabel);
     ImGui::Selectable(buf, false, ImGuiSelectableFlags_None, ImVec2(0, 0));
     ImGui::SameLine();
-    ImGui::TextDisabled("(drop .obj here)");
+    ImGui::TextDisabled("(drop model here)");
     ImGui::SameLine();
     if (ImGui::Button("...##mesh_pick")) {
-        if (auto p = FileDialog::openFile({{"OBJ Mesh", "obj"}}))
+        if (auto p = FileDialog::openFile({{"Model", "obj,glb,gltf"}}))
             applyMesh(ctx, e, mr, p->c_str());
     }
 
