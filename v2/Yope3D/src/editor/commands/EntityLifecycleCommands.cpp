@@ -4,8 +4,10 @@
 #include "editor/Selection.h"
 #include "world/World.h"
 #include "world/Transform.h"
+#include "world/TransformHierarchy.h"
 #include "assets/Primitives.h"
 #include "ecs/Registry.h"
+#include "ecs/Components.h"
 #include <vector>
 
 // ----- CreateEntityCommand -----
@@ -139,10 +141,13 @@ void CreateEntityCommand::undo(EditorContext& ctx) {
 void ImportModelCommand::redo(EditorContext& ctx) {
     if (!ctx.world) return;
     created_ = ctx.world->importModel(absPath_);
+    // Select only the imported roots (entities with no valid Parent) — selecting
+    // every node would fight the hierarchy tree and multi-drag the whole model.
     if (ctx.selection && !created_.empty()) {
+        ecs::Registry& reg = ctx.world->getRegistry();
         ctx.selection->clear();
         for (ecs::Entity e : created_)
-            if (ctx.world->getRegistry().valid(e)) ctx.selection->add(e);
+            if (reg.valid(e) && !reg.has<ecs::Parent>(e)) ctx.selection->add(e);
     }
 }
 
@@ -157,30 +162,36 @@ void ImportModelCommand::undo(EditorContext& ctx) {
 
 void DeleteEntityCommand::redo(EditorContext& ctx) {
     if (!ctx.registry->valid(entity_)) return;
-    snapshot_ = snapshotEntity(entity_, *ctx.registry, *ctx.world);
+    // Snapshot the whole subtree (parent-before-child) before the cascading remove.
+    oldIds_.clear();
+    hierarchy::collectSubtree(*ctx.registry, entity_, oldIds_);
+    snapshots_.clear();
+    snapshots_.reserve(oldIds_.size());
+    for (ecs::Entity e : oldIds_)
+        snapshots_.push_back(snapshotEntity(e, *ctx.registry, *ctx.world));
     if (ctx.selection && ctx.selection->primary() == entity_) ctx.selection->clear();
-    ctx.world->removeEntity(entity_);
+    ctx.world->removeEntity(entity_);   // cascades to children (World::removeEntity)
 }
 
 void DeleteEntityCommand::undo(EditorContext& ctx) {
-    ecs::Entity restored = snapshot_.restore(*ctx.world);
-    if (ctx.registry->valid(restored)) {
-        entity_ = restored;
-        if (ctx.selection) ctx.selection->set(restored);
+    // keepExternalParents: the root may have been a child of a surviving entity.
+    auto restored = restoreSubtree(*ctx.world, snapshots_, oldIds_, /*keepExternalParents=*/true);
+    if (!restored.empty() && ctx.registry->valid(restored.front())) {
+        entity_ = restored.front();
+        if (ctx.selection) ctx.selection->set(entity_);
     }
 }
 
 // ----- PasteEntitiesCommand -----
 
 void PasteEntitiesCommand::redo(EditorContext& ctx) {
-    created_.clear();
-    if (ctx.selection) ctx.selection->clear();
-    for (const auto& snap : snapshots_) {
-        ecs::Entity e = snap.restore(*ctx.world);
-        if (ctx.registry->valid(e)) {
-            created_.push_back(e);
-            if (ctx.selection) ctx.selection->add(e);
-        }
+    // keepExternalParents=false: a pasted entity whose parent wasn't copied becomes
+    // a root (the caller offset those roots in world space).
+    created_ = restoreSubtree(*ctx.world, snapshots_, oldIds_, /*keepExternalParents=*/false);
+    if (ctx.selection) {
+        ctx.selection->clear();
+        for (ecs::Entity e : created_)
+            if (ctx.registry->valid(e)) ctx.selection->add(e);
     }
 }
 

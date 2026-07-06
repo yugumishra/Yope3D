@@ -48,42 +48,25 @@ Bytes base64Decode(const std::string& in) {
     return out;
 }
 
-Mat16 identity() { return {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1}; }
-
-Mat16 mul(const Mat16& a, const Mat16& b) {   // a * b (column-major)
-    Mat16 r{};
-    for (int c = 0; c < 4; ++c)
-        for (int row = 0; row < 4; ++row) {
-            float s = 0;
-            for (int k = 0; k < 4; ++k) s += a[k * 4 + row] * b[c * 4 + k];
-            r[c * 4 + row] = s;
-        }
-    return r;
-}
-
-Mat16 trs(const float t[3], const float q[4], const float s[3]) {
-    float x = q[0], y = q[1], z = q[2], w = q[3];
-    float xx = x*x, yy = y*y, zz = z*z, xy = x*y, xz = x*z, yz = y*z, wx = w*x, wy = w*y, wz = w*z;
-    Mat16 m = identity();
-    m[0]  = (1 - 2*(yy+zz)) * s[0]; m[1]  = (2*(xy+wz))     * s[0]; m[2]  = (2*(xz-wy))     * s[0];
-    m[4]  = (2*(xy-wz))     * s[1]; m[5]  = (1 - 2*(xx+zz)) * s[1]; m[6]  = (2*(yz+wx))     * s[1];
-    m[8]  = (2*(xz+wy))     * s[2]; m[9]  = (2*(yz-wx))     * s[2]; m[10] = (1 - 2*(xx+yy)) * s[2];
-    m[12] = t[0]; m[13] = t[1]; m[14] = t[2];
-    return m;
-}
-
-void xformPos(const Mat16& m, float& x, float& y, float& z) {
-    float nx = m[0]*x + m[4]*y + m[8]*z  + m[12];
-    float ny = m[1]*x + m[5]*y + m[9]*z  + m[13];
-    float nz = m[2]*x + m[6]*y + m[10]*z + m[14];
-    x = nx; y = ny; z = nz;
-}
-void xformDir(const Mat16& m, float& x, float& y, float& z) {
-    float nx = m[0]*x + m[4]*y + m[8]*z;
-    float ny = m[1]*x + m[5]*y + m[9]*z;
-    float nz = m[2]*x + m[6]*y + m[10]*z;
-    float l = std::sqrt(nx*nx + ny*ny + nz*nz);
-    if (l > 0) { x = nx/l; y = ny/l; z = nz/l; } else { x = nx; y = ny; z = nz; }
+// Decompose a column-major glTF node matrix into a TRS Transform. Shear is out of
+// scope (assets are authored without it); negative scale is not special-cased.
+Transform decomposeMatrix(const Mat16& m) {
+    Transform t;
+    t.position = { m[12], m[13], m[14] };
+    math::Vec3 c0 = { m[0], m[1], m[2]  };
+    math::Vec3 c1 = { m[4], m[5], m[6]  };
+    math::Vec3 c2 = { m[8], m[9], m[10] };
+    float sx = c0.length(), sy = c1.length(), sz = c2.length();
+    t.scale = { sx, sy, sz };
+    if (sx > 0) c0 = c0 / sx;
+    if (sy > 0) c1 = c1 / sy;
+    if (sz > 0) c2 = c2 / sz;
+    math::Mat3 r;
+    r.m[0] = c0.x; r.m[1] = c0.y; r.m[2] = c0.z;   // column 0
+    r.m[3] = c1.x; r.m[4] = c1.y; r.m[5] = c1.z;   // column 1
+    r.m[6] = c2.x; r.m[7] = c2.y; r.m[8] = c2.z;   // column 2
+    t.rotation = math::Quat::fromMatrix(r);
+    return t;
 }
 
 int componentByteSize(int ct) {
@@ -252,8 +235,9 @@ struct Ctx {
         return md;
     }
 
-    // Emit one LoadedMesh per primitive of mesh `meshIdx`, baked by `world`.
-    void emitMesh(int meshIdx, const Mat16& world, std::vector<LoadedMesh>& out) const {
+    // Emit one LoadedMesh per primitive of mesh `meshIdx` in MESH-LOCAL space
+    // (no baking — node placement is carried by LoadedNode::local instead).
+    void emitMesh(int meshIdx, std::vector<LoadedMesh>& out) const {
         const JsonNode& mesh = arr("meshes").asArray()[meshIdx];
         for (const JsonNode& prim : mesh["primitives"].asArray()) {
             const JsonNode& attrs = prim["attributes"];
@@ -273,10 +257,8 @@ struct Ctx {
             for (size_t i = 0; i < vcount; ++i) {
                 Vertex& v = lm.vertices[i];
                 v.position[0] = pos[i*3+0]; v.position[1] = pos[i*3+1]; v.position[2] = pos[i*3+2];
-                xformPos(world, v.position[0], v.position[1], v.position[2]);
                 if (!nrm.empty()) {
                     v.normal[0] = nrm[i*3+0]; v.normal[1] = nrm[i*3+1]; v.normal[2] = nrm[i*3+2];
-                    xformDir(world, v.normal[0], v.normal[1], v.normal[2]);
                 } else { v.normal[0] = 0; v.normal[1] = 0; v.normal[2] = 1; }
                 if (!uv.empty()) { v.uv[0] = uv[i*2+0]; v.uv[1] = uv[i*2+1]; }
             }
@@ -290,23 +272,36 @@ struct Ctx {
         }
     }
 
-    void traverse(int nodeIdx, const Mat16& parent, std::vector<LoadedMesh>& out) const {
-        const JsonNode& node = arr("nodes").asArray()[nodeIdx];
-        Mat16 local = identity();
+    // Read a node's LOCAL TRS (matrix nodes are decomposed).
+    Transform nodeLocal(const JsonNode& node) const {
         if (node.contains("matrix")) {
             const auto& m = node["matrix"].asArray();
-            for (int i = 0; i < 16; ++i) local[i] = m[i].asFloat();
-        } else {
-            float t[3] = {0,0,0}, q[4] = {0,0,0,1}, s[3] = {1,1,1};
-            if (node.contains("translation")) { const auto& a = node["translation"].asArray(); for (int i=0;i<3;++i) t[i]=a[i].asFloat(); }
-            if (node.contains("rotation"))    { const auto& a = node["rotation"].asArray();    for (int i=0;i<4;++i) q[i]=a[i].asFloat(); }
-            if (node.contains("scale"))       { const auto& a = node["scale"].asArray();       for (int i=0;i<3;++i) s[i]=a[i].asFloat(); }
-            local = trs(t, q, s);
+            Mat16 mm{};
+            for (int i = 0; i < 16; ++i) mm[i] = m[i].asFloat();
+            return decomposeMatrix(mm);
         }
-        Mat16 world = mul(parent, local);
-        if (node.contains("mesh")) emitMesh(node["mesh"].asInt(), world, out);
+        Transform t;
+        if (node.contains("translation")) { const auto& a = node["translation"].asArray(); t.position = { a[0].asFloat(), a[1].asFloat(), a[2].asFloat() }; }
+        if (node.contains("rotation"))    { const auto& a = node["rotation"].asArray();    t.rotation = { a[0].asFloat(), a[1].asFloat(), a[2].asFloat(), a[3].asFloat() }; }
+        if (node.contains("scale"))       { const auto& a = node["scale"].asArray();       t.scale    = { a[0].asFloat(), a[1].asFloat(), a[2].asFloat() }; }
+        return t;
+    }
+
+    // Depth-first build: append this node (parent precedes child), then recurse.
+    void traverse(int nodeIdx, int parentIdx, GltfLoader::LoadedModel& model) const {
+        const JsonNode& node = arr("nodes").asArray()[nodeIdx];
+        GltfLoader::LoadedNode ln;
+        if (node.contains("name")) ln.name = node["name"].asString();
+        ln.local  = nodeLocal(node);
+        ln.parent = parentIdx;
+        if (node.contains("mesh")) emitMesh(node["mesh"].asInt(), ln.meshes);
+
+        int myIdx = static_cast<int>(model.nodes.size());
+        model.nodes.push_back(std::move(ln));
+
         if (node.contains("children"))
-            for (const JsonNode& ch : node["children"].asArray()) traverse(ch.asInt(), world, out);
+            for (const JsonNode& ch : node["children"].asArray())
+                traverse(ch.asInt(), myIdx, model);
     }
 };
 
@@ -314,7 +309,7 @@ struct Ctx {
 
 namespace GltfLoader {
 
-std::vector<LoadedMesh> load(const std::string& absPath, const RegisterImageFn& registerImage) {
+LoadedModel load(const std::string& absPath, const RegisterImageFn& registerImage) {
     Bytes file = readFile(absPath);
     std::string jsonText;
     Bytes glbBin;
@@ -359,18 +354,20 @@ std::vector<LoadedMesh> load(const std::string& absPath, const RegisterImageFn& 
         }
     }
 
-    std::vector<LoadedMesh> out;
-    Mat16 I = identity();
+    LoadedModel out;
 
-    // Traverse the default scene's node hierarchy (fallback: all nodes).
+    // Traverse the default scene's node hierarchy (fallback: each mesh as a root node).
     if (root.contains("scenes")) {
         int sceneIdx = root.contains("scene") ? root["scene"].asInt() : 0;
         const JsonNode& scene = root["scenes"].asArray()[sceneIdx];
         if (scene.contains("nodes"))
-            for (const JsonNode& n : scene["nodes"].asArray()) ctx.traverse(n.asInt(), I, out);
+            for (const JsonNode& n : scene["nodes"].asArray()) ctx.traverse(n.asInt(), -1, out);
     } else if (root.contains("meshes")) {
-        for (size_t i = 0; i < root["meshes"].asArray().size(); ++i)
-            ctx.emitMesh(int(i), I, out);
+        for (size_t i = 0; i < root["meshes"].asArray().size(); ++i) {
+            LoadedNode ln;
+            ctx.emitMesh(int(i), ln.meshes);   // identity local, root
+            out.nodes.push_back(std::move(ln));
+        }
     }
 
     return out;

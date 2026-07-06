@@ -527,6 +527,13 @@ class SpringConstraint:
     rest_length: float
     """Natural length in meters."""
 
+class Parent:
+    """Transform-hierarchy link. The entity's ``Transform`` is LOCAL to ``parent``'s
+    frame; use :func:`get_world_position` for the composed world position. Physics
+    bodies must be hierarchy roots (no ``Parent``)."""
+
+    parent: Entity
+
 class ScriptComponent:
     """Attaches a Python behavior class to an entity."""
 
@@ -657,6 +664,7 @@ ComponentName = Literal[
     "LightSource",
     "Name",
     "SpringConstraint",
+    "Parent",
     "ScriptComponent",
     "UITransform",
     "UIBackground",
@@ -1454,6 +1462,8 @@ def reg_get(e: Entity, name: Literal["Name"]) -> Name | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["SpringConstraint"]) -> SpringConstraint | None: ...
 @overload
+def reg_get(e: Entity, name: Literal["Parent"]) -> Parent | None: ...
+@overload
 def reg_get(e: Entity, name: Literal["ScriptComponent"]) -> ScriptComponent | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["UITransform"]) -> UITransform | None: ...
@@ -1707,11 +1717,18 @@ def draw_ray(
     """
 
 def get_position(entity: Entity) -> Vec3 | None:
-    """Re-resolving read of the entity's ``Transform.position`` (``None`` if no Transform).
+    """Re-resolving read of the entity's LOCAL ``Transform.position`` (``None`` if no
+    Transform). For a parented entity this is relative to its parent — use
+    :func:`get_world_position` for the composed world position.
 
     Note:
         Safe to call after composition changes — it looks the component up per
         call (Hazard #1).
+    """
+
+def get_world_position(entity: Entity) -> Vec3 | None:
+    """World-space position, composing the entity's ``Parent`` chain (``None`` if the
+    entity is invalid). Equals :func:`get_position` for unparented (root) entities.
     """
 
 def set_position(entity: Entity, pos: Vec3) -> None:

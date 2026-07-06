@@ -10,6 +10,7 @@
 #include "rendering/ViewportTarget.h"
 #include "ecs/Registry.h"
 #include "ecs/Components.h"
+#include "world/TransformHierarchy.h"
 #include "Engine.h"
 #include "assets/AssetManager.h"
 #include "gpu/Texture.h"
@@ -204,7 +205,7 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
         }
         if (!iconConsumedClick) {
             for (auto [ae, tf, _as] : ctx.registry->view<Transform, ecs::AudioSource>()) {
-                if (hit(tf.position)) {
+                if (hit(hierarchy::worldTransform(*ctx.registry, ae).position)) {
                     if (ctx.selection) {
                         if (additive) ctx.selection->add(ae);
                         else          ctx.selection->set(ae);
@@ -300,12 +301,23 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                 auto selSpan = ctx.selection->get();
                 bool isMulti = (selSpan.size() > 1);
 
-                // Compute centroid of all selected Transform entities.
+                // The gizmo operates in WORLD space; this writes a world Transform back
+                // to entity e as LOCAL if e is parented (roots/physics: world == local).
+                auto writeWorld = [&](ecs::Entity e, const Transform& w) {
+                    auto* et = ctx.registry->get<Transform>(e);
+                    if (!et) return;
+                    if (auto* p = ctx.registry->get<ecs::Parent>(e); p && ctx.registry->valid(p->parent))
+                        *et = hierarchy::toLocal(hierarchy::worldTransform(*ctx.registry, p->parent), w);
+                    else
+                        *et = w;
+                };
+
+                // Compute centroid of all selected entities in WORLD space.
                 math::Vec3 centroid{0.f, 0.f, 0.f};
                 int tfCount = 0;
                 for (auto e : selSpan) {
-                    if (auto* t = ctx.registry->get<Transform>(e)) {
-                        centroid = centroid + t->position;
+                    if (ctx.registry->has<Transform>(e)) {
+                        centroid = centroid + hierarchy::worldTransform(*ctx.registry, e).position;
                         ++tfCount;
                     }
                 }
@@ -321,7 +333,7 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                     math::Mat4 m = centTf.getModelMatrix();
                     std::memcpy(modelF, &m, sizeof(float)*16);
                 } else {
-                    math::Mat4 model = tf->getModelMatrix();
+                    math::Mat4 model = hierarchy::worldTransform(*ctx.registry, sel).getModelMatrix();
                     std::memcpy(modelF, &model, sizeof(float)*16);
                 }
 
@@ -340,8 +352,9 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                             multiDragStarts_.clear();
                             multiAnchors_.clear();
                             for (auto e : selSpan) {
-                                if (auto* et = ctx.registry->get<Transform>(e)) {
-                                    multiDragStarts_.push_back({e, *et});
+                                if (ctx.registry->has<Transform>(e)) {
+                                    // Start pose captured in WORLD space (gizmo math is world-space).
+                                    multiDragStarts_.push_back({e, hierarchy::worldTransform(*ctx.registry, e)});
                                     TransformEditAnchor a{};
                                     transform_edit::begin(a, e, *ctx.registry);
                                     multiAnchors_.push_back(a);
@@ -356,8 +369,9 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                             math::Vec3 newCentroid{t[0], t[1], t[2]};
                             math::Vec3 delta = newCentroid - multiCentroidStart_;
                             for (auto& [e, startTf] : multiDragStarts_) {
-                                if (auto* et = ctx.registry->get<Transform>(e))
-                                    et->position = startTf.position + delta;
+                                Transform w = startTf;
+                                w.position = startTf.position + delta;
+                                writeWorld(e, w);
                             }
                         } else if (gizmoOp_ == ImGuizmo::ROTATE) {
                             // The gizmo source was identity-rotation, so the decomposed
@@ -372,11 +386,11 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                                            cx*cy*sz - sx*sy*cz, cx*cy*cz + sx*sy*sz };
                             math::Mat3 dr = math::Mat3::rotation(dq);
                             for (auto& [e, startTf] : multiDragStarts_) {
-                                if (auto* et = ctx.registry->get<Transform>(e)) {
-                                    et->rotation = dq * startTf.rotation;
-                                    et->position = multiCentroidStart_ +
-                                                   dr * (startTf.position - multiCentroidStart_);
-                                }
+                                Transform w = startTf;
+                                w.rotation = dq * startTf.rotation;
+                                w.position = multiCentroidStart_ +
+                                             dr * (startTf.position - multiCentroidStart_);
+                                writeWorld(e, w);
                             }
                         } else { // SCALE
                             // Source scale was 1, so s[] is the group scale factor.
@@ -384,14 +398,15 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                             // then resize any collider Form to match (single-entity parity).
                             for (size_t i = 0; i < multiDragStarts_.size(); ++i) {
                                 auto& [e, startTf] = multiDragStarts_[i];
-                                auto* et = ctx.registry->get<Transform>(e);
-                                if (!et) continue;
-                                et->scale = { startTf.scale.x * s[0],
-                                              startTf.scale.y * s[1],
-                                              startTf.scale.z * s[2] };
+                                if (!ctx.registry->has<Transform>(e)) continue;
+                                Transform w = startTf;
+                                w.scale = { startTf.scale.x * s[0],
+                                            startTf.scale.y * s[1],
+                                            startTf.scale.z * s[2] };
                                 math::Vec3 off = startTf.position - multiCentroidStart_;
-                                et->position = multiCentroidStart_ +
+                                w.position = multiCentroidStart_ +
                                     math::Vec3{ off.x * s[0], off.y * s[1], off.z * s[2] };
+                                writeWorld(e, w);
                                 if (i < multiAnchors_.size())
                                     transform_edit::applyScaleRatio(multiAnchors_[i], e, *ctx.registry);
                             }
@@ -404,23 +419,28 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                             transform_edit::begin(gizmoAnchor_, sel, *ctx.registry);
                         }
 
-                        tf->position = { t[0], t[1], t[2] };
+                        // Decomposed modelF is a WORLD transform (modelF was built from
+                        // worldTransform). Build it, then writeWorld converts to local
+                        // for parented entities. Physics/collider entities are roots.
+                        Transform worldTf;
+                        worldTf.position = { t[0], t[1], t[2] };
                         float rx = r[0]*0.0174532925f, ry = r[1]*0.0174532925f, rz = r[2]*0.0174532925f;
                         float cx = std::cos(rx*.5f), sx = std::sin(rx*.5f);
                         float cy = std::cos(ry*.5f), sy = std::sin(ry*.5f);
                         float cz = std::cos(rz*.5f), sz = std::sin(rz*.5f);
-                        tf->rotation = { sx*cy*cz - cx*sy*sz, cx*sy*cz + sx*cy*sz,
-                                         cx*cy*sz - sx*sy*cz, cx*cy*cz + sx*sy*sz };
+                        worldTf.rotation = { sx*cy*cz - cx*sy*sz, cx*sy*cz + sx*cy*sz,
+                                             cx*cy*sz - sx*sy*cz, cx*cy*cz + sx*sy*sz };
                         if (ctx.registry->has<ecs::SphereForm>(sel)) {
                             float ddx = std::abs(s[0] - gizmoDragStart_.scale.x);
                             float ddy = std::abs(s[1] - gizmoDragStart_.scale.y);
                             float ddz = std::abs(s[2] - gizmoDragStart_.scale.z);
                             float u = (ddx >= ddy && ddx >= ddz) ? s[0] : (ddy >= ddz ? s[1] : s[2]);
                             u = (u < 0) ? (-std::max(-u, 0.001f)) : (std::max(u, 0.001f));
-                            tf->scale = { u, u, u };
+                            worldTf.scale = { u, u, u };
                         } else {
-                            tf->scale = { s[0], s[1], s[2] };
+                            worldTf.scale = { s[0], s[1], s[2] };
                         }
+                        writeWorld(sel, worldTf);
                         transform_edit::applyScaleRatio(gizmoAnchor_, sel, *ctx.registry);
                     }
                 }
@@ -437,12 +457,15 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                         auto compound = std::make_unique<CompoundCommand>(label);
                         for (size_t i = 0; i < multiDragStarts_.size(); ++i) {
                             auto& [e, startTf] = multiDragStarts_[i];
+                            (void)startTf;
                             if (!ctx.registry->valid(e)) continue;
                             if (gizmoOp_ == ImGuizmo::SCALE && i < multiAnchors_.size()) {
                                 transform_edit::appendCommit(*compound, multiAnchors_[i], e, *ctx.registry);
-                            } else if (auto* et = ctx.registry->get<Transform>(e)) {
+                            } else if (auto* et = ctx.registry->get<Transform>(e); et && i < multiAnchors_.size()) {
+                                // Before/after are LOCAL (anchor captured local; writeWorld
+                                // stored local) — correct undo for parented entities too.
                                 compound->add(std::make_unique<SetComponentCommand<Transform>>(
-                                    e, startTf, *et, label));
+                                    e, multiAnchors_[i].tfBefore, *et, label));
                             }
                         }
                         if (ctx.history) ctx.history->execute(ctx, std::move(compound));

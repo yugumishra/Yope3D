@@ -148,6 +148,9 @@ endif()
 set(PHYSICS_SOURCES
     src/ecs/Registry.cpp
     src/physics/BroadphaseSAP.cpp
+    src/physics/ColliderSupports.cpp
+    src/physics/ColliderAnalytical.cpp
+    src/physics/ColliderGJK.cpp
     src/physics/ColliderDiscrete.cpp
     src/physics/IslandDetector.cpp
     src/physics/ThreadPool.cpp
@@ -241,6 +244,7 @@ set(EDITOR_SOURCES
     src/rendering/ViewportTarget.cpp
     src/editor/commands/EntityLifecycleCommands.cpp
     src/editor/commands/AddColliderCommand.cpp
+    src/editor/commands/ReparentCommand.cpp
     src/editor/commands/RemoveColliderCommand.cpp
     src/editor/commands/AddSpringConstraintCommand.cpp
     src/editor/commands/SetAssetCommands.cpp
@@ -254,6 +258,7 @@ set(EDITOR_SOURCES
     src/editor/inspectors/NameInspector.cpp
     src/editor/inspectors/AudioSourceInspector.cpp
     src/editor/inspectors/SpringConstraintInspector.cpp
+    src/editor/inspectors/ParentInspector.cpp
     src/editor/inspectors/UITransformInspector.cpp
     src/editor/inspectors/UIBackgroundInspector.cpp
     src/editor/picking/IdBufferPass.cpp
@@ -432,6 +437,7 @@ add_executable(yope_gltf_tests
     tests/gltf_tests.cpp
     src/assets/GltfLoader.cpp
     src/scene/serialization/JsonParser.cpp
+    src/math/MathImpl.cpp
 )
 target_include_directories(yope_gltf_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_compile_definitions(yope_gltf_tests PRIVATE YOPE_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")

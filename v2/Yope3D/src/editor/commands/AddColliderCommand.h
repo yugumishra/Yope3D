@@ -30,5 +30,9 @@ private:
     // Captured on first redo so undo can restore the exact pre-add transform
     Transform   prevTransform_{};
     bool        capturedTransform_ = false;
+
+    // Physics bodies must be hierarchy roots — attaching auto-unparents the entity
+    // (local→world so it doesn't move). Undo re-parents and restores prevTransform_.
+    ecs::Entity oldParent_{};
 };
 #endif

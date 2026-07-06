@@ -5,6 +5,7 @@
 #include "ecs/Registry.h"
 #include "ecs/Entity.h"
 #include "world/Transform.h"
+#include "world/TransformHierarchy.h"
 #include "world/World.h"
 #include "audio/Source.h"   // complete type for AudioSource.source binding
 #include "scripting/Script.h"  // Script::pyInstanceHandle for get_behavior
@@ -94,6 +95,11 @@ void bind_ecs(py::module_& m) {
         .def_readwrite("target",      &ecs::SpringConstraint::target)
         .def_readwrite("k",           &ecs::SpringConstraint::k)
         .def_readwrite("rest_length", &ecs::SpringConstraint::restLength);
+
+    // Parent — transform hierarchy link. Transform is LOCAL to parent's frame;
+    // use get_world_position() for the composed world position.
+    py::class_<ecs::Parent>(m, "Parent")
+        .def_readwrite("parent", &ecs::Parent::parent);
 
     // ScriptComponent — expose class name and params
     py::class_<ecs::ScriptComponent>(m, "ScriptComponent")
@@ -336,6 +342,14 @@ void bind_ecs(py::module_& m) {
         auto lock = world->lockStructure();
         if (auto* tf = world->getRegistry().get<Transform>(e)) tf->position = p;
     }, py::arg("entity"), py::arg("pos"));
+    // World-space position (composes the Parent chain). get_position returns the
+    // LOCAL position, which differs from world only for parented entities.
+    m.def("get_world_position", [](ecs::Entity e) -> py::object {
+        auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
+        auto lock = world->lockStructure();
+        if (!world->getRegistry().valid(e)) return py::none();
+        return py::cast(hierarchy::worldTransform(world->getRegistry(), e).position);
+    }, py::arg("entity"));
     m.def("set_velocity", [](ecs::Entity e, math::Vec3 v) {
         auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();

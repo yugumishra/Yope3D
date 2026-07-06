@@ -274,6 +274,20 @@ bool deserializeSpringConstraint(const JsonNode& n, void* comp) {
     return true;
 }
 
+// ---- Parent ----
+// The parent Entity ref, like SpringConstraint's target, is a fileId cross-reference
+// resolved by SceneSerializer after all entities exist. This body writes/reads
+// nothing; SceneSerializer::save patches in "parentId" and load resolves it.
+
+void serializeParent(const void* comp, JsonWriter& w) {
+    (void)comp; (void)w;
+}
+
+bool deserializeParent(const JsonNode& n, void* comp) {
+    (void)n; (void)comp;
+    return true;
+}
+
 // ---- AudioSource ----
 // The Source* (OpenAL handle) is non-owning and gets recreated on load from
 // the asset path. Live OpenAL parameters (gain/pitch/loop) live on the

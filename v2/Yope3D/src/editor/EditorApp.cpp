@@ -15,7 +15,9 @@
 #include "editor/panels/GJKTestPanel.h"
 #include "editor/panels/GJKStepperPanel.h"
 #include "scene/ComponentSnapshot.h"
+#include "world/TransformHierarchy.h"
 #include "editor/commands/EntityLifecycleCommands.h"
+#include <unordered_set>
 #include "editor/inspectors/InspectorRegistry.h"
 #include "scene/serialization/SceneSerializer.h"
 #include "platform/FileWatcher.h"
@@ -442,11 +444,24 @@ void EditorApp::doTogglePlay() {
 
 void EditorApp::copySelected() {
     clipboard_.clear();
+    clipboardIds_.clear();
     pasteAccum_ = {0.f, 0.f, 0.f};   // fresh copy resets paste offset accumulation
     auto& reg = engine_.world->getRegistry();
+    // Expand each selected entity to its full subtree so children come along; dedup
+    // by id (a parent and its child may both be selected). Order isn't critical —
+    // restoreSubtree remaps Parent links in a second pass.
+    std::unordered_set<uint32_t> seen;
+    std::vector<ecs::Entity> ordered;
     for (auto e : selection_.get()) {
         if (!reg.valid(e)) continue;
+        std::vector<ecs::Entity> sub;
+        hierarchy::collectSubtree(reg, e, sub);
+        for (ecs::Entity s : sub)
+            if (seen.insert(s.id).second) ordered.push_back(s);
+    }
+    for (ecs::Entity e : ordered) {
         clipboard_.push_back(snapshotEntity(e, reg, *engine_.world));
+        clipboardIds_.push_back(e);
     }
 }
 
@@ -462,15 +477,23 @@ void EditorApp::pasteClipboard() {
     // and selectable in edit mode (3 cm per slot — negligible for placed geometry).
     static constexpr float kSpread = 0.03f;
 
+    // Only offset pasted ROOTS (entities whose parent wasn't copied). Children keep
+    // their local transform and follow their root via hierarchy composition.
+    std::unordered_set<uint32_t> copied;
+    for (ecs::Entity e : clipboardIds_) copied.insert(e.id);
+
     std::vector<ComponentSnapshot> snaps = clipboard_;
-    for (size_t i = 0; i < snaps.size(); ++i) {
-        auto& s = snaps[i];
-        math::Vec3 off = pasteAccum_ + math::Vec3{float(i) * kSpread, 0.f, float(i) * kSpread};
+    size_t rootIdx = 0;
+    for (auto& s : snaps) {
+        bool isRoot = !s.hasParent || copied.find(s.parent.parent.id) == copied.end();
+        if (!isRoot) continue;
+        math::Vec3 off = pasteAccum_ + math::Vec3{float(rootIdx) * kSpread, 0.f, float(rootIdx) * kSpread};
+        ++rootIdx;
         if (s.hasTransform) s.transform.position = s.transform.position + off;
         if (s.hasLight && (s.light.type == 0 || s.light.type == 2)) {
             s.light.position[0] += off.x;
             s.light.position[2] += off.z;
         }
     }
-    history_.execute(ctx_, std::make_unique<PasteEntitiesCommand>(std::move(snaps)));
+    history_.execute(ctx_, std::make_unique<PasteEntitiesCommand>(std::move(snaps), clipboardIds_));
 }

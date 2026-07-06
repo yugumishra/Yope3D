@@ -4,6 +4,7 @@
 #include "ecs/Registry.h"
 #include "ecs/Components.h"
 #include "world/Transform.h"
+#include "world/TransformHierarchy.h"
 #include "world/RenderMesh.h"
 #include "gpu/GpuDevice.h"
 #include <fstream>
@@ -544,7 +545,7 @@ void IdBufferPass::record(VkCommandBuffer cmd, ecs::Registry& reg,
     for (auto [e, sel, mr, tf] : reg.view<ecs::EditorPickable, ecs::MeshRenderer, Transform>()) {
         if (!mr.mesh || !mr.mesh->transformReady) continue;
 
-        math::Mat4 m = tf.getModelMatrix();
+        math::Mat4 m = hierarchy::worldTransform(reg, e).getModelMatrix();
         PushData pd;
         std::memcpy(pd.model, &m, sizeof(float) * 16);
         pd.entityId = e.id;

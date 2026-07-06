@@ -125,6 +125,16 @@ struct SpringConstraint {
     float  restLength = 1.0f;
 };
 
+// ---- Transform hierarchy ----
+// Links an entity's Transform as LOCAL to `parent`'s frame; composed to world
+// via world/TransformHierarchy.h. Absent / NullEntity parent => Transform is
+// world-space (the default for all root entities). POD Entity ref survives
+// Play/Stop for free (Registry snapshot preserves ids); the scene serializer
+// resolves it across save/load through the fileId two-pass (see SceneSerializer).
+struct Parent {
+    Entity parent = NullEntity;
+};
+
 // ---- Identity / debug ----
 struct Name {
     char value[64] = {};    // fixed buffer — satisfies trivially-relocatable mandate

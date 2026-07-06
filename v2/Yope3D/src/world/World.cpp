@@ -6,6 +6,7 @@
 #include "../assets/AssetManager.h"
 #include <cstring>
 #include <cctype>
+#include <cassert>
 #include <filesystem>
 #include "../audio/AudioSystem.h"
 #include "../physics/ColliderDiscrete.h"
@@ -13,6 +14,7 @@
 #include "../physics/ThreadPool.h"
 #include "../physics/PhysicsConstants.h"
 #include "../ecs/Components.h"
+#include "TransformHierarchy.h"
 #include "../scripting/Script.h"
 #include "../debug/Profiler.h"
 #include <cmath>
@@ -214,6 +216,9 @@ void World::attachSphereCollider(ecs::Entity e, float mass, float radius, bool i
     if (!registry_.valid(e)) return;
     if (registry_.has<ecs::Hull>(e)) return;  // already has a physics body
 
+    // v1 invariant: physics bodies are hierarchy roots. The editor's AddColliderCommand
+    // auto-unparents before attaching, so a Parent here means a caller bypassed that path.
+    assert(!registry_.has<ecs::Parent>(e) && "physics body must be a hierarchy root");
     ecs::Hull h = makeHull(isStatic ? 0.0f : mass);
     if (!isStatic && mass > 0.0f && radius > 0.0f) {
         float invI = 1.0f / (0.4f * mass * radius * radius);
@@ -232,6 +237,9 @@ void World::attachAABBCollider(ecs::Entity e, float mass, math::Vec3 extent, boo
     if (!registry_.valid(e)) return;
     if (registry_.has<ecs::Hull>(e)) return;
 
+    // v1 invariant: physics bodies are hierarchy roots. The editor's AddColliderCommand
+    // auto-unparents before attaching, so a Parent here means a caller bypassed that path.
+    assert(!registry_.has<ecs::Parent>(e) && "physics body must be a hierarchy root");
     ecs::Hull h = makeHull(isStatic ? 0.0f : mass);
     h.inverseInertia = math::Mat3::zero();  // AABB has no angular dynamics
     registry_.add<ecs::Hull>(e, h);
@@ -247,6 +255,9 @@ void World::attachOBBCollider(ecs::Entity e, float mass, math::Vec3 extent, bool
     if (!registry_.valid(e)) return;
     if (registry_.has<ecs::Hull>(e)) return;
 
+    // v1 invariant: physics bodies are hierarchy roots. The editor's AddColliderCommand
+    // auto-unparents before attaching, so a Parent here means a caller bypassed that path.
+    assert(!registry_.has<ecs::Parent>(e) && "physics body must be a hierarchy root");
     ecs::Hull h = makeHull(isStatic ? 0.0f : mass);
     if (!isStatic && mass > 0.0f) {
         float ex = extent.x, ey = extent.y, ez = extent.z;
@@ -269,6 +280,9 @@ void World::attachCapsuleCollider(ecs::Entity e, float mass, float radius, float
     if (!registry_.valid(e)) return;
     if (registry_.has<ecs::Hull>(e)) return;
 
+    // v1 invariant: physics bodies are hierarchy roots. The editor's AddColliderCommand
+    // auto-unparents before attaching, so a Parent here means a caller bypassed that path.
+    assert(!registry_.has<ecs::Parent>(e) && "physics body must be a hierarchy root");
     ecs::Hull h = makeHull(isStatic ? 0.0f : mass);
     if (!isStatic && mass > 0.0f && radius > 0.0f && halfHeight > 0.0f) {
         float I = mass * (radius * radius * 0.25f + halfHeight * halfHeight / 3.0f);
@@ -286,6 +300,9 @@ void World::attachCylinderCollider(ecs::Entity e, float mass, float radius, floa
     if (!registry_.valid(e)) return;
     if (registry_.has<ecs::Hull>(e)) return;
 
+    // v1 invariant: physics bodies are hierarchy roots. The editor's AddColliderCommand
+    // auto-unparents before attaching, so a Parent here means a caller bypassed that path.
+    assert(!registry_.has<ecs::Parent>(e) && "physics body must be a hierarchy root");
     ecs::Hull h = makeHull(isStatic ? 0.0f : mass);
     if (!isStatic && mass > 0.0f && radius > 0.0f && halfHeight > 0.0f) {
         float I = mass * (radius * radius * 0.25f + halfHeight * halfHeight / 3.0f);
@@ -423,6 +440,25 @@ static void applyMaterialData(ecs::Registry& reg, ecs::Entity e, const MaterialD
     reg.add<ecs::Material>(e, mat);
 }
 
+// Shift a mesh's vertices so its AABB center is at the mesh origin; returns the
+// original center (mesh-local). Imported meshes are re-centered so the entity's
+// pivot sits at the geometry center — this makes "Snap to Mesh" colliders wrap the
+// object (glTF node pivots are often at an object's base, not its center) and gives
+// free rotation about the center of mass. No physics changes needed.
+static math::Vec3 recenterMesh(LoadedMesh& m) {
+    if (m.vertices.empty()) return {0.f, 0.f, 0.f};
+    math::Vec3 mn{ FLT_MAX,  FLT_MAX,  FLT_MAX};
+    math::Vec3 mx{-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    for (const auto& v : m.vertices) {
+        mn.x = std::min(mn.x, v.position[0]); mx.x = std::max(mx.x, v.position[0]);
+        mn.y = std::min(mn.y, v.position[1]); mx.y = std::max(mx.y, v.position[1]);
+        mn.z = std::min(mn.z, v.position[2]); mx.z = std::max(mx.z, v.position[2]);
+    }
+    math::Vec3 c = (mn + mx) * 0.5f;
+    for (auto& v : m.vertices) { v.position[0] -= c.x; v.position[1] -= c.y; v.position[2] -= c.z; }
+    return c;
+}
+
 std::vector<ecs::Entity> World::addModel(const std::string& path) {
     std::string fullPath = (std::filesystem::path(YOPE_ASSETS_DIR) / path).string();
     return importModel(fullPath);
@@ -434,7 +470,29 @@ std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
     std::string ext = std::filesystem::path(absPath).extension().string();
     for (char& c : ext) c = static_cast<char>(std::tolower(c));
 
-    std::vector<LoadedMesh> meshes;
+    // Helpers shared by both loader paths (structureMtx_ is recursive — safe to
+    // re-acquire under the internal locks taken by addRenderObject).
+    auto setName = [this](ecs::Entity e, const std::string& name) {
+        if (name.empty()) return;
+        std::lock_guard lk(structureMtx_);
+        if (auto* n = registry_.get<ecs::Name>(e))
+            std::strncpy(n->value, name.c_str(), sizeof(n->value) - 1);
+    };
+    auto setLocal = [this](ecs::Entity e, const Transform& local) {
+        std::lock_guard lk(structureMtx_);
+        if (auto* tf = registry_.get<Transform>(e)) *tf = local;
+    };
+
+    // Offset an entity's LOCAL transform so re-centering a mesh by `c` (mesh-local)
+    // leaves it rendering in the same place: newLocalPos = pos + R*(scale ⊙ c).
+    auto localWithMeshOffset = [](const Transform& base, const math::Vec3& c) {
+        Transform t = base;
+        t.position = base.position + math::Mat3::rotation(base.rotation) * base.scale.hadamard(c);
+        return t;
+    };
+
+    std::vector<ecs::Entity> entities;
+
     if (ext == ".glb" || ext == ".gltf") {
         // Decode glTF-embedded/base64 images and register them as GPU textures.
         GltfLoader::RegisterImageFn reg;
@@ -445,22 +503,117 @@ std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
                 return key;
             };
         }
-        meshes = GltfLoader::load(fullPath, reg);
-    } else {
-        meshes.push_back(ObjLoader::load(fullPath));
-    }
+        GltfLoader::LoadedModel model = GltfLoader::load(fullPath, reg);
 
-    std::vector<ecs::Entity> entities;
-    entities.reserve(meshes.size());
-    for (const LoadedMesh& m : meshes) {
-        ecs::Entity e = addRenderObject(m);   // Transform + MeshRenderer (locks internally)
+        // A node that parents other nodes must keep its authored pivot — re-centering
+        // it would shift its children. Only leaf mesh nodes get re-centered.
+        std::vector<bool> hasChildren(model.nodes.size(), false);
+        for (const auto& n : model.nodes)
+            if (n.parent >= 0) hasChildren[n.parent] = true;
+
+        // One entity per node (Option B: nodes carry local TRS, mesh verts are local).
+        std::vector<ecs::Entity> nodeEntity(model.nodes.size(), ecs::NullEntity);
+        for (size_t i = 0; i < model.nodes.size(); ++i) {
+            GltfLoader::LoadedNode& node = model.nodes[i];
+            ecs::Entity e;
+            if (node.meshes.size() == 1) {
+                // Node carries its single primitive directly. Re-center to the geometry
+                // center (unless it parents children, whose frames depend on this pivot).
+                // Re-center BEFORE upload so the GPU mesh gets the centered verts.
+                math::Vec3 c = hasChildren[i] ? math::Vec3{0, 0, 0}
+                                              : recenterMesh(node.meshes[0]);
+                e = addRenderObject(node.meshes[0]);
+                { std::lock_guard lk(structureMtx_); applyMaterialData(registry_, e, node.meshes[0].material); }
+                setLocal(e, localWithMeshOffset(node.local, c));
+            } else {
+                // Bare transform/group node (0 primitives, or a parent of N>1 prims).
+                { std::lock_guard lk(structureMtx_);
+                  e = registry_.create();
+                  registry_.add<Transform>(e);
+                  finalizeEntity(e, node.name.empty() ? "Node" : node.name.c_str()); }
+                setLocal(e, node.local);
+            }
+            setName(e, node.name);
+            nodeEntity[i] = e;
+            entities.push_back(e);
+
+            // N>1 primitives → one child entity per primitive, each re-centered so
+            // its own pivot (and collider) lands on that primitive's geometry.
+            if (node.meshes.size() > 1) {
+                for (LoadedMesh& prim : node.meshes) {
+                    math::Vec3 c = recenterMesh(prim);
+                    ecs::Entity pe = addRenderObject(prim);
+                    std::lock_guard lk(structureMtx_);
+                    applyMaterialData(registry_, pe, prim.material);
+                    if (auto* tf = registry_.get<Transform>(pe)) tf->position = c;
+                    registry_.add<ecs::Parent>(pe, ecs::Parent{e});
+                    entities.push_back(pe);
+                }
+            }
+        }
+
+        // Wire Parent links for non-root nodes (nodes are topologically ordered).
         {
             std::lock_guard lk(structureMtx_);
-            applyMaterialData(registry_, e, m.material);
+            for (size_t i = 0; i < model.nodes.size(); ++i) {
+                int p = model.nodes[i].parent;
+                if (p >= 0 && registry_.valid(nodeEntity[p]))
+                    registry_.add<ecs::Parent>(nodeEntity[i], ecs::Parent{nodeEntity[p]});
+            }
         }
+    } else {
+        LoadedMesh m = ObjLoader::load(fullPath);
+        math::Vec3 c = recenterMesh(m);
+        ecs::Entity e = addRenderObject(m);   // Transform + MeshRenderer (locks internally)
+        { std::lock_guard lk(structureMtx_);
+          applyMaterialData(registry_, e, m.material);
+          if (auto* tf = registry_.get<Transform>(e)) tf->position = c; }   // pivot at centroid
         entities.push_back(e);
     }
+
+    // Group a multi-object import under one named root, so the whole model is a
+    // single subtree in the hierarchy (select/move/delete it as a unit). A single
+    // top-level object is left as its own root (no redundant wrapper).
+    std::vector<ecs::Entity> topRoots;
+    {
+        std::lock_guard lk(structureMtx_);
+        for (ecs::Entity e : entities)
+            if (registry_.valid(e) && !registry_.has<ecs::Parent>(e)) topRoots.push_back(e);
+    }
+    if (topRoots.size() > 1) {
+        std::string modelName = std::filesystem::path(absPath).stem().string();
+        math::Vec3 avg{0.f, 0.f, 0.f};
+        {
+            std::lock_guard lk(structureMtx_);
+            for (ecs::Entity e : topRoots)
+                if (auto* tf = registry_.get<Transform>(e)) avg = avg + tf->position;
+        }
+        avg = avg * (1.0f / float(topRoots.size()));
+
+        std::lock_guard lk(structureMtx_);
+        ecs::Entity holder = registry_.create();
+        registry_.add<Transform>(holder, Transform{avg, {0, 0, 0, 1}, {1, 1, 1}});
+        finalizeEntity(holder, modelName.empty() ? "Model" : modelName.c_str());
+        for (ecs::Entity e : topRoots) {
+            if (auto* tf = registry_.get<Transform>(e)) tf->position = tf->position - avg;
+            registry_.add<ecs::Parent>(e, ecs::Parent{holder});
+        }
+        entities.push_back(holder);
+    }
     return entities;
+}
+
+void World::reregisterEmbeddedTextures(const std::string& glbAbsPath) {
+    if (!assets_) return;
+    AssetManager* assets = assets_;
+    GltfLoader::RegisterImageFn reg =
+        [assets](const std::string& key, const uint8_t* data, int len, bool srgb) -> std::string {
+            LoadedImage img = ImageLoader::loadFromMemory(data, len);
+            assets->registerDecodedTexture(key, srgb, img.pixels.data(), img.width, img.height);
+            return key;
+        };
+    // Re-run the loader purely for its registerImage side-effects (geometry discarded).
+    try { GltfLoader::load(glbAbsPath, reg); } catch (...) {}
 }
 
 // ---- Attach mesh to existing entity ----
@@ -521,6 +674,16 @@ void World::removeEntity(ecs::Entity e) {
             audio_->removeSource(as->source);
             as->source = nullptr;
         }
+    }
+
+    // Cascade-delete children (entities parented to e). structureMtx_ is recursive,
+    // so the recursive removeEntity calls are safe. Collect first, then remove — we
+    // must not mutate archetypes while iterating the Parent view.
+    {
+        std::vector<ecs::Entity> children;
+        for (auto [child, p] : registry_.view<ecs::Parent>())
+            if (p.parent == e) children.push_back(child);
+        for (ecs::Entity c : children) removeEntity(c);
     }
 
     // Remove springs that reference this entity; recursively remove their visual/proxy entities.
@@ -1240,13 +1403,16 @@ void World::publishSnapshot() {
         if (!tf) continue;
         RenderMesh* mesh = nullptr;
         if (auto* mr = registry_.get<ecs::MeshRenderer>(e)) mesh = mr->mesh;
+        // Hull entities are hierarchy roots (v1 invariant) — world == local.
         snapshotBack_.push_back({ tf->position, tf->rotation, tf->scale, mesh, e });
     }
     // Render-only entities (no physics body) — model matrix driven by editor transforms.
+    // These may be parented, so compose the full Parent chain to world space here.
     for (auto [e, mr, tf] : registry_.view<ecs::MeshRenderer, Transform>()) {
         if (registry_.has<ecs::Hull>(e)) continue;  // already covered above
         if (!mr.mesh) continue;
-        snapshotBack_.push_back({ tf.position, tf.rotation, tf.scale, mr.mesh, e });
+        Transform w = hierarchy::worldTransform(registry_, e);
+        snapshotBack_.push_back({ w.position, w.rotation, w.scale, mr.mesh, e });
     }
 
     springSnapshotBack_.clear();
@@ -1315,6 +1481,8 @@ void World::rebuildDebugMeshes() {
 }
 
 void World::syncDebugMeshes() {
+    // Debug overlays exist only for entities with a Hull, which are hierarchy roots
+    // by the v1 invariant — so reading Transform directly here IS the world transform.
     for (size_t i = 0; i < debugEntities_.size() && i < debugMeshes_.size(); ++i) {
         if (!debugMeshes_[i]) continue;
         ecs::Entity e = debugEntities_[i];

@@ -16,6 +16,7 @@
 #include "assets/AssetManager.h"
 #include "ui/UIManager.h"
 #include "ecs/Components.h"
+#include "world/TransformHierarchy.h"
 #include "debug/Profiler.h"
 #include <GLFW/glfw3.h>
 #include <stdexcept>
@@ -1375,7 +1376,7 @@ void Renderer::buildECSText3DGeometry(Text3DBuffer& buf, World& world) {
         dc.atlas         = atlas->descriptorSet();
         dc.distanceRange = atlas->distanceRange();
         dc.billboard     = t.billboard;
-        dc.model         = tf.getModelMatrix();
+        dc.model         = hierarchy::worldTransform(reg, e).getModelMatrix();
         ecsText3DDrawCalls_.push_back(dc);
     }
 }

@@ -175,5 +175,40 @@ namespace math {
             m[2]*v.x + m[5]*v.y + m[8]*v.z,
         };
     }
+
+    // Rotation matrix -> quaternion (Shepperd's method). Column-major indexing:
+    // m[col*3 + row]. Sign convention matches Mat3::rotation(Quat) above, so it is
+    // its inverse for pure-rotation inputs. Assumes an orthonormal (no-scale) matrix.
+    Quat Quat::fromMatrix(Mat3 r) {
+        const float* m = r.m;
+        float trace = m[0] + m[4] + m[8];
+        Quat q;
+        if (trace > 0.0f) {
+            float s = std::sqrt(trace + 1.0f) * 2.0f;   // s = 4w
+            q.w = 0.25f * s;
+            q.x = (m[5] - m[7]) / s;
+            q.y = (m[6] - m[2]) / s;
+            q.z = (m[1] - m[3]) / s;
+        } else if (m[0] > m[4] && m[0] > m[8]) {
+            float s = std::sqrt(1.0f + m[0] - m[4] - m[8]) * 2.0f;   // s = 4x
+            q.w = (m[5] - m[7]) / s;
+            q.x = 0.25f * s;
+            q.y = (m[3] + m[1]) / s;
+            q.z = (m[6] + m[2]) / s;
+        } else if (m[4] > m[8]) {
+            float s = std::sqrt(1.0f + m[4] - m[0] - m[8]) * 2.0f;   // s = 4y
+            q.w = (m[6] - m[2]) / s;
+            q.x = (m[3] + m[1]) / s;
+            q.y = 0.25f * s;
+            q.z = (m[7] + m[5]) / s;
+        } else {
+            float s = std::sqrt(1.0f + m[8] - m[0] - m[4]) * 2.0f;   // s = 4z
+            q.w = (m[1] - m[3]) / s;
+            q.x = (m[6] + m[2]) / s;
+            q.y = (m[7] + m[5]) / s;
+            q.z = 0.25f * s;
+        }
+        return q;
+    }
 }
 #endif
