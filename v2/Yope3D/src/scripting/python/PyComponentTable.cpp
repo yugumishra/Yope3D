@@ -49,6 +49,7 @@ void build() {
         entryFor<ecs::LightSource>      ("LightSource"),
         entryFor<ecs::Name>             ("Name"),
         entryFor<ecs::SpringConstraint> ("SpringConstraint"),
+        entryFor<ecs::Parent>           ("Parent"),
         entryFor<ecs::ScriptComponent>  ("ScriptComponent"),
         entryFor<ecs::UITransform>      ("UITransform"),
         entryFor<ecs::UIBackground>     ("UIBackground"),

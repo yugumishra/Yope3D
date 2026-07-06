@@ -49,6 +49,10 @@ bool deserializeName           (const JsonNode& node, void* comp);
 void serializeSpringConstraint (const void* comp, JsonWriter& w);
 bool deserializeSpringConstraint(const JsonNode& node, void* comp);
 
+// Parent (empty body; parentId cross-reference patched by SceneSerializer)
+void serializeParent           (const void* comp, JsonWriter& w);
+bool deserializeParent         (const JsonNode& node, void* comp);
+
 // AudioSource (path + gain/pitch/loop/autoplay; Source* recreated on load)
 void serializeAudioSource      (const void* comp, JsonWriter& w);
 bool deserializeAudioSource    (const JsonNode& node, void* comp);

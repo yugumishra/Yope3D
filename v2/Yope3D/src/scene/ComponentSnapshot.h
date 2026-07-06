@@ -27,6 +27,7 @@ struct ComponentSnapshot {
     bool hasAudio     = false;  ecs::AudioSource audio;   // Source* always null in the snapshot
     bool hasScript    = false;  ecs::ScriptComponent script;  // instance always null in the snapshot
     bool hasSpring    = false;  ecs::SpringConstraint spring; // target resolved on restore
+    bool hasParent    = false;  ecs::Parent      parent;      // parent handle remapped by caller (subtree ops)
 
     // Mesh visual data (stored separately — RenderMesh* is non-owning)
     bool              hasMesh      = false;
@@ -56,3 +57,16 @@ struct ComponentSnapshot {
 
 // Capture all components of an entity into a snapshot.
 ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world);
+
+// Restore an ordered (parent-before-child) set of snapshots as one subtree,
+// remapping each restored Parent handle through an old-entity → new-entity map
+// built from `oldIds` (the entities the snapshots were captured from).
+//   keepExternalParents = true  (delete-undo): a Parent pointing outside the set
+//     is kept as-is, so the subtree re-attaches where it was.
+//   keepExternalParents = false (paste): such an entity is detached to a root
+//     (Parent removed), so the caller can offset it independently.
+// Returns the new entities in the same order as `snaps`.
+std::vector<ecs::Entity> restoreSubtree(World& world,
+                                        const std::vector<ComponentSnapshot>& snaps,
+                                        const std::vector<ecs::Entity>& oldIds,
+                                        bool keepExternalParents);

@@ -16,10 +16,12 @@
 #include "editor/panels/ConsolePanel.h"
 #endif
 #include <fstream>
+#include <filesystem>
 #include <stdexcept>
 #include <cstring>
 #include <vector>
 #include <map>
+#include <set>
 
 // Table of component serializers in display order.
 struct CompSerEntry {
@@ -43,6 +45,7 @@ static std::vector<CompSerEntry> buildSerTable() {
         { ecs::typeId<ecs::Material>(),              "Material",              compser::serializeMaterial,              compser::deserializeMaterial              },
         { ecs::typeId<ecs::LightSource>(),           "LightSource",           compser::serializeLightSource,           compser::deserializeLightSource           },
         { ecs::typeId<ecs::SpringConstraint>(),      "SpringConstraint",      compser::serializeSpringConstraint,      compser::deserializeSpringConstraint      },
+        { ecs::typeId<ecs::Parent>(),                "Parent",                compser::serializeParent,                compser::deserializeParent                },
         { ecs::typeId<ecs::AudioSource>(),           "AudioSource",           compser::serializeAudioSource,           compser::deserializeAudioSource           },
         { ecs::typeId<ecs::ScriptComponent>(),       "ScriptComponent",       compser::serializeScriptComponent,       compser::deserializeScriptComponent       },
         { ecs::typeId<ecs::UITransform>(),           "UITransform",           compser::serializeUITransform,           compser::deserializeUITransform           },
@@ -78,6 +81,14 @@ bool save(const char* path, ecs::Registry& reg, World& world) {
             runtimeToFile[e.id] = fid++;
     }
 
+    // Bulky custom-mesh geometry goes to a binary sidecar (<scene>.meshbin), not
+    // the JSON — a scene of high-poly meshes would be gigabytes of text otherwise.
+    // Blobs are written in entity-iteration order; the JSON stores only per-mesh
+    // {vc, ic} counts, and load reads the sidecar sequentially in the same order.
+    std::string binPath = std::filesystem::path(path).replace_extension(".meshbin").string();
+    std::ofstream bin(binPath, std::ios::binary);
+    if (bin) { const char hdr[8] = {'Y','S','M','B', 1, 0, 0, 0}; bin.write(hdr, 8); }
+
     // Entities
     w.beginArray("entities");
     uint32_t fileId = 0;
@@ -102,6 +113,30 @@ bool save(const char* path, ecs::Registry& reg, World& world) {
                 auto* sc = static_cast<const ecs::SpringConstraint*>(comp);
                 auto it = runtimeToFile.find(sc->target.id);
                 w.writeUInt("targetId", it != runtimeToFile.end() ? it->second : UINT32_MAX);
+            }
+            // Parent's parent Entity — same fileId cross-reference as SpringConstraint.
+            if (entry.typeId == ecs::typeId<ecs::Parent>()) {
+                auto* p = static_cast<const ecs::Parent*>(comp);
+                auto it = runtimeToFile.find(p->parent.id);
+                w.writeUInt("parentId", it != runtimeToFile.end() ? it->second : UINT32_MAX);
+            }
+            // Custom-mesh geometry → binary sidecar; JSON keeps only the counts.
+            if (entry.typeId == ecs::typeId<ecs::MeshRenderer>()) {
+                auto* mr = static_cast<const ecs::MeshRenderer*>(comp);
+                if (bin && mr->mesh && mr->mesh->primitiveType == PrimitiveType::Custom
+                    && mr->mesh->sourcePath.empty() && !mr->mesh->cpuVertices.empty()) {
+                    const auto& verts = mr->mesh->cpuVertices;
+                    const auto& inds  = mr->mesh->cpuIndices;
+                    bin.write(reinterpret_cast<const char*>(verts.data()),
+                              static_cast<std::streamsize>(verts.size() * sizeof(Vertex)));
+                    bin.write(reinterpret_cast<const char*>(inds.data()),
+                              static_cast<std::streamsize>(inds.size() * sizeof(uint32_t)));
+                    w.writeKey("geom");
+                    w.beginObject();
+                    w.writeUInt("vc", static_cast<unsigned>(verts.size()));
+                    w.writeUInt("ic", static_cast<unsigned>(inds.size()));
+                    w.endObject();
+                }
             }
             w.endObject();
         }
@@ -146,6 +181,19 @@ std::string load(const char* path, ecs::Registry& reg, World& world,
     world.exposure = root.contains("exposure") ? root["exposure"].asFloat() : 1.0f;
 
     if (!root.contains("entities")) return "";
+
+    // Open the geometry sidecar (<scene>.meshbin). Blobs are read sequentially in
+    // the same entity order they were written; missing/short reads fall back to a
+    // primitive (no crash), so pre-sidecar scenes just show placeholder cubes.
+    std::string binPath = std::filesystem::path(path).replace_extension(".meshbin").string();
+    std::ifstream meshBin(binPath, std::ios::binary);
+    bool meshBinOk = false;
+    if (meshBin.is_open()) {
+        char hdr[8] = {};
+        meshBin.read(hdr, 8);
+        meshBinOk = meshBin.gcount() == 8 &&
+                    hdr[0] == 'Y' && hdr[1] == 'S' && hdr[2] == 'M' && hdr[3] == 'B';
+    }
 
     // Build file-id → entity mapping for SpringConstraint cross-references.
     std::map<uint32_t, ecs::Entity> fileIdToEntity;
@@ -252,6 +300,19 @@ std::string load(const char* path, ecs::Registry& reg, World& world,
             if (snap.primType == PrimitiveType::Custom) {
                 if (mr.contains("sourcePath") && mr["sourcePath"].isString())
                     snap.meshSourcePath = mr["sourcePath"].asString();
+                else if (mr.contains("geom") && meshBinOk) {
+                    // Read this mesh's blob from the sidecar (sequential, in order).
+                    const auto& g = mr["geom"];
+                    uint32_t vc = g.contains("vc") ? g["vc"].asUInt() : 0;
+                    uint32_t ic = g.contains("ic") ? g["ic"].asUInt() : 0;
+                    snap.cpuVerts.resize(vc);
+                    snap.cpuInds.resize(ic);
+                    if (vc) meshBin.read(reinterpret_cast<char*>(snap.cpuVerts.data()),
+                                         static_cast<std::streamsize>(vc * sizeof(Vertex)));
+                    if (ic) meshBin.read(reinterpret_cast<char*>(snap.cpuInds.data()),
+                                         static_cast<std::streamsize>(ic * sizeof(uint32_t)));
+                    if (!meshBin) { snap.cpuVerts.clear(); snap.cpuInds.clear(); }  // short read → fallback
+                }
                 else if (mr.contains("vertices") && mr.contains("indices")) {
                     const auto& varr = mr["vertices"].asArray();
                     snap.cpuVerts.clear();
@@ -295,6 +356,25 @@ std::string load(const char* path, ecs::Registry& reg, World& world,
         ++fid;
     }
 
+    // Resolve Parent cross-references (second pass; mirrors SpringConstraint).
+    // Older scenes have no "Parent" keys, so this is a no-op for them.
+    {
+        uint32_t pfid = 0;
+        for (auto& entNode : root["entities"].asArray()) {
+            if (entNode.contains("Parent")) {
+                auto it = fileIdToEntity.find(pfid);
+                uint32_t parentFileId = entNode["Parent"].contains("parentId")
+                                          ? entNode["Parent"]["parentId"].asUInt() : UINT32_MAX;
+                if (it != fileIdToEntity.end() && reg.valid(it->second) && parentFileId != UINT32_MAX) {
+                    auto pit = fileIdToEntity.find(parentFileId);
+                    if (pit != fileIdToEntity.end() && reg.valid(pit->second) && !reg.has<ecs::Parent>(it->second))
+                        reg.add<ecs::Parent>(it->second, ecs::Parent{pit->second});
+                }
+            }
+            ++pfid;
+        }
+    }
+
     // Reconstruct physics springs from SpringConstraint components.
     // The component stores the logical relationship; physics::Spring objects in
     // World::springs_ do the actual simulation. After cross-ref resolution above
@@ -302,6 +382,25 @@ std::string load(const char* path, ecs::Registry& reg, World& world,
     for (auto [e, sc] : reg.view<ecs::SpringConstraint>()) {
         if (reg.valid(sc.target))
             world.addSpringPhysics(e, sc.target, sc.k, sc.restLength);
+    }
+
+    // Re-register embedded glTF textures. Materials from imported .glb models store
+    // their maps as synthetic "<glb>#imgN" keys; the pixel data lives only in the
+    // source file, so a fresh load must re-decode it before the MaterialCache can
+    // resolve those keys. External-file / .mtl textures load from disk as usual.
+    if (assets) {
+        std::set<std::string> glbPaths;
+        auto scan = [&](const char* p) {
+            if (!p || !p[0]) return;
+            std::string s(p);
+            auto pos = s.find("#img");
+            if (pos != std::string::npos) glbPaths.insert(s.substr(0, pos));
+        };
+        for (auto [e, mat] : reg.view<ecs::Material>()) {
+            scan(mat.albedoPath);   scan(mat.normalPath); scan(mat.metalRoughPath);
+            scan(mat.occlusionPath); scan(mat.emissivePath);
+        }
+        for (const auto& g : glbPaths) world.reregisterEmbeddedTextures(g);
     }
 
     // Rebind AudioSource OpenAL handles from the saved path.

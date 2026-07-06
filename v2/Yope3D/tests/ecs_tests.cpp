@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include "ecs/Registry.h"
+#include "world/TransformHierarchy.h"
+#include <cmath>
 
 using namespace ecs;
 
@@ -370,4 +372,71 @@ TEST_CASE("destroy half of a batch, remainder iterates correctly", "[ecs][batch]
     int count = 0;
     for (auto [e, h] : reg.view<Health>()) ++count;
     REQUIRE(count == N / 2);
+}
+
+// ---------------------------------------------------------------------------
+// Transform hierarchy (Parent) — composition, toLocal inverse, subtree ops
+// ---------------------------------------------------------------------------
+
+TEST_CASE("worldTransform composes parent chain; toLocal inverts it", "[ecs][hierarchy]") {
+    Registry reg;
+    Entity parent = reg.create();
+    Transform pt;
+    pt.position = {10.f, 0.f, 0.f};
+    pt.rotation = math::Quat::fromAxisAngle(math::Vec3{0.f, 1.f, 0.f}, 1.5707963f); // +90° about Y
+    pt.scale    = {2.f, 2.f, 2.f};
+    reg.add<Transform>(parent, pt);
+
+    Entity child = reg.create();
+    Transform ct; ct.position = {1.f, 0.f, 0.f};   // local +X
+    reg.add<Transform>(child, ct);
+    reg.add<ecs::Parent>(child, ecs::Parent{parent});
+
+    // local (1,0,0) → *scale2 = (2,0,0) → rot90°Y = (0,0,-2) → +parentPos = (10,0,-2)
+    Transform w = hierarchy::worldTransform(reg, child);
+    CHECK(std::fabs(w.position.x - 10.f) < 1e-4f);
+    CHECK(std::fabs(w.position.y -  0.f) < 1e-4f);
+    CHECK(std::fabs(w.position.z + 2.f)  < 1e-4f);
+    CHECK(std::fabs(w.scale.x - 2.f)     < 1e-4f);
+
+    // toLocal(parentWorld, childWorld) recovers the stored local transform.
+    Transform local = hierarchy::toLocal(hierarchy::worldTransform(reg, parent), w);
+    CHECK(std::fabs(local.position.x - 1.f) < 1e-4f);
+    CHECK(std::fabs(local.position.y - 0.f) < 1e-4f);
+    CHECK(std::fabs(local.position.z - 0.f) < 1e-4f);
+    CHECK(std::fabs(local.scale.x - 1.f)    < 1e-4f);
+}
+
+TEST_CASE("root entity: worldTransform == local", "[ecs][hierarchy]") {
+    Registry reg;
+    Entity e = reg.create();
+    Transform t; t.position = {3.f, 4.f, 5.f};
+    reg.add<Transform>(e, t);
+    Transform w = hierarchy::worldTransform(reg, e);
+    CHECK(std::fabs(w.position.x - 3.f) < 1e-6f);
+    CHECK(std::fabs(w.position.z - 5.f) < 1e-6f);
+}
+
+TEST_CASE("collectSubtree is parent-before-child; isDescendantOf detects cycles", "[ecs][hierarchy]") {
+    Registry reg;
+    Entity root = reg.create(); reg.add<Transform>(root);
+    Entity a = reg.create(); reg.add<Transform>(a); reg.add<ecs::Parent>(a, ecs::Parent{root});
+    Entity b = reg.create(); reg.add<Transform>(b); reg.add<ecs::Parent>(b, ecs::Parent{root});
+    Entity c = reg.create(); reg.add<Transform>(c); reg.add<ecs::Parent>(c, ecs::Parent{a}); // grandchild
+
+    std::vector<Entity> sub;
+    hierarchy::collectSubtree(reg, root, sub);
+    REQUIRE(sub.size() == 4);
+    CHECK(sub[0] == root);
+
+    auto idx = [&](Entity e) { for (size_t i = 0; i < sub.size(); ++i) if (sub[i] == e) return (int)i; return -1; };
+    CHECK(idx(a) < idx(c));   // parent precedes child
+    CHECK(idx(root) < idx(a));
+    CHECK(idx(root) < idx(b));
+
+    CHECK(hierarchy::isDescendantOf(reg, c, root));
+    CHECK(hierarchy::isDescendantOf(reg, c, a));
+    CHECK(hierarchy::isDescendantOf(reg, root, root));   // self
+    CHECK_FALSE(hierarchy::isDescendantOf(reg, c, b));
+    CHECK_FALSE(hierarchy::isDescendantOf(reg, root, c)); // ancestor is not descendant
 }

@@ -29,8 +29,10 @@ static void applyMesh(EditorContext& ctx, ecs::Entity e, ecs::MeshRenderer* mr,
 
         LoadedMesh loaded;
         if (ext == ".glb" || ext == ".gltf") {
-            std::vector<LoadedMesh> meshes = GltfLoader::load(absPath);
-            if (!meshes.empty()) loaded = std::move(meshes[0]);
+            // Single-primitive swap: take the first node's first primitive (mesh-local).
+            GltfLoader::LoadedModel model = GltfLoader::load(absPath);
+            for (auto& n : model.nodes)
+                if (!n.meshes.empty()) { loaded = std::move(n.meshes[0]); break; }
         } else {
             loaded = ObjLoader::load(absPath);
         }

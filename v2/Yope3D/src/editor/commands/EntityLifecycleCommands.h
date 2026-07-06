@@ -69,7 +69,9 @@ private:
     std::vector<ecs::Entity> created_;
 };
 
-// Deletes an entity. redo() snapshots then removes it. undo() restores from snapshot.
+// Deletes an entity and its whole subtree. redo() snapshots the subtree (parent
+// before child) then removes the root (removeEntity cascades). undo() restores the
+// subtree, remapping Parent links back onto the recreated entities.
 struct DeleteEntityCommand : ICommand {
     explicit DeleteEntityCommand(ecs::Entity e) : entity_(e) {}
 
@@ -78,15 +80,18 @@ struct DeleteEntityCommand : ICommand {
     const char* label() const override { return "Delete Entity"; }
 
 private:
-    ecs::Entity       entity_;
-    ComponentSnapshot snapshot_;
+    ecs::Entity                    entity_;      // subtree root (updated on undo)
+    std::vector<ComponentSnapshot> snapshots_;   // topological (parent-before-child)
+    std::vector<ecs::Entity>       oldIds_;       // entity each snapshot came from
 };
 
-// Paste: restores a set of pre-built snapshots. Undoable.
-// The caller pre-applies any position offsets before constructing this command.
+// Paste: restores a set of pre-built snapshots as a subtree, remapping internal
+// Parent links; entities whose parent is outside the set become roots. Undoable.
+// The caller pre-applies any position offsets to the root snapshots.
 struct PasteEntitiesCommand : ICommand {
-    explicit PasteEntitiesCommand(std::vector<ComponentSnapshot> snaps)
-        : snapshots_(std::move(snaps)) {}
+    PasteEntitiesCommand(std::vector<ComponentSnapshot> snaps,
+                         std::vector<ecs::Entity> oldIds)
+        : snapshots_(std::move(snaps)), oldIds_(std::move(oldIds)) {}
 
     void       redo(EditorContext& ctx) override;
     void       undo(EditorContext& ctx) override;
@@ -94,6 +99,7 @@ struct PasteEntitiesCommand : ICommand {
 
 private:
     std::vector<ComponentSnapshot> snapshots_;
+    std::vector<ecs::Entity>       oldIds_;
     std::vector<ecs::Entity>       created_;
 };
 #endif

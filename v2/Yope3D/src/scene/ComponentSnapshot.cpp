@@ -3,6 +3,7 @@
 #include "assets/Primitives.h"
 #include "assets/ObjLoader.h"
 #include <cstring>
+#include <unordered_map>
 
 ecs::Entity ComponentSnapshot::restore(World& world) const {
     ecs::Registry& reg = world.getRegistry();
@@ -133,15 +134,21 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
                 e = world.addRenderObject(Primitives::rect(primExtents));
             }
         }
-        // ---- Bare logic entity (ScriptComponent with no physical presence,
-        // e.g. a scene-logic host like the stress-test driver) ----
-        if (!reg.valid(e) && hasScript) {
+        // ---- Bare entity: nothing above matched but the entity still needs to
+        // exist. Covers transform/group holders (an import-root or a glTF group
+        // node: Transform + Name, often a Parent target) and script-only logic
+        // hosts (e.g. the stress-test driver). Without this, a mesh-less parent
+        // would vanish on load and orphan its children.
+        if (!reg.valid(e) && (hasTransform || hasParent || hasName || hasScript)) {
             e = reg.create();
             ecs::Name n{};
-            std::strncpy(n.value, "Script", sizeof(n.value) - 1);
+            const char* nm = hasName ? name.value : (hasScript ? "Script" : "Node");
+            std::strncpy(n.value, nm, sizeof(n.value) - 1);
             reg.add<ecs::Name>(e, n);   // hasName block below assigns, never adds
+            if (hasTransform) reg.add<Transform>(e);  // value filled by the hasTransform block below
 #ifdef YOPE_EDITOR
             reg.add<ecs::EditorSelectable>(e);
+            reg.add<ecs::EditorPickable>(e);
 #endif
         }
         if (!reg.valid(e)) return ecs::NullEntity;
@@ -265,6 +272,14 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
             world.addSpringPhysics(e, spring.target, spring.k, spring.restLength);
     }
 
+    // Parent handle is restored as-captured; subtree callers (delete-undo, paste)
+    // remap it through their old→new id map afterward. A stale handle here is
+    // harmless — worldTransform treats an invalid parent as "root".
+    if (hasParent) {
+        if (!reg.has<ecs::Parent>(e)) reg.add<ecs::Parent>(e, parent);
+        else if (auto* p = reg.get<ecs::Parent>(e)) *p = parent;
+    }
+
     // ---- UI components ----
     if (hasUITransform) {
         if (!reg.has<ecs::UITransform>(e)) reg.add<ecs::UITransform>(e, uiTransform);
@@ -333,6 +348,10 @@ ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world
         s.hasSpring = true;
         s.spring    = *sp;
     }
+    if (auto* p = reg.get<ecs::Parent>(e)) {
+        s.hasParent = true;
+        s.parent    = *p;
+    }
     if (auto* mr = reg.get<ecs::MeshRenderer>(e); mr && mr->mesh) {
         s.hasMesh         = true;
         s.meshColor[0]    = mr->mesh->color[0];
@@ -358,4 +377,34 @@ ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world
     if (auto* t = reg.get<ecs::TextLabel3D>(e))          { s.hasTextLabel3D = true;          s.textLabel3D = *t; }
 
     return s;
+}
+
+std::vector<ecs::Entity> restoreSubtree(World& world,
+                                        const std::vector<ComponentSnapshot>& snaps,
+                                        const std::vector<ecs::Entity>& oldIds,
+                                        bool keepExternalParents) {
+    ecs::Registry& reg = world.getRegistry();
+    std::vector<ecs::Entity> out;
+    out.reserve(snaps.size());
+
+    // Restore in order (parent-before-child) and record old id → new entity.
+    std::unordered_map<uint32_t, ecs::Entity> oldToNew;
+    for (size_t i = 0; i < snaps.size(); ++i) {
+        ecs::Entity e = snaps[i].restore(world);
+        out.push_back(e);
+        if (i < oldIds.size()) oldToNew[oldIds[i].id] = e;
+    }
+
+    // Remap Parent handles: internal parents point at the new entities; parents
+    // outside the set are kept (undo) or detached to root (paste).
+    for (size_t i = 0; i < out.size(); ++i) {
+        if (!snaps[i].hasParent || !reg.valid(out[i])) continue;
+        auto* p = reg.get<ecs::Parent>(out[i]);
+        if (!p) continue;
+        auto it = oldToNew.find(p->parent.id);
+        if (it != oldToNew.end())        p->parent = it->second;   // internal
+        else if (!keepExternalParents)   reg.remove<ecs::Parent>(out[i]);   // paste → root
+        // else keep external handle as-is (delete-undo re-attaches in place)
+    }
+    return out;
 }

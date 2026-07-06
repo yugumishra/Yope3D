@@ -65,6 +65,12 @@ public:
     // relative to YOPE_ASSETS_DIR (loader limitation).
     std::vector<ecs::Entity> importModel(const std::string& absPath);
 
+    // Re-decode and re-register a glTF's embedded images (under their "<glb>#imgN"
+    // keys) without creating any entities. Scene load calls this so materials that
+    // reference embedded textures resolve after a fresh load (the pixel data isn't
+    // stored in the scene JSON — only the synthetic key is). No-op on failure.
+    void reregisterEmbeddedTextures(const std::string& glbAbsPath);
+
     // Attach a mesh to an existing entity. Returns the new RenderMesh* for configuration.
     RenderMesh* attachMesh(ecs::Entity e,
                            const std::vector<Vertex>&   vertices,

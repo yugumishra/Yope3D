@@ -78,5 +78,6 @@ private:
 
     std::vector<ecs::Entity>    pendingDeleteEntities_;
     std::vector<ClipboardEntry> clipboard_;
+    std::vector<ecs::Entity>    clipboardIds_;   // entity each clipboard_ snapshot came from (subtree paste remap)
     std::vector<bool>           savedPanelVisibility_;  // saved on viewport maximize
 };

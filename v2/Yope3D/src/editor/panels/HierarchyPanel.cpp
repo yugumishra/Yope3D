@@ -4,6 +4,7 @@
 #include "editor/CommandHistory.h"
 #include "editor/FileDialog.h"
 #include "editor/commands/EntityLifecycleCommands.h"
+#include "editor/commands/ReparentCommand.h"
 #include "ecs/Registry.h"
 #include "ecs/Components.h"
 #include "world/World.h"
@@ -14,6 +15,9 @@
 #include <algorithm>
 #include <vector>
 #include <cstdio>
+#include <functional>
+#include <unordered_map>
+#include <unordered_set>
 
 void HierarchyPanel::draw(EditorContext& ctx) {
     if (!visible) return;
@@ -167,11 +171,13 @@ void HierarchyPanel::draw(EditorContext& ctx) {
 
     if (!ctx.registry) { ImGui::End(); return; }
 
-    // Build sorted entity list: non-UI first (ECS order), then UI entities ascending by depth.
+    // Partition entities: non-UI form the 3D hierarchy tree; UI stays a flat,
+    // depth-sorted list (UI uses its own layering, not the transform hierarchy).
     std::vector<ecs::Entity> nonUI, uiEnts;
+    std::unordered_set<uint32_t> nonUISet;
     for (auto [e, _sel] : ctx.registry->view<ecs::EditorSelectable>()) {
         if (ctx.registry->has<ecs::UITransform>(e)) uiEnts.push_back(e);
-        else                                         nonUI.push_back(e);
+        else { nonUI.push_back(e); nonUISet.insert(e.id); }
     }
     std::sort(uiEnts.begin(), uiEnts.end(), [&](ecs::Entity a, ecs::Entity b) {
         auto* ta = ctx.registry->get<ecs::UITransform>(a);
@@ -179,11 +185,29 @@ void HierarchyPanel::draw(EditorContext& ctx) {
         return (ta ? ta->depth : 0) < (tb ? tb->depth : 0);
     });
 
-    // Flat display order (must match the draw order below): non-UI, then UI.
-    // Used to resolve Shift+click ranges by row index.
+    // parent → children map + root list. An entity whose parent isn't a drawn
+    // (EditorSelectable, non-UI) entity is treated as a root so nothing is lost.
+    std::unordered_map<uint32_t, std::vector<ecs::Entity>> childrenOf;
+    std::vector<ecs::Entity> roots;
+    for (ecs::Entity e : nonUI) {
+        ecs::Entity par = ecs::NullEntity;
+        if (auto* p = ctx.registry->get<ecs::Parent>(e); p && ctx.registry->valid(p->parent))
+            par = p->parent;
+        if (par != ecs::NullEntity && nonUISet.count(par.id)) childrenOf[par.id].push_back(e);
+        else                                                  roots.push_back(e);
+    }
+
+    // Flattened DFS order (roots → children), then UI. Used for Shift+range.
     std::vector<ecs::Entity> ordered;
     ordered.reserve(nonUI.size() + uiEnts.size());
-    ordered.insert(ordered.end(), nonUI.begin(), nonUI.end());
+    {
+        std::function<void(ecs::Entity)> collect = [&](ecs::Entity e) {
+            ordered.push_back(e);
+            auto it = childrenOf.find(e.id);
+            if (it != childrenOf.end()) for (ecs::Entity c : it->second) collect(c);
+        };
+        for (ecs::Entity r : roots) collect(r);
+    }
     ordered.insert(ordered.end(), uiEnts.begin(), uiEnts.end());
 
     auto indexOf = [&](ecs::Entity e) -> int {
@@ -192,55 +216,112 @@ void HierarchyPanel::draw(EditorContext& ctx) {
         return -1;
     };
 
-    // Draw a single entity row with selection and context menu.
-    auto drawRow = [&](ecs::Entity e) {
-        char label[96];
-        bool isUI = ctx.registry->has<ecs::UITransform>(e);
-        if (auto* n = ctx.registry->get<ecs::Name>(e))
-            std::snprintf(label, sizeof(label), "%s%s##%u",
-                          isUI ? "[UI] " : "", n->value, e.id);
-        else
-            std::snprintf(label, sizeof(label), "%sEntity #%u##%u",
-                          isUI ? "[UI] " : "", e.id, e.id);
-
-        bool selected = ctx.selection && ctx.selection->contains(e);
-        if (ImGui::Selectable(label, selected)) {
-            if (ctx.selection) {
-                bool shift = ImGui::GetIO().KeyShift;
-                bool ctrl  = ImGui::GetIO().KeyCtrl;
-                int anchorIdx = indexOf(shiftAnchor_);
-                if (shift && anchorIdx >= 0) {
-                    // Range select from the anchor row to this row (inclusive).
-                    int target = indexOf(e);
-                    int lo = std::min(anchorIdx, target);
-                    int hi = std::max(anchorIdx, target);
-                    ctx.selection->clear();
-                    for (int i = lo; i <= hi; ++i) ctx.selection->add(ordered[i]);
-                    // Anchor stays put so the range can be re-adjusted.
-                } else if (ctrl) {
-                    ctx.selection->add(e);   // toggle-style additive select
-                    shiftAnchor_ = e;
-                } else {
-                    ctx.selection->set(e);
-                    shiftAnchor_ = e;
-                }
-            }
+    // Apply selection semantics for a click on entity e (Shift range / Ctrl toggle / set).
+    auto handleSelect = [&](ecs::Entity e) {
+        if (!ctx.selection) return;
+        bool shift = ImGui::GetIO().KeyShift;
+        bool ctrl  = ImGui::GetIO().KeyCtrl;
+        int anchorIdx = indexOf(shiftAnchor_);
+        if (shift && anchorIdx >= 0) {
+            int target = indexOf(e);
+            int lo = std::min(anchorIdx, target);
+            int hi = std::max(anchorIdx, target);
+            ctx.selection->clear();
+            for (int i = lo; i <= hi; ++i) ctx.selection->add(ordered[i]);
+        } else if (ctrl) {
+            ctx.selection->add(e);
+            shiftAnchor_ = e;
+        } else {
+            ctx.selection->set(e);
+            shiftAnchor_ = e;
         }
+    };
+
+    // Drag-drop payload id used to reparent within the tree.
+    static constexpr const char* kDragType = "YOPE_ENTITY";
+    auto dropReparentOnto = [&](ecs::Entity newParent) {
+        if (auto* pl = ImGui::AcceptDragDropPayload(kDragType)) {
+            ecs::Entity dragged = *static_cast<const ecs::Entity*>(pl->Data);
+            if (ctx.history && ReparentCommand::canReparent(*ctx.registry, dragged, newParent))
+                ctx.history->execute(ctx, std::make_unique<ReparentCommand>(dragged, newParent));
+        }
+    };
+
+    // Recursive tree node draw.
+    std::function<void(ecs::Entity)> drawNode = [&](ecs::Entity e) {
+        auto childIt = childrenOf.find(e.id);
+        bool hasChildren = childIt != childrenOf.end() && !childIt->second.empty();
+
+        char name[80];
+        if (auto* n = ctx.registry->get<ecs::Name>(e)) std::snprintf(name, sizeof(name), "%s", n->value);
+        else                                            std::snprintf(name, sizeof(name), "Entity #%u", e.id);
+
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
+                                   ImGuiTreeNodeFlags_SpanAvailWidth |
+                                   ImGuiTreeNodeFlags_DefaultOpen;
+        if (ctx.selection && ctx.selection->contains(e)) flags |= ImGuiTreeNodeFlags_Selected;
+        if (!hasChildren) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+
+        bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<uintptr_t>(e.id)),
+                                      flags, "%s", name);
+
+        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+            handleSelect(e);
+
+        if (ImGui::BeginDragDropSource()) {
+            ImGui::SetDragDropPayload(kDragType, &e, sizeof(e));
+            ImGui::Text("%s", name);
+            ImGui::EndDragDropSource();
+        }
+        if (ImGui::BeginDragDropTarget()) { dropReparentOnto(e); ImGui::EndDragDropTarget(); }
+
         if (ImGui::BeginPopupContextItem()) {
+            if (ctx.registry->has<ecs::Parent>(e) && ImGui::MenuItem("Detach to Root")) {
+                if (ctx.history && ReparentCommand::canReparent(*ctx.registry, e, ecs::NullEntity))
+                    ctx.history->execute(ctx, std::make_unique<ReparentCommand>(e, ecs::NullEntity));
+            }
             if (ImGui::MenuItem("Delete")) {
                 if (ctx.history)
                     ctx.history->execute(ctx, std::make_unique<DeleteEntityCommand>(e));
             }
             ImGui::EndPopup();
         }
+
+        if (hasChildren && open) {
+            for (ecs::Entity c : childIt->second) drawNode(c);
+            ImGui::TreePop();
+        }
     };
 
-    for (auto e : nonUI)  drawRow(e);
+    for (ecs::Entity r : roots) drawNode(r);
+
+    // Empty space below the tree is a drop target that detaches to root.
+    float avail = ImGui::GetContentRegionAvail().y;
+    if (avail > 4.0f) {
+        ImGui::Dummy(ImVec2(-1.0f, avail));
+        if (ImGui::BeginDragDropTarget()) { dropReparentOnto(ecs::NullEntity); ImGui::EndDragDropTarget(); }
+    }
+
     if (!uiEnts.empty()) {
         ImGui::Separator();
         ImGui::TextDisabled("  UI Elements");
+        for (ecs::Entity e : uiEnts) {
+            char label[96];
+            if (auto* n = ctx.registry->get<ecs::Name>(e))
+                std::snprintf(label, sizeof(label), "[UI] %s##%u", n->value, e.id);
+            else
+                std::snprintf(label, sizeof(label), "[UI] Entity #%u##%u", e.id, e.id);
+            bool selected = ctx.selection && ctx.selection->contains(e);
+            if (ImGui::Selectable(label, selected)) handleSelect(e);
+            if (ImGui::BeginPopupContextItem()) {
+                if (ImGui::MenuItem("Delete")) {
+                    if (ctx.history)
+                        ctx.history->execute(ctx, std::make_unique<DeleteEntityCommand>(e));
+                }
+                ImGui::EndPopup();
+            }
+        }
     }
-    for (auto e : uiEnts) drawRow(e);
 
     ImGui::End();
 }
