@@ -77,6 +77,13 @@ public:
                const std::vector<Vertex>&   vertices,
                const std::vector<uint32_t>& indices);
 
+    // Deferred-upload variant: records vertex + index buffer copies into
+    // batch.cmd instead of doing a blocking per-buffer submit. Used by the async
+    // scene-load commit pump to batch many mesh uploads into one fenced submit.
+    RenderMesh(GpuDevice& gpu, BufferUploadBatch& batch,
+               const std::vector<Vertex>&   vertices,
+               const std::vector<uint32_t>& indices);
+
     void destroy(VkDevice device);
 
     // Bind vertex + index buffers and issue vkCmdDrawIndexed.

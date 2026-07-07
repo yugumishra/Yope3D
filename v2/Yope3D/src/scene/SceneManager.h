@@ -41,6 +41,12 @@ public:
     // currently in the registry, deserialize params, then call init() on each.
     void instantiateAndInitAllScripts(ScriptContext& ctx);
 
+    // Finalize an asynchronous (Engine-driven) startup-scene load: adopt the scene
+    // path and, for runtime mode (initScripts=true), instantiate + init() every
+    // script instance. Mirrors the tail of loadSynchronous for the async path,
+    // where Engine commits the entities itself instead of calling SceneSerializer.
+    void onAsyncLoadComplete(ScriptContext& ctx, const std::string& scenePath, bool initScripts);
+
     // Called by EditorApp on Stop (before snapshot restore): onUnload + delete
     // every live Script*. After restore the restored ScriptComponents have
     // instance=nullptr (instance is never serialized into snapshots — see Stage 1.5).

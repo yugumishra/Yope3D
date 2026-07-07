@@ -34,6 +34,7 @@ public:
 private:
     void tick();
     void buildMenuBar();
+    void drawLoadingOverlay();   // full-window mesh-loading overlay (async startup load)
     void doTogglePlay();
     void copySelected();
     void pasteClipboard();

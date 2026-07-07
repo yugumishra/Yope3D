@@ -354,6 +354,40 @@ math::Vec3 supportCylinderCylinder(const CylinderGeom& a, const CylinderGeom& b,
     return support + a.getRotTransform() * (cylinderContributionA) + b.getRotTransform() * (cylinderContributionB);
 }
 
+// ============================================================================
+// Distance-mode witness support — 25 pairwise stubs (see header). Bodies left
+// empty; user implements per pair, adapting the corresponding support*() function
+// above to also return onA/onB instead of just their difference.
+// ============================================================================
+
+SupportWitness supportWithWitness(const SphereGeom&   a, const SphereGeom&   b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const SphereGeom&   a, const AABBGeom&     b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const SphereGeom&   a, const OBBGeom&      b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const AABBGeom&     a, const SphereGeom&   b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const AABBGeom&     a, const AABBGeom&     b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const AABBGeom&     a, const OBBGeom&      b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const OBBGeom&      a, const SphereGeom&   b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const OBBGeom&      a, const AABBGeom&     b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const OBBGeom&      a, const OBBGeom&      b, const math::Vec3& d) { return {}; }
+// Capsule overloads
+SupportWitness supportWithWitness(const SphereGeom&   a, const CapsuleGeom&  b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const CapsuleGeom&  a, const SphereGeom&   b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const AABBGeom&     a, const CapsuleGeom&  b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const CapsuleGeom&  a, const AABBGeom&     b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const OBBGeom&      a, const CapsuleGeom&  b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const CapsuleGeom&  a, const OBBGeom&      b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const CapsuleGeom&  a, const CapsuleGeom&  b, const math::Vec3& d) { return {}; }
+// Cylinder overloads
+SupportWitness supportWithWitness(const SphereGeom&   a, const CylinderGeom& b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const CylinderGeom& a, const SphereGeom&   b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const AABBGeom&     a, const CylinderGeom& b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const CylinderGeom& a, const AABBGeom&     b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const OBBGeom&      a, const CylinderGeom& b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const CylinderGeom& a, const OBBGeom&      b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const CapsuleGeom&  a, const CylinderGeom& b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const CylinderGeom& a, const CapsuleGeom&  b, const math::Vec3& d) { return {}; }
+SupportWitness supportWithWitness(const CylinderGeom& a, const CylinderGeom& b, const math::Vec3& d) { return {}; }
+
 // Unified overload set — lets std::visit dispatch by type automatically
 // Existing 9 (sphere/AABB/OBB) — unchanged
 math::Vec3 support(const SphereGeom& a, const SphereGeom& b, const math::Vec3& d) { return  supportSphereSphere(a, b, d); }

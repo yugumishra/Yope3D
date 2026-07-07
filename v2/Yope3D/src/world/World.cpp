@@ -472,7 +472,9 @@ ecs::Entity World::addOBBFromMesh(const LoadedMesh& loadedMesh, float mass) {
 ecs::Entity World::addRenderObject(const std::vector<Vertex>& vertices,
                                     const std::vector<uint32_t>& indices) {
     std::lock_guard lk(structureMtx_);
-    auto rm = std::make_unique<RenderMesh>(*gpu_, pool_, vertices, indices);
+    auto rm = activeUploadBatch_
+        ? std::make_unique<RenderMesh>(*gpu_, *activeUploadBatch_, vertices, indices)
+        : std::make_unique<RenderMesh>(*gpu_, pool_, vertices, indices);
     rm->transformReady = true;
     RenderMesh* raw = rm.get();
     meshPool_.push_back(std::move(rm));
@@ -703,7 +705,9 @@ RenderMesh* World::attachMesh(ecs::Entity e,
                                const std::vector<uint32_t>& indices) {
     std::lock_guard lk(structureMtx_);
     if (!registry_.valid(e)) return nullptr;
-    auto rm = std::make_unique<RenderMesh>(*gpu_, pool_, vertices, indices);
+    auto rm = activeUploadBatch_
+        ? std::make_unique<RenderMesh>(*gpu_, *activeUploadBatch_, vertices, indices)
+        : std::make_unique<RenderMesh>(*gpu_, pool_, vertices, indices);
     RenderMesh* raw = rm.get();
     // Physics entities get transformReady set by publishSnapshot (to avoid 0,0,0 flicker).
     // Render-only entities are ready immediately.

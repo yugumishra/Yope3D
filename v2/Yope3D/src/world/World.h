@@ -189,6 +189,14 @@ public:
     void setAudioSystem(class AudioSystem* a) { audio_ = a; }
     void setAssetManager(AssetManager* a) { assets_ = a; }
 
+    // When set (non-null), addRenderObject/attachMesh record their GPU mesh
+    // uploads into this batch instead of doing a blocking per-buffer submit. The
+    // async scene-load commit pump sets it for the duration of a per-frame batch,
+    // then submits once and clears it. Null everywhere else (runtime/editor mesh
+    // creation stays synchronous). Not thread-safe — only set on the main thread
+    // while the physics thread is stopped.
+    void setUploadBatch(BufferUploadBatch* b) { activeUploadBatch_ = b; }
+
     // Cubemap skybox (producer = scripts/editor, consumer = Renderer). Faces in
     // order +X,-X,+Y,-Y,+Z,-Z, asset-relative. The Renderer (re)loads it when dirty.
     void setSkybox(const std::array<std::string, 6>& faces) {
@@ -304,6 +312,7 @@ private:
 
     GpuDevice*    gpu_   = nullptr;
     VkCommandPool pool_  = VK_NULL_HANDLE;
+    BufferUploadBatch* activeUploadBatch_ = nullptr;  // non-null during async-load commit batches
     AudioSystem*  audio_ = nullptr;   // wired by Engine; used to free Sources on removeEntity
     AssetManager* assets_ = nullptr;  // wired by Engine; used by addModel for glTF textures
 

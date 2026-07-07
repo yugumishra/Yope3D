@@ -50,6 +50,32 @@ Buffer Buffer::uploadStaged(GpuDevice& gpu, VkCommandPool commandPool,
     return dst;
 }
 
+Buffer Buffer::uploadStagedDeferred(GpuDevice& gpu, BufferUploadBatch& batch,
+                                    const void* data, VkDeviceSize size,
+                                    VkBufferUsageFlags dstUsage)
+{
+    Buffer staging = create(gpu, size,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    void* mapped;
+    vkMapMemory(gpu.device(), staging.memory, 0, size, 0, &mapped);
+    memcpy(mapped, data, static_cast<size_t>(size));
+    vkUnmapMemory(gpu.device(), staging.memory);
+
+    Buffer dst = create(gpu, size,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | dstUsage,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    // Record the copy into the shared command buffer; the caller submits it once
+    // for the whole batch and waits a single fence (vs. a per-buffer queue drain).
+    VkBufferCopy region{ 0, 0, size };
+    vkCmdCopyBuffer(batch.cmd, staging.buffer, dst.buffer, 1, &region);
+
+    batch.staging.push_back(std::move(staging));
+    return dst;
+}
+
 Buffer Buffer::create(GpuDevice& gpu, VkDeviceSize size,
                       VkBufferUsageFlags usage, VkMemoryPropertyFlags props)
 {
