@@ -2,10 +2,17 @@
 #include "../gpu/Texture.h"
 #include "../gpu/GpuDevice.h"
 #include "../world/RenderMesh.h"
+#include "../debug/TaskProgress.h"
 #include "ObjLoader.h"
 #include "ImageLoader.h"
 #include <filesystem>
 #include <stdexcept>
+#include <chrono>
+#include <vector>
+
+namespace {
+constexpr const char* kTextureStreamTaskLabel = "Streaming textures";
+}
 
 #ifdef YOPE_EMBED_ASSETS
 #include "generated/embedded_assets.h"
@@ -69,10 +76,16 @@ void AssetManager::init(GpuDevice& gpu, VkCommandPool commandPool,
 
     // MaterialCache shares the 5-sampler material set layout (owned by Renderer).
     materialCache_.init(device, materialSetLayout, this);
+
+    streamer_.start();
 }
 
 void AssetManager::cleanup(VkDevice dev)
 {
+    // Join the decode worker first — it holds no GPU resources, but must not be
+    // pushing to the ready queue while we tear down textures below it.
+    streamer_.stop();
+
     // Explicitly destroy all loaded meshes first.
     for (auto& pair : meshes) {
         if (pair.second) {
@@ -178,6 +191,59 @@ Texture* AssetManager::registerDecodedTexture(const std::string& path, bool srgb
     Texture* ptr = texture.get();
     textures[key] = std::move(texture);
     return ptr;
+}
+
+void AssetManager::enqueueTextureDecode(const std::string& key, bool srgb,
+                                        const uint8_t* encodedBytes, int len)
+{
+    std::string cacheKey = srgb ? key : (key + "#lin");
+    if (textures.find(cacheKey) != textures.end())
+        return;   // already GPU-resident (or already queued and since arrived)
+    streamer_.enqueueDecode(key, srgb, encodedBytes, len);
+}
+
+void AssetManager::pumpTextureUploads(double budgetMs)
+{
+    auto start = std::chrono::steady_clock::now();
+
+    std::vector<std::string> arrivedKeys;
+    TextureStreamer::DecodedTexture item;
+    while (streamer_.popNext(item)) {
+        registerDecodedTexture(item.key, item.srgb, item.pixels.data(), item.width, item.height);
+        // `item.key` is the plain path as stored in ecs::Material's path fields
+        // (registerDecodedTexture applies the "#lin" cache-key suffix internally).
+        arrivedKeys.push_back(item.key);
+
+        double elapsedMs = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - start).count();
+        if (elapsedMs >= budgetMs) break;
+    }
+
+    // Report progress every pump call (not just when something arrived) so the
+    // UI shows movement while textures are still decoding on the worker thread,
+    // before the first one is ever popped here. completedCount() counts decode
+    // failures too, so this always reaches 100% and clears via end() below.
+    int enqueued  = streamer_.enqueuedCount();
+    int completed = streamer_.completedCount();
+    if (enqueued > 0) {
+        if (completed >= enqueued) TaskProgress::end(kTextureStreamTaskLabel);
+        else                       TaskProgress::report(kTextureStreamTaskLabel, completed, enqueued);
+    }
+
+    if (arrivedKeys.empty()) return;
+
+    // Any material resolved before these textures arrived is bound to a default
+    // map in an ALREADY-ALLOCATED descriptor set that may still be referenced by
+    // a command buffer from a previous frame still executing on the GPU (the
+    // renderer keeps multiple frames in flight — see Renderer::MAX_FRAMES —
+    // and pumpTextureUploads only runs once per frame, before that frame's own
+    // command buffer is recorded). Rewriting such a set's bindings in place while
+    // it's in use is a Vulkan validation error (and undefined behavior without
+    // validation). Drain all in-flight GPU work once before any rewrite so no
+    // command buffer can still be referencing it.
+    if (gpu_) gpu_->syncDevice();
+    for (const std::string& key : arrivedKeys)
+        materialCache_.refreshForTexture(key);
 }
 
 Texture* AssetManager::getDefaultTexture() const

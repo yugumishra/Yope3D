@@ -111,3 +111,29 @@ ResolvedMaterial* MaterialCache::resolve(const ecs::Material& m) {
     materialSets_[key] = std::move(rm);
     return ptr;
 }
+
+void MaterialCache::refreshForTexture(const std::string& texturePath) {
+    for (auto& [key, rm] : materialSets_) {
+        // Fast reject before splitting: key is "albedo|normal|metalRough|occlusion|emissive".
+        if (key.find(texturePath) == std::string::npos) continue;
+
+        std::string fields[5];
+        size_t pos = 0;
+        for (int i = 0; i < 5; ++i) {
+            size_t next = (i < 4) ? key.find('|', pos) : key.size();
+            fields[i] = key.substr(pos, next - pos);
+            pos = next + 1;
+        }
+        bool matches = false;
+        for (const auto& f : fields) matches = matches || (f == texturePath);
+        if (!matches) continue;   // substring hit inside a different path, not this one
+
+        Texture* albedo     = loadOrDefault(assets_, fields[0].c_str(), true,  assets_->getDefaultAlbedo());
+        Texture* normal     = loadOrDefault(assets_, fields[1].c_str(), false, assets_->getDefaultNormal());
+        Texture* metalRough = loadOrDefault(assets_, fields[2].c_str(), false, assets_->getDefaultMetalRough());
+        Texture* occlusion  = loadOrDefault(assets_, fields[3].c_str(), false, assets_->getDefaultOcclusion());
+        Texture* emissive   = loadOrDefault(assets_, fields[4].c_str(), true,  assets_->getDefaultEmissive());
+
+        writeSet(rm->set, albedo, normal, metalRough, occlusion, emissive);
+    }
+}

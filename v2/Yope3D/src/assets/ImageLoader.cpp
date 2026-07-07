@@ -2,8 +2,17 @@
 
 #include <stb_image.h>
 #include <stdexcept>
+#include <mutex>
+
+namespace {
+// stbi_set_flip_vertically_on_load is a process-global flag — guard it so
+// TextureStreamer's worker thread can decode concurrently with any main-thread
+// ImageLoader call without racing another thread's flip setting.
+std::mutex g_stbiMutex;
+}
 
 LoadedImage ImageLoader::load(const std::string& absPath, bool flipVertically) {
+    std::lock_guard<std::mutex> lk(g_stbiMutex);
     stbi_set_flip_vertically_on_load(flipVertically);
 
     int w, h, ch;
@@ -26,6 +35,7 @@ LoadedImage ImageLoader::load(const std::string& absPath, bool flipVertically) {
 }
 
 LoadedImage ImageLoader::loadFromMemory(const uint8_t* data, int len, bool flipVertically) {
+    std::lock_guard<std::mutex> lk(g_stbiMutex);
     stbi_set_flip_vertically_on_load(flipVertically);
 
     int w, h, ch;

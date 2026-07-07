@@ -201,6 +201,7 @@ set(ENGINE_SOURCES
     src/assets/ObjLoader.cpp
     src/assets/GltfLoader.cpp
     src/assets/ImageLoader.cpp
+    src/assets/TextureStreamer.cpp
     src/assets/AudioLoader.cpp
     src/assets/Primitives.cpp
     src/audio/AudioSystem.cpp
@@ -218,6 +219,7 @@ set(ENGINE_SOURCES
     src/scene/serialization/SceneSerializer.cpp
     src/debug/Profiler.cpp
     src/debug/Console.cpp
+    src/debug/TaskProgress.cpp
     # Demo scripts (SandboxScript, PlatformerScript, ArchitectScript) used the
     # pre-M13 single-script model. Dropped from the build; their .cpp/.h files
     # remain on disk as reference for re-authoring scene-driven equivalents.

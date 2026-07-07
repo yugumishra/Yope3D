@@ -274,6 +274,10 @@ void Engine::render() {
         YOPE_PROF_SCOPE("snapshot_sync", "render");
         world->syncRenderMeshesFromFront();
     }
+    // Upload textures streamed in from background decode (glb embedded images).
+    // Must run on this thread — the graphics queue is externally synchronized
+    // with drawFrame() below.
+    assets->pumpTextureUploads();
     renderer->setMode(renderMode_);
     { YOPE_PROF_SCOPE("renderer_drawframe", "render");
       renderer->drawFrame(*gpu, *window, *camera, *world, *assets); }

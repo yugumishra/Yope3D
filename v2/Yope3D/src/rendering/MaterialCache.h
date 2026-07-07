@@ -37,6 +37,13 @@ public:
     VkDescriptorSet   defaultSetFor(Texture* albedo);
     ResolvedMaterial* resolve(const ecs::Material& m);
 
+    // Async streaming: a texture identified by `texturePath` (a plain map path,
+    // e.g. an embedded "<glb>#imgN" key) just became GPU-resident. Any already-
+    // cached material set referencing it in one of its five slots was built
+    // against the default placeholder — rewrite that descriptor set in place
+    // (same VkDescriptorSet handle; no cache-key/map churn, no pool allocation).
+    void refreshForTexture(const std::string& texturePath);
+
     MaterialCache() = default;
     MaterialCache(const MaterialCache&) = delete;
     MaterialCache& operator=(const MaterialCache&) = delete;
