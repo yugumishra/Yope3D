@@ -3,6 +3,8 @@
 #include "../ecs/Registry.h"
 #include "../ecs/Components.h"
 #include "../world/Transform.h"
+#include <cmath>
+#include <algorithm>
 
 namespace physics {
 
@@ -462,6 +464,129 @@ bool updateSimplex(GJKSimplex& simplex, math::Vec3& direction) {
     }
 
     return false;
+}
+
+// ============================================================================
+// GJK distance mode — closest-point helpers.
+// gjkDistance/updateSimplexDistance (declared in ColliderGJK.h) are the two
+// pieces still stubbed; everything below is the supporting barycentric math they
+// call once implemented.
+// ============================================================================
+
+ClosestPointResult closestPointVertex(const GJKSimplexDistance& simplex) {
+    ClosestPointResult r;
+    r.point    = simplex.points[0];
+    r.onA      = simplex.onA[0];
+    r.onB      = simplex.onB[0];
+    r.distance = std::sqrt(r.point.dot(r.point));
+    return r;
+}
+
+ClosestPointResult closestPointLine(const GJKSimplexDistance& simplex) {
+    const math::Vec3& A = simplex.points[0];
+    const math::Vec3& B = simplex.points[1];
+    math::Vec3 AB = B - A;
+
+    float denom = AB.dot(AB);
+    float t = (denom > GJK_EPS) ? (-A.dot(AB)) / denom : 0.0f;
+    t = std::clamp(t, 0.0f, 1.0f);
+
+    ClosestPointResult r;
+    r.point    = A + AB * t;
+    r.onA      = simplex.onA[0] + (simplex.onA[1] - simplex.onA[0]) * t;
+    r.onB      = simplex.onB[0] + (simplex.onB[1] - simplex.onB[0]) * t;
+    r.distance = std::sqrt(r.point.dot(r.point));
+    return r;
+}
+
+ClosestPointResult closestPointTriangle(const GJKSimplexDistance& simplex) {
+    const math::Vec3& A = simplex.points[0];
+    const math::Vec3& B = simplex.points[1];
+    const math::Vec3& C = simplex.points[2];
+
+    // Barycentric coords of the origin's projection onto the triangle's plane
+    // (Ericson, Real-Time Collision Detection 3.4 — solving the 2x2 system for
+    // expressing (origin - A) in the v0,v1 edge basis).
+    math::Vec3 v0 = B - A;
+    math::Vec3 v1 = C - A;
+    math::Vec3 v2 = -A; // origin - A
+
+    float d00 = v0.dot(v0);
+    float d01 = v0.dot(v1);
+    float d11 = v1.dot(v1);
+    float d20 = v2.dot(v0);
+    float d21 = v2.dot(v1);
+    float denom = d00 * d11 - d01 * d01;
+
+    float v = 0.0f, w = 0.0f;
+    if (std::abs(denom) > GJK_EPS) {
+        v = (d11 * d20 - d01 * d21) / denom;
+        w = (d00 * d21 - d01 * d20) / denom;
+    }
+    float u = 1.0f - v - w;
+
+    if (u >= 0.0f && v >= 0.0f && w >= 0.0f) {
+        // Projection lands inside the triangle — face weights are the answer.
+        ClosestPointResult r;
+        r.point    = A * u + B * v + C * w;
+        r.onA      = simplex.onA[0] * u + simplex.onA[1] * v + simplex.onA[2] * w;
+        r.onB      = simplex.onB[0] * u + simplex.onB[1] * v + simplex.onB[2] * w;
+        r.distance = std::sqrt(r.point.dot(r.point));
+        return r;
+    }
+
+    // Outside the face: fall back to the nearest of the 3 edges (each clamped to
+    // its own endpoints by closestPointLine). Simpler than a full vertex/edge
+    // Voronoi-region cascade and just as correct — acceptable since these
+    // simplices are tiny.
+    GJKSimplexDistance edgeAB; edgeAB.n = 2;
+    edgeAB.points[0] = A; edgeAB.points[1] = B;
+    edgeAB.onA[0] = simplex.onA[0]; edgeAB.onA[1] = simplex.onA[1];
+    edgeAB.onB[0] = simplex.onB[0]; edgeAB.onB[1] = simplex.onB[1];
+
+    GJKSimplexDistance edgeAC; edgeAC.n = 2;
+    edgeAC.points[0] = A; edgeAC.points[1] = C;
+    edgeAC.onA[0] = simplex.onA[0]; edgeAC.onA[1] = simplex.onA[2];
+    edgeAC.onB[0] = simplex.onB[0]; edgeAC.onB[1] = simplex.onB[2];
+
+    GJKSimplexDistance edgeBC; edgeBC.n = 2;
+    edgeBC.points[0] = B; edgeBC.points[1] = C;
+    edgeBC.onA[0] = simplex.onA[1]; edgeBC.onA[1] = simplex.onA[2];
+    edgeBC.onB[0] = simplex.onB[1]; edgeBC.onB[1] = simplex.onB[2];
+
+    ClosestPointResult best = closestPointLine(edgeAB);
+    ClosestPointResult candAC = closestPointLine(edgeAC);
+    if (candAC.distance < best.distance) best = candAC;
+    ClosestPointResult candBC = closestPointLine(edgeBC);
+    if (candBC.distance < best.distance) best = candBC;
+
+    return best;
+}
+
+ClosestPointResult closestPointOnSimplex(const GJKSimplexDistance& simplex) {
+    switch (simplex.n) {
+        case 1:  return closestPointVertex(simplex);
+        case 2:  return closestPointLine(simplex);
+        case 3:  return closestPointTriangle(simplex);
+        default: return closestPointVertex(simplex); // defensive; n==0 shouldn't occur
+    }
+}
+
+ClosestPointResult updateSimplexDistance(GJKSimplexDistance& simplex, math::Vec3& direction) {
+    // TODO: given the candidate simplex (previous minimal simplex + the freshly
+    // added support point, up to 4 points), find the minimal-dimension sub-simplex
+    // actually closest to the origin (try the full candidate plus each sub-simplex
+    // obtained by dropping one point, keep whichever gives the smallest distance —
+    // same "just try them all" spirit as closestPointTriangle's edge fallback
+    // above), compact `simplex` (points/onA/onB/n) to match, and set
+    // direction = -result.point before returning it.
+    //
+    // Guard: if simplex.n would need to stay at 4 (candidate already encloses the
+    // origin), that means the shapes actually intersect — a contract violation
+    // for distance mode (see gjkDistance's caller contract) rather than a case to
+    // silently handle here.
+    (void)simplex; (void)direction;
+    return ClosestPointResult{};
 }
 
 // ============================================================================

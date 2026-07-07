@@ -149,6 +149,38 @@ void EditorApp::run() {
     }
 }
 
+void EditorApp::drawLoadingOverlay() {
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImDrawList*    dl = ImGui::GetForegroundDrawList();
+
+    // Opaque full-window backdrop (covers dockspace + panels + viewport).
+    const ImVec2 p0 = vp->Pos;
+    const ImVec2 p1 = ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y);
+    dl->AddRectFilled(p0, p1, IM_COL32(15, 18, 23, 255));
+
+    const ImVec2 c = vp->GetCenter();
+
+    const char* title = "Loading scene…";
+    const ImVec2 ts = ImGui::CalcTextSize(title);
+    dl->AddText(ImVec2(c.x - ts.x * 0.5f, c.y - 34.0f), IM_COL32(235, 238, 245, 255), title);
+
+    // Progress bar reflecting committed / total entities (mesh upload progress).
+    const int   done  = engine_.loadCommitted();
+    const int   total = engine_.loadTotal();
+    const float frac  = total > 0 ? static_cast<float>(done) / static_cast<float>(total) : 0.0f;
+    const float bw = 320.0f, bh = 8.0f;
+    const ImVec2 b0(c.x - bw * 0.5f, c.y - 4.0f);
+    const ImVec2 b1(c.x + bw * 0.5f, c.y - 4.0f + bh);
+    dl->AddRectFilled(b0, b1, IM_COL32(255, 255, 255, 38), 4.0f);
+    dl->AddRectFilled(b0, ImVec2(b0.x + bw * frac, b1.y), IM_COL32(200, 205, 230, 235), 4.0f);
+
+    char buf[64];
+    if (total > 0) std::snprintf(buf, sizeof(buf), "%d / %d meshes", done, total);
+    else           std::snprintf(buf, sizeof(buf), "Preparing…");
+    const ImVec2 cs = ImGui::CalcTextSize(buf);
+    dl->AddText(ImVec2(c.x - cs.x * 0.5f, c.y + 16.0f), IM_COL32(150, 156, 170, 255), buf);
+}
+
 void EditorApp::tick() {
     // --- Flush GPU-deferred mesh destroys (MUST be first, before recording opens) ---
     // removeEntity() queues RenderMesh destruction here instead of destroying
@@ -156,6 +188,10 @@ void EditorApp::tick() {
     // context menus). syncDevice inside flushPendingGpuDestroys() ensures all
     // in-flight frames are done before the VkBuffers are freed.
     engine_.world->flushPendingGpuDestroys();
+
+    // Drive the async startup-scene load (renders the loading splash over the
+    // editor until the scene is committed + textures streamed; no-op afterwards).
+    engine_.pumpSceneLoad();
 
     // --- Flush deferred ops (BEFORE command buffer recording opens) ---
     if (pendingTogglePlay_) { pendingTogglePlay_ = false; doTogglePlay(); }
@@ -337,6 +373,12 @@ void EditorApp::tick() {
     for (auto& panel : panels_)
         if (panel->visible) panel->draw(ctx_);
 
+    // Full-window loading overlay while the startup scene's meshes commit. Drawn
+    // on the foreground draw list so it covers the whole window (dockspace, panels
+    // and viewport) — not just the viewport. Textures stream afterwards on the
+    // menu-bar progress bar.
+    if (!engine_.isSceneLoaded()) drawLoadingOverlay();
+
     imguiBackend_.render(engine_.renderer->currentCmdBuffer(), imageIndex);
 
     bool swapchainRecreated = engine_.renderer->endFrameForEditor(
@@ -499,6 +541,9 @@ void EditorApp::cleanup() {
 }
 
 void EditorApp::doTogglePlay() {
+    // Ignore Play until the startup scene has fully loaded (the loading splash is
+    // still up and the registry is only partially populated).
+    if (!engine_.isSceneLoaded()) return;
     if (!playMode_) {
         // Snapshot is taken with all ScriptComponent.instance == nullptr (edit-mode
         // invariant). Then we instantiate + init the live scripts.

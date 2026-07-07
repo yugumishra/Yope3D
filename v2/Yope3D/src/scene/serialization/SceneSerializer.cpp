@@ -11,6 +11,7 @@
 #include "audio/AudioSystem.h"
 #include "audio/Source.h"
 #include "assets/AssetManager.h"
+#include "assets/GltfLoader.h"
 #include "Engine.h"
 #ifdef YOPE_EDITOR
 #include "editor/panels/ConsolePanel.h"
@@ -157,31 +158,34 @@ bool save(const char* path, ecs::Registry& reg, World& world) {
     return true;
 }
 
-std::string load(const char* path, ecs::Registry& reg, World& world,
-                 AudioSystem* audio, AssetManager* assets, bool startAudio) {
+// ---------------------------------------------------------------------------
+// Parse (background-thread safe: no World / registry / GPU access).
+// ---------------------------------------------------------------------------
+
+ParsedScene parseScene(const char* path) {
+    ParsedScene out;
+
     JsonNode root;
     try {
         root = parseJsonFile(path);
     } catch (const std::exception& ex) {
-        return std::string("Parse error: ") + ex.what();
+        out.error = std::string("Parse error: ") + ex.what();
+        return out;
     }
-
-    auto table = buildSerTable();
-
-    // Clear existing scene
-    world.resetPhysics();
 
     // Gravity
     if (root.contains("gravity")) {
         auto& arr = root["gravity"].asArray();
-        if (arr.size() >= 3)
-            world.gravity = {arr[0].asFloat(), arr[1].asFloat(), arr[2].asFloat()};
+        if (arr.size() >= 3) {
+            out.hasGravity = true;
+            out.gravity = {arr[0].asFloat(), arr[1].asFloat(), arr[2].asFloat()};
+        }
     }
 
     // Exposure (older scenes without the key keep the 1.0 default).
-    world.exposure = root.contains("exposure") ? root["exposure"].asFloat() : 1.0f;
+    out.exposure = root.contains("exposure") ? root["exposure"].asFloat() : 1.0f;
 
-    if (!root.contains("entities")) return "";
+    if (!root.contains("entities")) { out.ok = true; return out; }
 
     // Open the geometry sidecar (<scene>.meshbin). Blobs are read sequentially in
     // the same entity order they were written; missing/short reads fall back to a
@@ -196,12 +200,9 @@ std::string load(const char* path, ecs::Registry& reg, World& world,
                     hdr[0] == 'Y' && hdr[1] == 'S' && hdr[2] == 'M' && hdr[3] == 'B';
     }
 
-    // Build file-id → entity mapping for SpringConstraint cross-references.
-    std::map<uint32_t, ecs::Entity> fileIdToEntity;
-
     for (auto& entNode : root["entities"].asArray()) {
-        // Use ComponentSnapshot to recreate the entity through World factories.
-        ComponentSnapshot snap;
+        ParsedScene::Ent ent;
+        ComponentSnapshot& snap = ent.snap;
 
         if (entNode.contains("Transform")) {
             snap.hasTransform = true;
@@ -284,8 +285,17 @@ std::string load(const char* path, ecs::Registry& reg, World& world,
         if (entNode.contains("SpringConstraint")) {
             snap.hasSpring = true;
             compser::deserializeSpringConstraint(entNode["SpringConstraint"], &snap.spring);
-            // snap.spring.target is left invalid here; the second pass resolves it
+            // snap.spring.target is left invalid here; commitFinalize resolves it
             // via the fileId cross-reference and then calls addSpringPhysics.
+            ent.hasSpringTarget    = true;
+            ent.springTargetFileId = entNode["SpringConstraint"].contains("targetId")
+                                       ? entNode["SpringConstraint"]["targetId"].asUInt() : UINT32_MAX;
+        }
+        // Parent link (resolved to an ecs::Parent component in commitFinalize).
+        if (entNode.contains("Parent")) {
+            ent.hasParentLink = true;
+            ent.parentFileId  = entNode["Parent"].contains("parentId")
+                                  ? entNode["Parent"]["parentId"].asUInt() : UINT32_MAX;
         }
         if (entNode.contains("MeshRenderer")) {
             snap.hasMesh = true;
@@ -337,63 +347,17 @@ std::string load(const char* path, ecs::Registry& reg, World& world,
             }
         }
 
-        ecs::Entity e = snap.restore(world);
-        if (!reg.valid(e)) continue;
-
-        uint32_t fid = entNode.contains("fileId") ? entNode["fileId"].asUInt() : UINT32_MAX;
-        fileIdToEntity[fid] = e;
+        ent.fileId = entNode.contains("fileId") ? entNode["fileId"].asUInt() : UINT32_MAX;
+        out.entities.push_back(std::move(ent));
     }
 
-    // Resolve SpringConstraint cross-references
-    // (second pass after all entities are created)
-    uint32_t fid = 0;
-    for (auto& entNode : root["entities"].asArray()) {
-        if (!entNode.contains("SpringConstraint")) { ++fid; continue; }
-        auto it = fileIdToEntity.find(fid);
-        if (it == fileIdToEntity.end()) { ++fid; continue; }
-        ecs::Entity e = it->second;
-        if (!reg.valid(e)) { ++fid; continue; }
-        if (auto* sc = reg.get<ecs::SpringConstraint>(e)) {
-            uint32_t targetFileId = entNode["SpringConstraint"]["targetId"].asUInt();
-            auto tit = fileIdToEntity.find(targetFileId);
-            if (tit != fileIdToEntity.end()) sc->target = tit->second;
-        }
-        ++fid;
-    }
-
-    // Resolve Parent cross-references (second pass; mirrors SpringConstraint).
-    // Older scenes have no "Parent" keys, so this is a no-op for them.
+    // Collect embedded glTF images off-thread. Materials imported from a .glb store
+    // their maps as synthetic "<glb>#imgN" keys whose pixel data lives only in the
+    // source file; scan the parsed material snapshots for those keys and re-run the
+    // (geometry-free, GPU-free) glTF loader purely to capture the encoded image
+    // bytes. commitFinalize enqueues them for decode on the main thread — the
+    // enqueue itself must not touch the AssetManager cache from this worker thread.
     {
-        uint32_t pfid = 0;
-        for (auto& entNode : root["entities"].asArray()) {
-            if (entNode.contains("Parent")) {
-                auto it = fileIdToEntity.find(pfid);
-                uint32_t parentFileId = entNode["Parent"].contains("parentId")
-                                          ? entNode["Parent"]["parentId"].asUInt() : UINT32_MAX;
-                if (it != fileIdToEntity.end() && reg.valid(it->second) && parentFileId != UINT32_MAX) {
-                    auto pit = fileIdToEntity.find(parentFileId);
-                    if (pit != fileIdToEntity.end() && reg.valid(pit->second) && !reg.has<ecs::Parent>(it->second))
-                        reg.add<ecs::Parent>(it->second, ecs::Parent{pit->second});
-                }
-            }
-            ++pfid;
-        }
-    }
-
-    // Reconstruct physics springs from SpringConstraint components.
-    // The component stores the logical relationship; physics::Spring objects in
-    // World::springs_ do the actual simulation. After cross-ref resolution above
-    // we know target is a valid entity, so we can create the spring objects now.
-    for (auto [e, sc] : reg.view<ecs::SpringConstraint>()) {
-        if (reg.valid(sc.target))
-            world.addSpringPhysics(e, sc.target, sc.k, sc.restLength);
-    }
-
-    // Re-register embedded glTF textures. Materials from imported .glb models store
-    // their maps as synthetic "<glb>#imgN" keys; the pixel data lives only in the
-    // source file, so a fresh load must re-decode it before the MaterialCache can
-    // resolve those keys. External-file / .mtl textures load from disk as usual.
-    if (assets) {
         std::set<std::string> glbPaths;
         auto scan = [&](const char* p) {
             if (!p || !p[0]) return;
@@ -401,11 +365,95 @@ std::string load(const char* path, ecs::Registry& reg, World& world,
             auto pos = s.find("#img");
             if (pos != std::string::npos) glbPaths.insert(s.substr(0, pos));
         };
-        for (auto [e, mat] : reg.view<ecs::Material>()) {
+        for (const auto& ent : out.entities) {
+            if (!ent.snap.hasMaterial) continue;
+            const auto& mat = ent.snap.material;
             scan(mat.albedoPath);   scan(mat.normalPath); scan(mat.metalRoughPath);
             scan(mat.occlusionPath); scan(mat.emissivePath);
         }
-        for (const auto& g : glbPaths) world.reregisterEmbeddedTextures(g);
+        for (const auto& g : glbPaths) {
+            GltfLoader::RegisterImageFn collect =
+                [&out](const std::string& key, const uint8_t* data, int len, bool srgb) -> std::string {
+                    ParsedScene::GlbImage img;
+                    img.key  = key;
+                    img.srgb = srgb;
+                    img.bytes.assign(data, data + (len > 0 ? len : 0));
+                    out.glbImages.push_back(std::move(img));
+                    return key;
+                };
+            try { GltfLoader::load(g, collect); } catch (...) {}
+        }
+    }
+
+    out.ok = true;
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Commit (main thread: mutates the registry + issues GPU uploads).
+// ---------------------------------------------------------------------------
+
+void commitBegin(ParsedScene& ps, World& world) {
+    if (ps.begun) return;
+    world.resetPhysics();
+    if (ps.hasGravity) world.gravity = ps.gravity;
+    world.exposure = ps.exposure;
+    ps.cursor = 0;
+    ps.fileIdToEntity.clear();
+    ps.begun = true;
+}
+
+size_t commitEntities(ParsedScene& ps, World& world, size_t maxEntities) {
+    ecs::Registry& reg = world.getRegistry();
+    size_t done = 0;
+    for (; ps.cursor < ps.entities.size() && done < maxEntities; ++ps.cursor, ++done) {
+        ParsedScene::Ent& ent = ps.entities[ps.cursor];
+        ecs::Entity e = ent.snap.restore(world);
+        if (reg.valid(e)) ps.fileIdToEntity[ent.fileId] = e;
+    }
+    return done;
+}
+
+void commitFinalize(ParsedScene& ps, World& world,
+                    AudioSystem* audio, AssetManager* assets, bool startAudio) {
+    ecs::Registry& reg = world.getRegistry();
+
+    // Resolve SpringConstraint cross-references (target fileId → entity).
+    for (const auto& ent : ps.entities) {
+        if (!ent.hasSpringTarget) continue;
+        auto it = ps.fileIdToEntity.find(ent.fileId);
+        if (it == ps.fileIdToEntity.end() || !reg.valid(it->second)) continue;
+        if (auto* sc = reg.get<ecs::SpringConstraint>(it->second)) {
+            auto tit = ps.fileIdToEntity.find(ent.springTargetFileId);
+            if (tit != ps.fileIdToEntity.end()) sc->target = tit->second;
+        }
+    }
+
+    // Resolve Parent cross-references (mirrors SpringConstraint). Older scenes have
+    // no "Parent" keys, so this is a no-op for them.
+    for (const auto& ent : ps.entities) {
+        if (!ent.hasParentLink) continue;
+        auto it = ps.fileIdToEntity.find(ent.fileId);
+        if (it == ps.fileIdToEntity.end() || !reg.valid(it->second)) continue;
+        if (ent.parentFileId == UINT32_MAX) continue;
+        auto pit = ps.fileIdToEntity.find(ent.parentFileId);
+        if (pit != ps.fileIdToEntity.end() && reg.valid(pit->second) && !reg.has<ecs::Parent>(it->second))
+            reg.add<ecs::Parent>(it->second, ecs::Parent{pit->second});
+    }
+
+    // Reconstruct physics springs from resolved SpringConstraint components.
+    for (auto [e, sc] : reg.view<ecs::SpringConstraint>()) {
+        if (reg.valid(sc.target))
+            world.addSpringPhysics(e, sc.target, sc.k, sc.restLength);
+    }
+
+    // Enqueue embedded glTF textures collected during parseScene (main-thread:
+    // enqueueTextureDecode reads the AssetManager cache, which the texture-streaming
+    // pump mutates, so it must not run on the parse worker).
+    if (assets) {
+        for (const auto& img : ps.glbImages)
+            assets->enqueueTextureDecode(img.key, img.srgb,
+                                         img.bytes.data(), static_cast<int>(img.bytes.size()));
     }
 
     // Rebind AudioSource OpenAL handles from the saved path.
@@ -431,6 +479,16 @@ std::string load(const char* path, ecs::Registry& reg, World& world,
             tbg.texture = assets->loadTexture(tbg.path);
         }
     }
+}
+
+std::string load(const char* path, ecs::Registry& /*reg*/, World& world,
+                 AudioSystem* audio, AssetManager* assets, bool startAudio) {
+    ParsedScene ps = parseScene(path);
+    if (!ps.ok) return ps.error;
+
+    commitBegin(ps, world);
+    commitEntities(ps, world, ps.entities.size());
+    commitFinalize(ps, world, audio, assets, startAudio);
 
 #ifdef YOPE_EDITOR
     Console::log(std::string("Loaded scene: ") + path, LogSeverity::Info);

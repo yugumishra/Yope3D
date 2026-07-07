@@ -114,6 +114,12 @@ void SceneManager::instantiateAndInitAllScripts(ScriptContext& ctx) {
     instantiateAll(world_.getRegistry(), ctx, /*runInit=*/true);
 }
 
+void SceneManager::onAsyncLoadComplete(ScriptContext& ctx, const std::string& scenePath,
+                                       bool initScripts) {
+    if (initScripts) instantiateAll(world_.getRegistry(), ctx, /*runInit=*/true);
+    currentPath_ = scenePath;
+}
+
 void SceneManager::teardownAllScripts(ScriptContext& ctx) {
     destroyAllInstances(world_.getRegistry(), ctx);
 }

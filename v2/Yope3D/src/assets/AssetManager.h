@@ -59,6 +59,15 @@ public:
     // rewrites any cached material descriptor sets that were waiting on them.
     void pumpTextureUploads(double budgetMs = 5.0);
 
+    // True while async embedded-image decode/upload is still in flight. The
+    // loading splash holds until this is false so the scene doesn't pop in with
+    // placeholder (white) textures. completedCount always catches up to
+    // enqueuedCount (decode failures count as completed), so this is guaranteed
+    // to become false.
+    bool isStreamingTextures() const {
+        return streamer_.completedCount() < streamer_.enqueuedCount();
+    }
+
     // Get the default 1×1 white texture (used for untextured meshes).
     Texture* getDefaultTexture() const;
 

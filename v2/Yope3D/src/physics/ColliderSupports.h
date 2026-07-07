@@ -69,5 +69,66 @@ namespace ColliderDiscrete {
             }, va, vb);
         };
     }
+
+    // ========================================================================
+    // Distance-mode support: witness-aware pairwise overload set.
+    //
+    // GJK distance mode (gjkDistance, ColliderGJK.h) needs to recover WHERE on each
+    // shape the closest points are, not just the CSO point — but the 25 support()
+    // overloads above compute onA/onB internally and discard them (gjkIntersect's
+    // boolean mode never needed them). This mirrors that same 25-overload,
+    // resolve-once-via-std::visit structure exactly (not a generic single-shape
+    // decomposition) so each pair keeps its hand-tuned algebra and shared
+    // subexpressions between the onA/onB terms — user-implemented, one pair at a time.
+    // ========================================================================
+
+    // Support result carrying the CSO point AND the individual witness points on
+    // each shape that produced it.
+    struct SupportWitness {
+        math::Vec3 cso; // point on the Minkowski difference A ⊖ B (matches support())
+        math::Vec3 onA; // witness point on shape A
+        math::Vec3 onB; // witness point on shape B
+    };
+
+    // Stubs — bodies left empty in the .cpp; user implements per pair (reusing/
+    // adapting the corresponding support*() math above to also track onA/onB).
+    SupportWitness supportWithWitness(const SphereGeom&   a, const SphereGeom&   b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const SphereGeom&   a, const AABBGeom&     b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const SphereGeom&   a, const OBBGeom&      b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const AABBGeom&     a, const SphereGeom&   b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const AABBGeom&     a, const AABBGeom&     b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const AABBGeom&     a, const OBBGeom&      b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const OBBGeom&      a, const SphereGeom&   b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const OBBGeom&      a, const AABBGeom&     b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const OBBGeom&      a, const OBBGeom&      b, const math::Vec3& d);
+    // Capsule overloads
+    SupportWitness supportWithWitness(const SphereGeom&   a, const CapsuleGeom&  b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const CapsuleGeom&  a, const SphereGeom&   b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const AABBGeom&     a, const CapsuleGeom&  b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const CapsuleGeom&  a, const AABBGeom&     b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const OBBGeom&      a, const CapsuleGeom&  b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const CapsuleGeom&  a, const OBBGeom&      b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const CapsuleGeom&  a, const CapsuleGeom&  b, const math::Vec3& d);
+    // Cylinder overloads
+    SupportWitness supportWithWitness(const SphereGeom&   a, const CylinderGeom& b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const CylinderGeom& a, const SphereGeom&   b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const AABBGeom&     a, const CylinderGeom& b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const CylinderGeom& a, const AABBGeom&     b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const OBBGeom&      a, const CylinderGeom& b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const CylinderGeom& a, const OBBGeom&      b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const CapsuleGeom&  a, const CylinderGeom& b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const CylinderGeom& a, const CapsuleGeom&  b, const math::Vec3& d);
+    SupportWitness supportWithWitness(const CylinderGeom& a, const CylinderGeom& b, const math::Vec3& d);
+
+    // Witness-aware sibling of makeSupport() — same std::visit dispatch (resolved
+    // once per call, not per shape). Deduced (`auto`) return type, so (like
+    // makeSupport) must stay defined here, not in the .cpp.
+    inline auto makeSupportWitness(const ShapeVariant& va, const ShapeVariant& vb) {
+        return [&va, &vb](const math::Vec3& dir) -> SupportWitness {
+            return std::visit([&dir](const auto& a, const auto& b) {
+                return supportWithWitness(a, b, dir);
+            }, va, vb);
+        };
+    }
 } // namespace ColliderDiscrete
 } // namespace physics

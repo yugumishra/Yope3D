@@ -22,6 +22,24 @@ RenderMesh::RenderMesh(GpuDevice& gpu, VkCommandPool commandPool,
     indexCount = static_cast<uint32_t>(indices.size());
 }
 
+RenderMesh::RenderMesh(GpuDevice& gpu, BufferUploadBatch& batch,
+                       const std::vector<Vertex>&   vertices,
+                       const std::vector<uint32_t>& indices)
+    : cpuVertices(vertices), cpuIndices(indices)
+{
+    const std::vector<PackedVertex> packed = meshbuild::buildPacked(vertices, indices);
+
+    vertexBuffer = Buffer::uploadStagedDeferred(gpu, batch,
+        packed.data(), sizeof(PackedVertex) * packed.size(),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+
+    indexBuffer = Buffer::uploadStagedDeferred(gpu, batch,
+        indices.data(), sizeof(uint32_t) * indices.size(),
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+
+    indexCount = static_cast<uint32_t>(indices.size());
+}
+
 void RenderMesh::destroy(VkDevice device) {
     indexBuffer.destroy(device);
     vertexBuffer.destroy(device);

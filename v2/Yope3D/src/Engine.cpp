@@ -6,6 +6,9 @@
 #include "physics/PhysicsConstants.h"
 #include "math/Math.h"
 #include "ui/UIManager.h"
+#include "ui/Background.h"
+#include "ui/TexturedBackground.h"
+#include "gpu/Buffer.h"   // BufferUploadBatch (async-load mesh upload batching)
 #include "debug/Profiler.h"
 #include "ecs/Components.h"
 #include "world/Transform.h"
@@ -13,6 +16,7 @@
 #include <GLFW/glfw3.h>
 #include <string>
 #include <chrono>
+#include <cmath>     // std::sin for splash animation
 #include <cstdlib>   // YOPE_PROFILE_DURATION env var
 
 Engine::~Engine() = default;
@@ -126,13 +130,6 @@ bool Engine::init(const std::string& sceneOverride) {
 #else
         true;
 #endif
-    std::string loadErr = sceneManager->loadSynchronous(
-        scenePath, scriptCtx_, initScriptsOnLoad);
-    if (!loadErr.empty()) {
-        std::fprintf(stderr, "Engine: startup scene load failed: %s\n", loadErr.c_str());
-        return false;
-    }
-
     YOPE_PROF_INIT("yope_profile.csv");
 
     lastTime = glfwGetTime();
@@ -143,6 +140,15 @@ bool Engine::init(const std::string& sceneOverride) {
         if (d > 0.0) profileEndTime_ = lastTime + d;
     }
 
+    // Parse the startup scene on a background thread and build the loading splash.
+    // The main loop starts immediately; pumpSceneLoad() commits the scene in
+    // batches and starts the physics thread once the load completes.
+    beginAsyncLoad(scenePath, initScriptsOnLoad);
+
+    return true;
+}
+
+void Engine::startPhysicsThread() {
     physicsThread_ = std::thread([this] {
         using namespace std::chrono_literals;
         double last    = glfwGetTime();
@@ -159,8 +165,190 @@ bool Engine::init(const std::string& sceneOverride) {
             std::this_thread::sleep_for(100us);
         }
     });
+}
 
-    return true;
+// ---------------------------------------------------------------------------
+// Asynchronous startup-scene load
+// ---------------------------------------------------------------------------
+
+void Engine::beginAsyncLoad(const std::string& scenePath, bool initScripts) {
+    scenePath_         = scenePath;
+    initScriptsOnLoad_ = initScripts;
+    committedEntities_ = 0;
+    totalEntities_     = 0;
+    parseDone_.store(false, std::memory_order_release);
+    loadPhase_   = LoadPhase::Parsing;
+    splashStart_ = glfwGetTime();
+
+    // Build the loading splash. Reuses the existing UI system (already initialized
+    // above), which renders over the empty world via the standalone UI pass. A
+    // full-screen opaque background hides the grey clear and the scene as it builds.
+    //
+    // Runtime only: the UI pass renders into the swapchain, so this fills the whole
+    // window. In the editor the UI pass renders into the offscreen ViewportTarget
+    // (which would put the splash *inside* the viewport panel), so the editor draws
+    // its own window-level ImGui overlay during load instead — see EditorApp.
+#ifndef YOPE_EDITOR
+    Texture* logo = nullptr;
+    try { logo = assets->loadTexture("textures/tnail.png"); } catch (...) {}
+    splashBg_    = uiManager->addBackground({0.0f, 0.0f}, {1.0f, 1.0f},
+                                            {0.06f, 0.07f, 0.09f, 1.0f}, -100);
+    splashLogo_  = uiManager->addTexturedBackground({0.42f, 0.34f}, {0.58f, 0.50f},
+                                                    {1.0f, 1.0f, 1.0f, 1.0f}, logo, 0);
+    splashTrack_ = uiManager->addBackground({0.32f, 0.600f}, {0.68f, 0.616f},
+                                            {1.0f, 1.0f, 1.0f, 0.15f}, 1);
+    splashFill_  = uiManager->addBackground({0.32f, 0.600f}, {0.32f, 0.616f},
+                                            {0.85f, 0.87f, 0.95f, 0.9f}, 2);
+#endif
+
+    // Parse on a worker thread — parseScene touches no World/registry/GPU state.
+    parseThread_ = std::thread([this] {
+        parsed_ = SceneSerializer::parseScene(scenePath_.c_str());
+        parseDone_.store(true, std::memory_order_release);
+    });
+}
+
+void Engine::updateSplash() {
+    if (!splashLogo_ || !splashFill_) return;
+    const float t     = static_cast<float>(glfwGetTime() - splashStart_);
+    const float pulse = 0.5f + 0.5f * std::sin(t * 3.0f);
+
+    // Logo: subtle alpha + scale pulse (no shader change — the UI textured path
+    // already multiplies the sampled texel by the per-vertex tint).
+    const float a  = 0.72f + 0.28f * pulse;
+    const float s  = 1.0f + 0.02f * pulse;
+    const float cx = 0.5f, cy = 0.42f, hw = 0.08f, hh = 0.08f;
+    splashLogo_->setBounds({cx - hw * s, cy - hh * s}, {cx + hw * s, cy + hh * s});
+    splashLogo_->setColor({1.0f, 1.0f, 1.0f, a});
+
+    // Progress bar: entity-commit fraction fills up to 90%; the last 10% waits on
+    // texture streaming (indeterminate — pulse the fill so it doesn't look frozen).
+    const float entityFrac = totalEntities_ > 0
+                               ? static_cast<float>(committedEntities_) / static_cast<float>(totalEntities_)
+                               : 1.0f;
+    const float progress = (loadPhase_ == LoadPhase::Streaming) ? 0.92f : 0.90f * entityFrac;
+    const float x0 = 0.32f, x1 = 0.68f;
+    splashFill_->setBounds({x0, 0.600f}, {x0 + (x1 - x0) * progress, 0.616f});
+    if (loadPhase_ == LoadPhase::Streaming)
+        splashFill_->setColor({0.85f, 0.87f, 0.95f, 0.55f + 0.45f * pulse});
+}
+
+void Engine::finishAsyncLoad() {
+    // Publish one snapshot so every mesh's modelMatrix is set from its transform
+    // before the splash is removed — otherwise the first frame or two (before the
+    // physics thread produces its first snapshot) would draw meshes at the origin.
+    world->publishSnapshot();
+    world->newSnapshotReady_.store(false, std::memory_order_release);
+    world->syncRenderMeshesFromFront();
+
+    // Remove the splash UI.
+    uiManager->remove(splashFill_);
+    uiManager->remove(splashTrack_);
+    uiManager->remove(splashLogo_);
+    uiManager->remove(splashBg_);
+    splashFill_ = splashTrack_ = splashBg_ = nullptr;
+    splashLogo_ = nullptr;
+
+    // Adopt the scene path + instantiate runtime scripts (editor defers to Play).
+    sceneManager->onAsyncLoadComplete(scriptCtx_, scenePath_, initScriptsOnLoad_);
+
+    // Release the parsed-scene buffers (snapshots retain CPU mesh copies).
+    parsed_ = SceneSerializer::ParsedScene{};
+
+    startPhysicsThread();
+    loadPhase_ = LoadPhase::Done;
+}
+
+void Engine::pumpSceneLoad() {
+    if (loadPhase_ == LoadPhase::Done) return;
+
+    if (loadPhase_ == LoadPhase::Parsing) {
+        if (!parseDone_.load(std::memory_order_acquire)) { updateSplash(); return; }
+        if (parseThread_.joinable()) parseThread_.join();
+        if (!parsed_.ok) {
+            std::fprintf(stderr, "Engine: startup scene parse failed: %s\n",
+                         parsed_.error.c_str());
+            finishAsyncLoad();   // proceed with an empty scene rather than hang
+            return;
+        }
+        SceneSerializer::commitBegin(parsed_, *world);
+        totalEntities_     = static_cast<int>(parsed_.entities.size());
+        committedEntities_ = 0;
+        loadPhase_         = LoadPhase::Committing;
+        // fall through and commit the first batch this frame
+    }
+
+    if (loadPhase_ == LoadPhase::Committing) {
+        // Commit entity snapshots (registry mutation + GPU mesh upload) within a
+        // per-frame wall-clock budget so the splash keeps animating between batches.
+        // Every mesh upload this frame is recorded into ONE command buffer and
+        // flushed with a single fenced submit — instead of the blocking
+        // vkQueueWaitIdle that RenderMesh's synchronous path does per vertex/index
+        // buffer (2 drains × N meshes).
+        BufferUploadBatch batch{};
+        VkCommandBufferAllocateInfo ai{};
+        ai.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        ai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        ai.commandPool        = renderer->getCommandPool();
+        ai.commandBufferCount = 1;
+        vkAllocateCommandBuffers(gpu->device(), &ai, &batch.cmd);
+        VkCommandBufferBeginInfo bi{};
+        bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(batch.cmd, &bi);
+        world->setUploadBatch(&batch);
+
+        constexpr double kBudgetMs = 6.0;
+        const auto start = std::chrono::steady_clock::now();
+        while (!SceneSerializer::commitDone(parsed_)) {
+            SceneSerializer::commitEntities(parsed_, *world, 2);
+            committedEntities_ = static_cast<int>(parsed_.cursor);
+            const double el = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start).count();
+            if (el >= kBudgetMs) break;
+        }
+
+        world->setUploadBatch(nullptr);
+        vkEndCommandBuffer(batch.cmd);
+        VkSubmitInfo si{};
+        si.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        si.commandBufferCount = 1;
+        si.pCommandBuffers    = &batch.cmd;
+        VkFenceCreateInfo fi{}; fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        VkFence fence = VK_NULL_HANDLE;
+        vkCreateFence(gpu->device(), &fi, nullptr, &fence);
+        vkQueueSubmit(gpu->graphicsQueue(), 1, &si, fence);
+        vkWaitForFences(gpu->device(), 1, &fence, VK_TRUE, UINT64_MAX);
+        vkDestroyFence(gpu->device(), fence, nullptr);
+        for (auto& s : batch.staging) s.destroy(gpu->device());
+        vkFreeCommandBuffers(gpu->device(), renderer->getCommandPool(), 1, &batch.cmd);
+
+        updateSplash();
+        if (SceneSerializer::commitDone(parsed_)) {
+            SceneSerializer::commitFinalize(parsed_, *world, audio.get(), assets.get(),
+                                            initScriptsOnLoad_);
+#ifdef YOPE_EDITOR
+            // Editor: reveal the editor as soon as meshes are committed. Embedded
+            // textures keep streaming in the background and report to the existing
+            // menu-bar progress bar (TaskProgress) — no full-window wait for them.
+            finishAsyncLoad();
+#else
+            // Runtime: hold the splash until textures finish so the scene doesn't
+            // pop in with placeholder textures.
+            loadPhase_ = LoadPhase::Streaming;
+#endif
+        }
+        return;
+    }
+
+    if (loadPhase_ == LoadPhase::Streaming) {
+        // Hold the splash until embedded-image textures finish streaming so the
+        // scene doesn't pop in with placeholder textures.
+        updateSplash();
+        if (!assets->isStreamingTextures())
+            finishAsyncLoad();
+        return;
+    }
 }
 
 void Engine::update() {
@@ -288,6 +476,8 @@ void Engine::cleanup() {
     // every subsystem that came up gets torn down properly.
     stopPhysics_.store(true, std::memory_order_release);
     if (physicsThread_.joinable()) physicsThread_.join();
+    // May still be parsing if the user quit during the loading splash.
+    if (parseThread_.joinable()) parseThread_.join();
 
     if (sceneManager) sceneManager->shutdown(scriptCtx_);
     sceneManager.reset();

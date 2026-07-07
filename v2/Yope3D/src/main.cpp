@@ -33,6 +33,10 @@ int main(int argc, char** argv) {
         // Snapshot 'just-pressed/released' flags; clear mouse delta & scroll.
         engine.input->beginFrame();
 
+        // Drive the async startup-scene load (renders the loading splash until the
+        // scene is committed + textures streamed; no-op afterwards).
+        engine.pumpSceneLoad();
+
         engine.update();   // game logic reads Input here
         engine.render();   // Milestone 2: no-op
 
