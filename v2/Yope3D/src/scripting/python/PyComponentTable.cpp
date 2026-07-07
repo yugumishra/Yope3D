@@ -45,6 +45,7 @@ void build() {
         entryFor<ecs::OBBForm>          ("OBBForm"),
         entryFor<ecs::CapsuleForm>      ("CapsuleForm"),
         entryFor<ecs::CylinderForm>     ("CylinderForm"),
+        entryFor<ecs::CompoundCollider> ("CompoundCollider"),
         entryFor<ecs::Material>         ("Material"),
         entryFor<ecs::LightSource>      ("LightSource"),
         entryFor<ecs::Name>             ("Name"),

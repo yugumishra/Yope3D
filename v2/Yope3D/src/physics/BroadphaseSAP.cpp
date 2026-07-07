@@ -1,4 +1,5 @@
 #include "BroadphaseSAP.h"
+#include "CompoundShape.h"
 #include "../ecs/Registry.h"
 #include "../ecs/Components.h"
 #include "../world/Transform.h"
@@ -31,6 +32,24 @@ void BroadphaseSAP::collectPairs(const std::vector<ecs::Entity>& entities,
             if (!tf) continue;
             math::Vec3 pos = tf->position;
             math::Vec3 ext{};
+            // Compound collider: world AABB of the baked local bounds. Center may
+            // be offset from the body origin, so emit an explicit min/max entry
+            // rather than the symmetric pos±ext used by the primitive forms.
+            if (auto* cc = reg.get<ecs::CompoundCollider>(e); cc && cc->compiled && !cc->compiled->nodes.empty()) {
+                const math::Mat3 R = math::Mat3::rotation(tf->rotation);
+                const math::Vec3& lmn = cc->compiled->localMin;
+                const math::Vec3& lmx = cc->compiled->localMax;
+                math::Vec3 wmn{ 1e30f,  1e30f,  1e30f};
+                math::Vec3 wmx{-1e30f, -1e30f, -1e30f};
+                for (int c = 0; c < 8; ++c) {
+                    math::Vec3 corner{ (c & 1) ? lmx.x : lmn.x, (c & 2) ? lmx.y : lmn.y, (c & 4) ? lmx.z : lmn.z };
+                    math::Vec3 w = pos + R * corner;
+                    wmn.x = std::min(wmn.x, w.x); wmn.y = std::min(wmn.y, w.y); wmn.z = std::min(wmn.z, w.z);
+                    wmx.x = std::max(wmx.x, w.x); wmx.y = std::max(wmx.y, w.y); wmx.z = std::max(wmx.z, w.z);
+                }
+                entries_.push_back({ wmn.x, wmx.x, wmn.y, wmx.y, wmn.z, wmx.z, e });
+                continue;
+            }
             if (auto* sf = reg.get<ecs::SphereForm>(e))
                 ext = {sf->radius, sf->radius, sf->radius};
             else if (auto* af = reg.get<ecs::AABBForm>(e))

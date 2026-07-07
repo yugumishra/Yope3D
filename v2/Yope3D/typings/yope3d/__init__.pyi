@@ -502,6 +502,18 @@ class CylinderForm:
     half_height: float
     """Half the cylinder section length (total height = ``2*half_height``)."""
 
+class CompoundCollider:
+    """Static level collider: a baked multi-shape body + mid-phase BVH, authored
+    via the editor's "Generate Static Collider" button (bakes every mesh in an
+    entity's subtree into one static body so the player can't walk through
+    walls). Read-only from scripts — there's no runtime API to rebuild it.
+    """
+
+    asset_path: str
+    """Asset-relative path to the cooked ``.bcbvh`` file."""
+    loaded: bool
+    """Whether the baked collider data has resolved (World-cache lazy load)."""
+
 class LightSource:
     """A light emitter component."""
 
@@ -660,6 +672,7 @@ ComponentName = Literal[
     "OBBForm",
     "CapsuleForm",
     "CylinderForm",
+    "CompoundCollider",
     "Material",
     "LightSource",
     "Name",
@@ -1453,6 +1466,8 @@ def reg_get(e: Entity, name: Literal["OBBForm"]) -> OBBForm | None: ...
 def reg_get(e: Entity, name: Literal["CapsuleForm"]) -> CapsuleForm | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["CylinderForm"]) -> CylinderForm | None: ...
+@overload
+def reg_get(e: Entity, name: Literal["CompoundCollider"]) -> CompoundCollider | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["Material"]) -> Material | None: ...
 @overload

@@ -22,6 +22,7 @@ struct ComponentSnapshot {
     bool hasOBB       = false;  ecs::OBBForm     obb;
     bool hasCapsule   = false;  ecs::CapsuleForm capsule;
     bool hasCylinder  = false;  ecs::CylinderForm cylinder;
+    bool hasCompoundCollider = false; ecs::CompoundCollider compoundCollider;  // compiled always null in the snapshot
     bool hasLight     = false;  ecs::LightSource light;
     bool hasName      = false;  ecs::Name        name;
     bool hasAudio     = false;  ecs::AudioSource audio;   // Source* always null in the snapshot

@@ -3,6 +3,7 @@
 #include "editor/Selection.h"
 #include "editor/inspectors/InspectorRegistry.h"
 #include "editor/commands/AddColliderCommand.h"
+#include "editor/commands/GenerateColliderCommand.h"
 #include "editor/commands/AddSpringConstraintCommand.h"
 #include "ecs/Registry.h"
 #include "ecs/Components.h"
@@ -75,6 +76,12 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     if (ImGui::Selectable("Physics Body (Sphere / AABB / OBB)...", false,
                                           ImGuiSelectableFlags_DontClosePopups))
                         addCompMode = 1;
+                    // Bakes every mesh in this entity's subtree into one static compound
+                    // body (Hull+Fixed) — the "walk-through-walls" fix for imported levels.
+                    if (ImGui::Selectable("Generate Static Collider (bake level mesh)")) {
+                        ctx.history->execute(ctx, std::make_unique<GenerateColliderCommand>(e));
+                        ImGui::CloseCurrentPopup();
+                    }
                 }
                 if (hasHull && !hasSpring) {
                     if (ImGui::Selectable("Spring Constraint...", false,

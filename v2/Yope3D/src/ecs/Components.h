@@ -10,6 +10,7 @@ class Source;
 class Script;
 class Texture;
 struct ResolvedMaterial;   // rendering/MaterialCache.h — runtime GPU handle for a Material
+namespace physics { struct CompiledCollider; }   // physics/CompoundShape.h — baked compound body
 
 namespace ecs {
 
@@ -60,6 +61,18 @@ struct CapsuleForm {
 struct CylinderForm {
     float radius     = 0.5f;
     float halfHeight = 1.0f;  // axis +Y
+};
+
+// ---- Static compound collider (baked multi-shape body + mid-phase BVH) ----
+// A single static (mass 0, Fixed) rigid body whose collision volume is many
+// convex sub-shapes with a baked AABB BVH over them — used for large level
+// geometry so the player can't walk through walls. `assetPath` points at a
+// cooked `.bcbvh` file (asset-relative); `compiled` is the shared runtime
+// structure resolved lazily by World (non-owning, like Material::resolved /
+// MeshRenderer::mesh). Never serialized beyond the path.
+struct CompoundCollider {
+    char                       assetPath[256] = {};
+    physics::CompiledCollider* compiled       = nullptr;   // runtime-only; World-cache owned
 };
 
 // ---- Visual ----

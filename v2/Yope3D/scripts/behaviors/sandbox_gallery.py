@@ -11,7 +11,7 @@ Controls:
   LEFT / RIGHT  — switch scene
   SPACE         — spawn a sphere at camera position
 """
-import yope3d
+import yope3d, math
 
 class SandboxGallery:
     PARAMS = {
@@ -27,10 +27,9 @@ class SandboxGallery:
 
     def update(self, world, entity, dt):
         inp = yope3d.input
-
         right = inp.is_key_down(yope3d.KEY_RIGHT)
         left  = inp.is_key_down(yope3d.KEY_LEFT)
-        space = inp.is_key_down(yope3d.KEY_SPACE)
+        space = inp.is_key_down(yope3d.KEY_F)
 
         if right and not self.right_was_down and self.scenes:
             self.current = (self.current + 1) % len(self.scenes)

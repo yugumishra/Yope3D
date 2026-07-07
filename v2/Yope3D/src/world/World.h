@@ -19,6 +19,7 @@
 #include "../physics/IslandDetector.h"
 #include "../physics/PhysicsConstants.h"
 #include "../physics/ContactCache.h"
+#include "../physics/CompoundShape.h"
 #include "../physics/CollisionLayers.h"
 #include "../physics/DebugShapes.h"
 #include "../rendering/DebugLine.h"
@@ -89,6 +90,25 @@ public:
     void attachOBBCollider     (ecs::Entity e, float mass, math::Vec3 extent, bool isStatic = false);
     void attachCapsuleCollider (ecs::Entity e, float mass, float radius, float halfHeight, bool isStatic = false);
     void attachCylinderCollider(ecs::Entity e, float mass, float radius, float halfHeight, bool isStatic = false);
+
+    // ---- Static compound collider (baked level geometry) ----
+    // Owns a per-asset-path cache of CompiledCollider (shared across instances).
+    // buildCompoundCollider caches an in-memory build (used by the baker / tests);
+    // loadCompoundCollider loads a cooked .bcbvh from an asset-relative path.
+    // Both return a non-owning pointer stable for World's lifetime.
+    physics::CompiledCollider* buildCompoundCollider(const std::string& key,
+                                                     std::vector<physics::SubShape> shapes,
+                                                     int leafSize = 4);
+    // forceReload re-reads the file even if `assetRelPath` is already cached — used
+    // by the editor's "Regenerate" action. Mutates the cached CompiledCollider's
+    // contents in place (same address) rather than swapping the cache slot, so any
+    // ecs::CompoundCollider::compiled pointers already handed out stay valid.
+    physics::CompiledCollider* loadCompoundCollider(const std::string& assetRelPath,
+                                                    bool forceReload = false);
+    // Adds a static (mass 0, Fixed) body carrying `compiled`; `assetPath` is stored
+    // on the component for serialization ("" for a pure in-memory build).
+    ecs::Entity attachCompoundCollider(ecs::Entity e, physics::CompiledCollider* compiled,
+                                       const std::string& assetPath);
     // Remove all physics components (Hull + shape + Fixed/Sleeping tags).
     void detachPhysicsBody(ecs::Entity e);
 
@@ -301,6 +321,10 @@ private:
     ecs::Registry                                        registry_;
     std::vector<ecs::Entity>                             lightEntities_;
     std::unordered_map<RenderMesh*, ecs::Entity>         meshToEntity_;
+
+    // Baked compound colliders, keyed by asset-relative path (or in-memory key).
+    // Shared/immutable; ecs::CompoundCollider::compiled points into these.
+    std::unordered_map<std::string, std::unique_ptr<physics::CompiledCollider>> compoundColliderCache_;
 
     std::vector<std::unique_ptr<physics::Spring>>        springs_;
     physics::BroadphaseSAP                               sap_;

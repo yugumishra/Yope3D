@@ -1,11 +1,14 @@
 #include "ColliderDiscrete.h"
 #include "PhysicsConstants.h"
+#include "CompoundShape.h"
 #include "../ecs/Registry.h"
 #include "../ecs/Components.h"
 #include "../world/Transform.h"
 #include "../debug/Profiler.h"
 #include <cmath>
 #include <algorithm>
+#include <limits>
+#include <optional>
 #include <vector>
 
 namespace physics::ColliderDiscrete {
@@ -127,7 +130,7 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
         math::Vec3 n = c.manifold.normal;
         for (int i = 0; i < c.manifold.numContacts; i++) {
             if (c.W[i] == 0.0f) continue;
-            auto it = cache.find({c.a, c.b, i});
+            auto it = cache.find({c.a, c.b, c.shapeKey * 4 + i});
             if (it == cache.end()) continue;
 
             c.lambda[i]   = it->second.normal * 0.999f;
@@ -215,7 +218,7 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
     for (auto& c : contacts) {
         for (int i = 0; i < c.manifold.numContacts; i++) {
             if (c.W[i] == 0.0f) continue;
-            cache[{c.a, c.b, i}] = {c.lambda[i], c.lambdaT1[i], c.lambdaT2[i]};
+            cache[{c.a, c.b, c.shapeKey * 4 + i}] = {c.lambda[i], c.lambdaT1[i], c.lambdaT2[i]};
         }
     }
 
@@ -252,6 +255,143 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
 }
 
 // ============================================================================
+// Geometry-only pair dispatch (shared by detect() semantics and detectCompound).
+// Produces a manifold whose normal points from A toward B. Covers the same
+// Sphere/AABB/OBB pairs detect() handles analytically; Capsule/Cylinder (and any
+// pair without a closed-form routine) return false — matching detect()'s own
+// coverage until GJK/EPA is wired in.
+// ============================================================================
+static bool detectGeomPair(const ShapeVariant& A, const ShapeVariant& B, ContactManifold& m) {
+    auto* sa = std::get_if<SphereGeom>(&A); auto* aa = std::get_if<AABBGeom>(&A); auto* oa = std::get_if<OBBGeom>(&A);
+    auto* sb = std::get_if<SphereGeom>(&B); auto* ab = std::get_if<AABBGeom>(&B); auto* ob = std::get_if<OBBGeom>(&B);
+
+    // Each branch normalizes the analytical routine's native normal to A->B.
+    // Routine conventions: SphereAABB/SphereOBB emit box->sphere; AABBOBB emits
+    // aabb->obb; the symmetric routines emit first-arg->second-arg.
+    if (sa && sb) return analyticalSphereSphere(*sa, *sb, m);
+    if (sa && ab) { if (analyticalSphereAABB(*sa, *ab, m)) { m.normal = -m.normal; return true; } return false; }
+    if (sa && ob) { if (analyticalSphereOBB (*sa, *ob, m)) { m.normal = -m.normal; return true; } return false; }
+    if (aa && sb) return analyticalSphereAABB(*sb, *aa, m);
+    if (aa && ab) return analyticalAABBAABB  (*aa, *ab, m);
+    if (aa && ob) return analyticalAABBOBB   (*aa, *ob, m);
+    if (oa && sb) return analyticalSphereOBB (*sb, *oa, m);
+    if (oa && ab) { if (analyticalAABBOBB    (*ab, *oa, m)) { m.normal = -m.normal; return true; } return false; }
+    if (oa && ob) return analyticalOBBOBB    (*oa, *ob, m);
+    return false;
+}
+
+// Build a world-space ShapeVariant for an entity's single collider Form.
+// Returns nullopt for shapes without an analytical narrowphase (capsule/cylinder)
+// or entities with no recognized form.
+static std::optional<ShapeVariant> buildEntityWorldGeom(ecs::Entity e, ecs::Registry& reg) {
+    auto* tf = reg.get<Transform>(e);
+    if (!tf) return std::nullopt;
+    if (auto* sf = reg.get<ecs::SphereForm>(e)) return ShapeVariant{SphereGeom{tf->position, sf->radius}};
+    if (auto* af = reg.get<ecs::AABBForm>(e))   return ShapeVariant{AABBGeom{tf->position, af->extent}};
+    if (auto* of = reg.get<ecs::OBBForm>(e))
+        return ShapeVariant{OBBGeom{tf->position, of->extent, math::Mat3::rotation(tf->rotation)}};
+    return std::nullopt;
+}
+
+// Conservative world-space AABB of a Sphere/AABB/OBB geom (OBB rotation-fattened).
+static void worldAABBofGeom(const ShapeVariant& g, math::Vec3& mn, math::Vec3& mx) {
+    if (auto* s = std::get_if<SphereGeom>(&g)) {
+        math::Vec3 r{s->radius, s->radius, s->radius};
+        mn = s->pos - r; mx = s->pos + r;
+    } else if (auto* a = std::get_if<AABBGeom>(&g)) {
+        mn = a->pos - a->extent; mx = a->pos + a->extent;
+    } else if (auto* o = std::get_if<OBBGeom>(&g)) {
+        const math::Mat3& R = o->rot; const math::Vec3& x = o->extent;
+        math::Vec3 f{
+            std::fabs(R.m[0]) * x.x + std::fabs(R.m[3]) * x.y + std::fabs(R.m[6]) * x.z,
+            std::fabs(R.m[1]) * x.x + std::fabs(R.m[4]) * x.y + std::fabs(R.m[7]) * x.z,
+            std::fabs(R.m[2]) * x.x + std::fabs(R.m[5]) * x.y + std::fabs(R.m[8]) * x.z,
+        };
+        mn = o->pos - f; mx = o->pos + f;
+    }
+}
+
+// ============================================================================
+// detectCompound() — narrowphase for a static compound body vs a single-shape
+// body. Descends the compound's baked BVH with the other body's query AABB (in
+// compound-local space), then runs the analytical pair test per surviving
+// sub-shape. Pushes one manifold per colliding sub-shape, tagged with the
+// sub-shape index as shapeKey so warm-start caching stays per-sub-shape.
+// Contacts are always pushed as (a = compound, b = other); normal points
+// compound -> other (the a->b convention solveIsland expects).
+// NOTE: assumes the compound body's Transform has unit scale (levels bake scale
+// into sub-shapes); body rotation/translation are honored.
+// ============================================================================
+static void detectCompound(ecs::Entity compoundEnt, ecs::Entity other,
+                           ecs::Registry& reg, std::vector<ActiveContact>& contacts)
+{
+    auto* cc = reg.get<ecs::CompoundCollider>(compoundEnt);
+    if (!cc || !cc->compiled || cc->compiled->nodes.empty()) return;
+    const physics::CompiledCollider& col = *cc->compiled;
+
+    auto* tfBody = reg.get<Transform>(compoundEnt);
+    if (!tfBody) return;
+    const math::Mat3 Rbody  = math::Mat3::rotation(tfBody->rotation);
+    const math::Mat3 RbodyT = Rbody.transpose();
+    const math::Vec3 posBody = tfBody->position;
+
+    auto otherGeomOpt = buildEntityWorldGeom(other, reg);
+    if (!otherGeomOpt) return;
+    const ShapeVariant& otherGeom = *otherGeomOpt;
+
+    // Query AABB (world) -> compound-local frame via the 8 corners.
+    math::Vec3 wmn, wmx;
+    worldAABBofGeom(otherGeom, wmn, wmx);
+    constexpr float kInf = std::numeric_limits<float>::max();
+    math::Vec3 qmn{kInf, kInf, kInf}, qmx{-kInf, -kInf, -kInf};
+    for (int c = 0; c < 8; ++c) {
+        math::Vec3 corner{ (c & 1) ? wmx.x : wmn.x, (c & 2) ? wmx.y : wmn.y, (c & 4) ? wmx.z : wmn.z };
+        math::Vec3 local = RbodyT * (corner - posBody);
+        qmn.x = std::min(qmn.x, local.x); qmn.y = std::min(qmn.y, local.y); qmn.z = std::min(qmn.z, local.z);
+        qmx.x = std::max(qmx.x, local.x); qmx.y = std::max(qmx.y, local.y); qmx.z = std::max(qmx.z, local.z);
+    }
+    auto overlaps = [&](const BvhNode& n) {
+        return !(qmn.x > n.aabbMax.x || qmx.x < n.aabbMin.x ||
+                 qmn.y > n.aabbMax.y || qmx.y < n.aabbMin.y ||
+                 qmn.z > n.aabbMax.z || qmx.z < n.aabbMin.z);
+    };
+
+    // Iterative BVH descent — collect candidate sub-shape indices.
+    int32_t stack[64];
+    int sp = 0;
+    stack[sp++] = 0;
+    while (sp > 0) {
+        const BvhNode& n = col.nodes[stack[--sp]];
+        if (!overlaps(n)) continue;
+        if (n.count > 0) {
+            for (int i = n.first; i < n.first + n.count; ++i) {
+                const physics::SubShape& s = col.subShapes[i];
+                // Compose sub-shape local frame with the body transform -> world geom.
+                math::Vec3 wpos = posBody + Rbody * s.localPos;
+                ShapeVariant subGeom;
+                switch (s.type) {
+                    case physics::SubShapeType::Sphere:
+                        subGeom = SphereGeom{wpos, s.extent.x}; break;
+                    case physics::SubShapeType::AABB:
+                    case physics::SubShapeType::OBB:
+                        subGeom = OBBGeom{wpos, s.extent, Rbody * s.localRot}; break;
+                    default:
+                        continue;   // capsule/cylinder sub-shapes: no analytical pair yet
+                }
+                ContactManifold m;
+                if (detectGeomPair(subGeom, otherGeom, m)) {
+                    ActiveContact ac; ac.a = compoundEnt; ac.b = other; ac.shapeKey = i; ac.manifold = m;
+                    contacts.push_back(ac);
+                }
+            }
+        } else {
+            if (n.right >= 0 && sp < 64) stack[sp++] = n.right;
+            if (n.left  >= 0 && sp < 64) stack[sp++] = n.left;
+        }
+    }
+}
+
+// ============================================================================
 // detect() — ECS-based type dispatch. Reads positions and shapes from Registry.
 // Normal convention: from a toward b.
 // ============================================================================
@@ -268,6 +408,14 @@ void detect(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg,
     bool bFixed = reg.has<ecs::Fixed>(eb);
     if (aFixed && bFixed) return;
     if (!(hca->collisionLayer & hcb->collisionMask) || !(hcb->collisionLayer & hca->collisionMask)) return;
+
+    // Compound colliders (static level geometry) take a separate BVH-driven path.
+    // Both-compound can't happen in practice (both static => filtered above).
+    bool aCompound = reg.has<ecs::CompoundCollider>(ea);
+    bool bCompound = reg.has<ecs::CompoundCollider>(eb);
+    if (aCompound && !bCompound) { detectCompound(ea, eb, reg, contacts); return; }
+    if (bCompound && !aCompound) { detectCompound(eb, ea, reg, contacts); return; }
+    if (aCompound && bCompound)  return;
 
     auto* tfa = reg.get<Transform>(ea);
     auto* tfb = reg.get<Transform>(eb);

@@ -14,6 +14,7 @@ void drawAABBFormComponent               (void*, EditorContext&, ecs::Entity);
 void drawOBBFormComponent                (void*, EditorContext&, ecs::Entity);
 void drawCapsuleFormComponent            (void*, EditorContext&, ecs::Entity);
 void drawCylinderFormComponent           (void*, EditorContext&, ecs::Entity);
+void drawCompoundColliderComponent       (void*, EditorContext&, ecs::Entity);
 void drawMeshRendererComponent           (void*, EditorContext&, ecs::Entity);
 void drawMaterialComponent               (void*, EditorContext&, ecs::Entity);
 void drawLightSourceComponent            (void*, EditorContext&, ecs::Entity);
@@ -41,6 +42,7 @@ void registerAllInspectors() {
         { ecs::typeId<ecs::OBBForm>(),               drawOBBFormComponent               },
         { ecs::typeId<ecs::CapsuleForm>(),           drawCapsuleFormComponent           },
         { ecs::typeId<ecs::CylinderForm>(),          drawCylinderFormComponent          },
+        { ecs::typeId<ecs::CompoundCollider>(),      drawCompoundColliderComponent      },
         { ecs::typeId<ecs::MeshRenderer>(),          drawMeshRendererComponent          },
         { ecs::typeId<ecs::Material>(),              drawMaterialComponent              },
         { ecs::typeId<ecs::LightSource>(),           drawLightSourceComponent           },

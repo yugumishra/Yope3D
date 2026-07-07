@@ -41,6 +41,7 @@ static std::vector<CompSerEntry> buildSerTable() {
         { ecs::typeId<ecs::OBBForm>(),               "OBBForm",               compser::serializeOBBForm,               compser::deserializeOBBForm               },
         { ecs::typeId<ecs::CapsuleForm>(),           "CapsuleForm",           compser::serializeCapsuleForm,           compser::deserializeCapsuleForm           },
         { ecs::typeId<ecs::CylinderForm>(),          "CylinderForm",          compser::serializeCylinderForm,          compser::deserializeCylinderForm          },
+        { ecs::typeId<ecs::CompoundCollider>(),      "CompoundCollider",      compser::serializeCompoundCollider,      compser::deserializeCompoundCollider      },
         { ecs::typeId<ecs::MeshRenderer>(),          "MeshRenderer",          compser::serializeMeshRenderer,          compser::deserializeMeshRenderer          },
         { ecs::typeId<ecs::Material>(),              "Material",              compser::serializeMaterial,              compser::deserializeMaterial              },
         { ecs::typeId<ecs::LightSource>(),           "LightSource",           compser::serializeLightSource,           compser::deserializeLightSource           },
@@ -231,6 +232,10 @@ std::string load(const char* path, ecs::Registry& reg, World& world,
         if (entNode.contains("CylinderForm")) {
             snap.hasCylinder = true;
             compser::deserializeCylinderForm(entNode["CylinderForm"], &snap.cylinder);
+        }
+        if (entNode.contains("CompoundCollider")) {
+            snap.hasCompoundCollider = true;
+            compser::deserializeCompoundCollider(entNode["CompoundCollider"], &snap.compoundCollider);
         }
         if (entNode.contains("LightSource")) {
             snap.hasLight = true;

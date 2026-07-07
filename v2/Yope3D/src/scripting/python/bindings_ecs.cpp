@@ -66,6 +66,15 @@ void bind_ecs(py::module_& m) {
         .def_readwrite("radius",      &ecs::CylinderForm::radius)
         .def_readwrite("half_height", &ecs::CylinderForm::halfHeight);
 
+    // CompoundCollider — read-only: the .bcbvh path is authored via the editor's
+    // "Generate Static Collider" button, not from scripts. `compiled` (the
+    // runtime CompiledCollider*) isn't exposed, only whether it resolved.
+    py::class_<ecs::CompoundCollider>(m, "CompoundCollider")
+        .def_property_readonly("asset_path",
+            [](const ecs::CompoundCollider& c) { return std::string(c.assetPath); })
+        .def_property_readonly("loaded",
+            [](const ecs::CompoundCollider& c) { return c.compiled != nullptr; });
+
     // LightSource — float arrays exposed as Vec3 via lambdas
     py::class_<ecs::LightSource>(m, "LightSource")
         .def_readwrite("type",       &ecs::LightSource::type)
