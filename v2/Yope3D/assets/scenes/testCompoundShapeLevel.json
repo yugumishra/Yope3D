@@ -25,122 +25,6 @@
         {
             "fileId": 1,
             "runtimeId": 1,
-            "Name":             {
-                "value": "Cube"
-            },
-            "Transform":             {
-                "position": [-1.13697, -0.615969, -1.87764],
-                "rotation": [0, 0, 0, 1],
-                "scale": [14.22, 0.339961, 18.0798]
-            },
-            "MeshRenderer":             {
-                "color": [1, 1, 1],
-                "primitiveType": 0,
-                "primitiveExtents": [1, 1, 1],
-                "geom":                 {
-                    "vc": 24,
-                    "ic": 36
-                }
-            },
-            "Parent":             {
-                "parentId": 6
-            }
-        },
-        {
-            "fileId": 2,
-            "runtimeId": 2,
-            "Name":             {
-                "value": "Cube.001"
-            },
-            "Transform":             {
-                "position": [-8.85373, 0.637987, 7.02509],
-                "rotation": [0, 0, 0, 1],
-                "scale": [1, 1, 6.52196]
-            },
-            "MeshRenderer":             {
-                "color": [1, 1, 1],
-                "primitiveType": 0,
-                "primitiveExtents": [1, 1, 1],
-                "geom":                 {
-                    "vc": 24,
-                    "ic": 36
-                }
-            },
-            "Parent":             {
-                "parentId": 6
-            }
-        },
-        {
-            "fileId": 3,
-            "runtimeId": 3,
-            "Name":             {
-                "value": "Cube.002"
-            },
-            "Transform":             {
-                "position": [4.05384, 0.637987, -1.41491],
-                "rotation": [0, 0, 0, 1],
-                "scale": [1, 1, 11.342]
-            },
-            "MeshRenderer":             {
-                "color": [1, 1, 1],
-                "primitiveType": 0,
-                "primitiveExtents": [1, 1, 1],
-                "geom":                 {
-                    "vc": 24,
-                    "ic": 36
-                }
-            },
-            "Parent":             {
-                "parentId": 6
-            }
-        },
-        {
-            "fileId": 4,
-            "runtimeId": 4,
-            "Name":             {
-                "value": "Cube.003"
-            },
-            "Transform":             {
-                "position": [-4.30616, -0.502013, -12.4149],
-                "rotation": [0, 0, 0, 1],
-                "scale": [1, 1, 3.04196]
-            },
-            "MeshRenderer":             {
-                "color": [1, 1, 1],
-                "primitiveType": 0,
-                "primitiveExtents": [1, 1, 1],
-                "geom":                 {
-                    "vc": 24,
-                    "ic": 36
-                }
-            },
-            "Parent":             {
-                "parentId": 6
-            }
-        },
-        {
-            "fileId": 5,
-            "runtimeId": 5,
-            "Name":             {
-                "value": "Sphere"
-            },
-            "Transform":             {
-                "position": [10.243, -0.157991, 8.68236],
-                "rotation": [0, 0, 0, 1],
-                "scale": [1, 1, 1]
-            },
-            "MeshRenderer":             {
-                "color": [1, 1, 1],
-                "primitiveType": 1,
-                "primitiveExtents": [1, 0, 0]
-            },
-            "Parent":             {
-                "parentId": 6
-            }
-        },
-        {
-            "fileId": 6,
-            "runtimeId": 6,
             "isFixed": true,
             "Name":             {
                 "value": "testLevel"
@@ -161,19 +45,21 @@
                 "velocity": [0, 0, 0]
             },
             "CompoundCollider":             {
-                "assetPath": "colliders/testLevel_6.bcbvh"
+                "assetPath": "colliders/testLevel_6.bcbvh",
+                "density": 1,
+                "isStatic": true
             }
         },
         {
-            "fileId": 7,
-            "runtimeId": 7,
+            "fileId": 2,
+            "runtimeId": 2,
             "Name":             {
                 "value": "Sphere"
             },
             "Transform":             {
-                "position": [-3.90092, 3.70409, 0.260081],
-                "rotation": [0, 0, 0, 1],
-                "scale": [0.5, 0.5, 0.5]
+                "position": [-1.12933, 14.4032, -2.38323],
+                "rotation": [-0.0680943, 0.199364, 0.958687, 0.191147],
+                "scale": [0.500001, 0.500001, 0.500001]
             },
             "Hull":             {
                 "mass": 1,
@@ -183,10 +69,10 @@
                 "restitution": 0.3,
                 "gravity": true,
                 "tangible": true,
-                "velocity": [0, 0, 0]
+                "velocity": [-7.39456e-07, -0.0408542, -0.772189]
             },
             "SphereForm":             {
-                "radius": 0.5
+                "radius": 0.500001
             },
             "MeshRenderer":             {
                 "color": [0.55, 0.75, 1],
@@ -195,8 +81,29 @@
             }
         },
         {
-            "fileId": 8,
-            "runtimeId": 13,
+            "fileId": 3,
+            "runtimeId": 3,
+            "Name":             {
+                "value": "Object"
+            },
+            "Transform":             {
+                "position": [3.87403, 4.28336, 0],
+                "rotation": [0.20377, 0.158221, 0.329045, 0.90839],
+                "scale": [0.999999, 1, 0.999999]
+            },
+            "MeshRenderer":             {
+                "color": [0.8, 0.8, 0.8],
+                "primitiveType": 3,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "ScriptComponent":             {
+                "scriptClass": "PythonScript",
+                "paramsBlob": "{\n    \"module\": \"behaviors.half_torus_compound_test\",\n    \"class\": \"HalfTorusCompoundTest\",\n    \"spawn_x\": 2.39,\n    \"spawn_y\": 8,\n    \"spawn_z\": 0,\n    \"ring_radius\": 2,\n    \"tube_radius\": 0.35,\n    \"segments\": 16,\n    \"density\": 1\n}"
+            }
+        },
+        {
+            "fileId": 4,
+            "runtimeId": 4,
             "Name":             {
                 "value": "node_damagedHelmet_-6514"
             },
@@ -229,6 +136,269 @@
             "ScriptComponent":             {
                 "scriptClass": "PythonScript",
                 "paramsBlob": "{\n    \"module\": \"behaviors.sandbox_gallery\",\n    \"class\": \"SandboxGallery\",\n    \"scenes\": [\n\n    ]\n}"
+            }
+        },
+        {
+            "fileId": 5,
+            "runtimeId": 15,
+            "Name":             {
+                "value": "testTable"
+            },
+            "Transform":             {
+                "position": [-0.641144, 5.02804, -1.04223],
+                "rotation": [0.0131821, -0.441257, -0.33353, 0.832992],
+                "scale": [0.999997, 0.999997, 0.999999]
+            },
+            "Hull":             {
+                "mass": 4.28843,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": true,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "CompoundCollider":             {
+                "assetPath": "colliders/testTable_15.bcbvh",
+                "density": 1,
+                "isStatic": false
+            }
+        },
+        {
+            "fileId": 6,
+            "runtimeId": 5,
+            "Name":             {
+                "value": "Cube"
+            },
+            "Transform":             {
+                "position": [-1.13697, -0.615969, -1.87764],
+                "rotation": [0, 0, 0, 1],
+                "scale": [14.22, 0.339961, 18.0798]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 24,
+                    "ic": 36
+                }
+            },
+            "Parent":             {
+                "parentId": 1
+            }
+        },
+        {
+            "fileId": 7,
+            "runtimeId": 6,
+            "Name":             {
+                "value": "Cube.001"
+            },
+            "Transform":             {
+                "position": [-8.85373, 0.637987, 7.02509],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 6.52196]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 24,
+                    "ic": 36
+                }
+            },
+            "Parent":             {
+                "parentId": 1
+            }
+        },
+        {
+            "fileId": 8,
+            "runtimeId": 7,
+            "Name":             {
+                "value": "Cube.002"
+            },
+            "Transform":             {
+                "position": [4.05384, 0.637987, -1.41491],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 11.342]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 24,
+                    "ic": 36
+                }
+            },
+            "Parent":             {
+                "parentId": 1
+            }
+        },
+        {
+            "fileId": 9,
+            "runtimeId": 8,
+            "Name":             {
+                "value": "Cube.003"
+            },
+            "Transform":             {
+                "position": [-4.30616, -0.502013, -12.4149],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 3.04196]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 24,
+                    "ic": 36
+                }
+            },
+            "Parent":             {
+                "parentId": 1
+            }
+        },
+        {
+            "fileId": 10,
+            "runtimeId": 9,
+            "Name":             {
+                "value": "Sphere"
+            },
+            "Transform":             {
+                "position": [10.243, -0.157991, 8.68236],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 1,
+                "primitiveExtents": [1, 0, 0]
+            },
+            "Parent":             {
+                "parentId": 1
+            }
+        },
+        {
+            "fileId": 11,
+            "runtimeId": 10,
+            "Name":             {
+                "value": "Cube"
+            },
+            "Transform":             {
+                "position": [1.38989e-08, 0.0854996, -7.29694e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1.9399, 0.101751, 2.50095]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 24,
+                    "ic": 36
+                }
+            },
+            "Parent":             {
+                "parentId": 5
+            }
+        },
+        {
+            "fileId": 12,
+            "runtimeId": 11,
+            "Name":             {
+                "value": "Cube.004"
+            },
+            "Transform":             {
+                "position": [1.81459, -0.995455, 2.39662],
+                "rotation": [0, 0, 0, 1],
+                "scale": [0.1, 1.06, 0.1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 24,
+                    "ic": 36
+                }
+            },
+            "Parent":             {
+                "parentId": 5
+            }
+        },
+        {
+            "fileId": 13,
+            "runtimeId": 12,
+            "Name":             {
+                "value": "Cube.001"
+            },
+            "Transform":             {
+                "position": [1.81459, -0.995455, -2.39662],
+                "rotation": [0, 0, 0, 1],
+                "scale": [0.1, 1.06, 0.1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 24,
+                    "ic": 36
+                }
+            },
+            "Parent":             {
+                "parentId": 5
+            }
+        },
+        {
+            "fileId": 14,
+            "runtimeId": 13,
+            "Name":             {
+                "value": "Cube.002"
+            },
+            "Transform":             {
+                "position": [-1.81459, -0.995455, 2.39662],
+                "rotation": [0, 0, 0, 1],
+                "scale": [0.1, 1.06, 0.1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 24,
+                    "ic": 36
+                }
+            },
+            "Parent":             {
+                "parentId": 5
+            }
+        },
+        {
+            "fileId": 15,
+            "runtimeId": 14,
+            "Name":             {
+                "value": "Cube.003"
+            },
+            "Transform":             {
+                "position": [-1.81459, -0.995455, -2.39662],
+                "rotation": [0, 0, 0, 1],
+                "scale": [0.1, 1.06, 0.1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 24,
+                    "ic": 36
+                }
+            },
+            "Parent":             {
+                "parentId": 5
             }
         }
     ]

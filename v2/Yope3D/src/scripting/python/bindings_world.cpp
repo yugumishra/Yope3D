@@ -3,6 +3,7 @@
 #include <pybind11/stl.h>
 #include "world/World.h"
 #include "physics/KinematicQuery.h"
+#include "physics/CompoundShape.h"
 #include "rendering/Camera.h"
 #include "platform/Input.h"
 #include "platform/Window.h"
@@ -18,6 +19,7 @@
 #include "debug/Profiler.h"
 #include <GLFW/glfw3.h>
 #include <unordered_set>
+#include <atomic>
 
 namespace py = pybind11;
 
@@ -133,6 +135,52 @@ void bind_world(py::module_& m) {
         .def("attach_cylinder_collider", &World::attachCylinderCollider,
              py::arg("entity"), py::arg("mass"), py::arg("radius"), py::arg("half_height"), py::arg("static_") = false)
         .def("detach_physics_body",      &World::detachPhysicsBody, py::arg("entity"))
+        // ---- Programmatic sphere compound (synthesized, not baked from a mesh) ----
+        // Builds one Sphere sub-shape per (center, radius) pair (in the new entity's
+        // local frame), derives mass/COM/inertia via the same math the mesh baker
+        // uses (physics::computeCompoundMassProperties), creates a fresh entity at
+        // `pos` (Transform + Hull + CompoundCollider — same factory-method
+        // convention as add_sphere/add_obb/etc.) and returns it. Returns NullEntity
+        // if `spheres` is empty.
+        .def("build_sphere_compound",
+             [](World& w, const std::vector<std::pair<math::Vec3, float>>& spheres,
+                float density, bool isStatic, math::Vec3 pos) -> ecs::Entity {
+                 constexpr float kPi = 3.14159265358979323846f;
+                 std::vector<physics::SubShape> shapes;
+                 shapes.reserve(spheres.size());
+                 for (const auto& [center, radius] : spheres) {
+                     physics::SubShape s;
+                     s.type     = physics::SubShapeType::Sphere;
+                     s.localPos = center;
+                     s.localRot = math::Mat3{};
+                     s.extent   = {radius, 0.0f, 0.0f};
+                     s.aabbMin  = center - math::Vec3{radius, radius, radius};
+                     s.aabbMax  = center + math::Vec3{radius, radius, radius};
+                     s.mass     = density * (4.0f / 3.0f) * kPi * radius * radius * radius;
+                     shapes.push_back(s);
+                 }
+                 if (shapes.empty()) return ecs::NullEntity;
+
+                 float totalMass = 0.0f;
+                 math::Mat3 invI = math::Mat3::zero();
+                 math::Vec3 pivotOffset = physics::computeCompoundMassProperties(shapes, totalMass, invI);
+
+                 static std::atomic<int> s_syntheticKeyCounter{0};
+                 std::string key = "synthetic_sphere_compound_" + std::to_string(s_syntheticKeyCounter++);
+                 physics::CompiledCollider* compiled = w.buildCompoundCollider(key, shapes);
+                 compiled->totalMass           = totalMass;
+                 compiled->inverseInertiaLocal = invI;
+                 compiled->pivotOffset         = pivotOffset;
+
+                 auto lock = w.lockStructure();
+                 ecs::Entity e = w.getRegistry().create();
+                 w.getRegistry().add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {1, 1, 1}});
+                 lock.unlock();
+
+                 w.attachCompoundCollider(e, compiled, "", isStatic ? 0.0f : totalMass, isStatic);
+                 return e;
+             }, py::arg("spheres"), py::arg("density") = 1.0f, py::arg("is_static") = false,
+                py::arg("pos") = math::Vec3{})
         .def("set_mesh_visible", &World::setMeshVisible, py::arg("entity"), py::arg("visible"))
         .def("remove_light", [](World& w, ecs::Entity e) { w.removeLight(e); }, py::arg("entity"))
         // ---- Audio source entity ----

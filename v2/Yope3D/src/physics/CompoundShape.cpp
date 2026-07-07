@@ -120,7 +120,24 @@ bool writeBcbvh(const std::string& absPath, const CompiledCollider& col) {
     writeVec(os, col.nodes);
     writePod(os, col.localMin);
     writePod(os, col.localMax);
+    writePod(os, col.totalMass);
+    writePod(os, col.centerOfMassLocal);
+    writePod(os, col.inverseInertiaLocal);
+    writePod(os, col.pivotOffset);
     return static_cast<bool>(os);
+}
+
+namespace {
+    // Pre-dynamic-compound (v1) on-disk SubShape layout — no mass field.
+    struct SubShapeV1 {
+        SubShapeType type      = SubShapeType::OBB;
+        math::Vec3   localPos  {};
+        math::Mat3   localRot  {};
+        math::Vec3   extent    {1.0f, 1.0f, 1.0f};
+        math::Vec3   aabbMin   {};
+        math::Vec3   aabbMax   {};
+    };
+    static_assert(std::is_trivially_copyable<SubShapeV1>::value, "SubShapeV1 must be POD for verbatim IO");
 }
 
 bool readBcbvh(const std::string& absPath, CompiledCollider& out) {
@@ -128,10 +145,41 @@ bool readBcbvh(const std::string& absPath, CompiledCollider& out) {
     if (!is) return false;
     uint32_t magic = 0, version = 0;
     if (!readPod(is, magic) || !readPod(is, version)) return false;
-    if (magic != BCBVH_MAGIC || version != BCBVH_VERSION) return false;
+    if (magic != BCBVH_MAGIC) return false;
+
+    if (version == 1) {
+        // Legacy layout: SubShape had no mass field. Static bodies (the only thing
+        // that could have baked a v1 file) ignore mass/inertia entirely, so the
+        // converted SubShapes get mass=0 and the CompiledCollider's mass/COM/inertia
+        // fields stay at their zero defaults.
+        std::vector<SubShapeV1> legacy;
+        if (!readVec(is, legacy)) return false;
+        out.subShapes.clear();
+        out.subShapes.reserve(legacy.size());
+        for (const auto& l : legacy) {
+            SubShape s;
+            s.type = l.type; s.localPos = l.localPos; s.localRot = l.localRot;
+            s.extent = l.extent; s.aabbMin = l.aabbMin; s.aabbMax = l.aabbMax;
+            s.mass = 0.0f;
+            out.subShapes.push_back(s);
+        }
+        if (!readVec(is, out.nodes)) return false;
+        if (!readPod(is, out.localMin) || !readPod(is, out.localMax)) return false;
+        out.totalMass = 0.0f;
+        out.centerOfMassLocal = {};
+        out.inverseInertiaLocal = math::Mat3::zero();
+        out.pivotOffset = {};
+        return true;
+    }
+
+    if (version != BCBVH_VERSION) return false;
     if (!readVec(is, out.subShapes)) return false;
     if (!readVec(is, out.nodes)) return false;
     if (!readPod(is, out.localMin) || !readPod(is, out.localMax)) return false;
+    if (!readPod(is, out.totalMass)) return false;
+    if (!readPod(is, out.centerOfMassLocal)) return false;
+    if (!readPod(is, out.inverseInertiaLocal)) return false;
+    if (!readPod(is, out.pivotOffset)) return false;
     return true;
 }
 
@@ -165,6 +213,72 @@ bool classifyAsSphere(const std::vector<math::Vec3>& positions, const std::vecto
     if (aabbVol <= 1e-9f) return false;
     float ratio = meshVolume(positions, indices) / aabbVol;
     return std::fabs(ratio - kSphereVolumeRatio) < kVolumeRatioTol;
+}
+
+math::Mat3 sphereInertia(float mass, float radius) {
+    float i = 0.4f * mass * radius * radius;   // 2/5 m r^2
+    return math::Mat3::scale({i, i, i});
+}
+
+math::Mat3 boxInertia(float mass, const math::Vec3& halfExtent) {
+    float ex = halfExtent.x, ey = halfExtent.y, ez = halfExtent.z;
+    return math::Mat3::scale({
+        (mass / 3.0f) * (ey * ey + ez * ez),
+        (mass / 3.0f) * (ex * ex + ez * ez),
+        (mass / 3.0f) * (ex * ex + ey * ey)
+    });
+}
+
+math::Mat3 parallelAxisShift(const math::Mat3& Ilocal, float mass, const math::Vec3& offsetFromCOM) {
+    const float dx = offsetFromCOM.x, dy = offsetFromCOM.y, dz = offsetFromCOM.z;
+    const float d2 = dx * dx + dy * dy + dz * dz;
+    // mass * (|d|^2 * I3 - d (x) d); symmetric, so row-major vs. column-major fill
+    // is identical here.
+    const float add[9] = {
+        mass * (d2 - dx * dx), mass * (-dx * dy),     mass * (-dx * dz),
+        mass * (-dy * dx),     mass * (d2 - dy * dy), mass * (-dy * dz),
+        mass * (-dz * dx),     mass * (-dz * dy),     mass * (d2 - dz * dz)
+    };
+    math::Mat3 res = Ilocal;
+    for (int i = 0; i < 9; ++i) res.m[i] += add[i];
+    return res;
+}
+
+math::Vec3 computeCompoundMassProperties(std::vector<SubShape>& shapes,
+                                          float& outTotalMass,
+                                          math::Mat3& outInverseInertiaLocal) {
+    math::Vec3 weightedSum{};
+    float totalMass = 0.0f;
+    for (const auto& s : shapes) {
+        weightedSum = weightedSum + s.localPos * s.mass;
+        totalMass  += s.mass;
+    }
+    math::Vec3 centroid = (totalMass > 1e-9f) ? weightedSum * (1.0f / totalMass) : math::Vec3{};
+
+    for (auto& s : shapes) {
+        s.localPos -= centroid;
+        s.aabbMin  -= centroid;
+        s.aabbMax  -= centroid;
+    }
+
+    math::Mat3 Isum = math::Mat3::zero();
+    for (const auto& s : shapes) {
+        math::Mat3 Ilocal;
+        if (s.type == SubShapeType::Sphere) {
+            Ilocal = sphereInertia(s.mass, s.extent.x);
+        } else {
+            // AABB/OBB/Capsule/Cylinder: approximate as an oriented box using the
+            // sub-shape's own extent, rotated into the body frame.
+            math::Mat3 Ibox = boxInertia(s.mass, s.extent);
+            Ilocal = s.localRot * Ibox * s.localRot.transpose();
+        }
+        math::Mat3 Ishifted = parallelAxisShift(Ilocal, s.mass, s.localPos);
+        for (int i = 0; i < 9; ++i) Isum.m[i] += Ishifted.m[i];
+    }
+
+    outTotalMass = totalMass;
+    outInverseInertiaLocal = (totalMass > 1e-9f) ? Isum.inverse() : math::Mat3::zero();
+    return centroid;
 }
 
 } // namespace physics

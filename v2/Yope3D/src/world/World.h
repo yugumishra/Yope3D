@@ -105,10 +105,18 @@ public:
     // ecs::CompoundCollider::compiled pointers already handed out stay valid.
     physics::CompiledCollider* loadCompoundCollider(const std::string& assetRelPath,
                                                     bool forceReload = false);
-    // Adds a static (mass 0, Fixed) body carrying `compiled`; `assetPath` is stored
-    // on the component for serialization ("" for a pure in-memory build).
+    // Adds a body carrying `compiled`; `assetPath` is stored on the component for
+    // serialization ("" for a pure in-memory build). isStatic=true (default)
+    // preserves prior behavior: Fixed tag, mass 0, zero inertia. isStatic=false
+    // makes it a dynamic rigid body: mass defaults to the baked compiled->totalMass
+    // when `mass` <= 0, inverseInertia comes from compiled->inverseInertiaLocal, no
+    // Fixed tag, gravity enabled. `density` is stored on the component purely as
+    // bake-time bookkeeping (what to prefill next time this gets re-baked) — it
+    // does not affect this call's own mass/inertia (those come from `compiled`).
     ecs::Entity attachCompoundCollider(ecs::Entity e, physics::CompiledCollider* compiled,
-                                       const std::string& assetPath);
+                                       const std::string& assetPath,
+                                       float mass = 0.0f, bool isStatic = true,
+                                       float density = 1.0f);
     // Remove all physics components (Hull + shape + Fixed/Sleeping tags).
     void detachPhysicsBody(ecs::Entity e);
 

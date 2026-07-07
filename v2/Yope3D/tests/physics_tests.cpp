@@ -447,3 +447,153 @@ TEST_CASE("Shape inference: stretched sphere (ellipsoid) is NOT classified as a 
     bool isSphere = physics::classifyAsSphere(pos, idx, {3.0f, 1.0f, 1.0f});
     CHECK_FALSE(isSphere);   // aspect ratio gate rejects it despite matching volume ratio
 }
+
+// ============================================================================
+// Dynamic compound colliders: mass/COM/inertia math + compound-vs-compound
+// narrowphase (Phase "dynamic compound colliders")
+// ============================================================================
+
+static physics::SubShape makeSphereSubShape(math::Vec3 pos, float r, float mass) {
+    physics::SubShape s;
+    s.type     = physics::SubShapeType::Sphere;
+    s.localPos = pos;
+    s.localRot = math::Mat3{};
+    s.extent   = {r, 0.0f, 0.0f};
+    s.aabbMin  = pos - math::Vec3{r, r, r};
+    s.aabbMax  = pos + math::Vec3{r, r, r};
+    s.mass     = mass;
+    return s;
+}
+
+TEST_CASE("Compound mass properties: two-sphere dumbbell matches hand-computed inertia", "[compound][dynamic]") {
+    const float m = 2.0f, r = 0.5f, d = 3.0f;
+    std::vector<physics::SubShape> shapes = {
+        makeSphereSubShape({ d, 0, 0}, r, m),
+        makeSphereSubShape({-d, 0, 0}, r, m),
+    };
+
+    float totalMass = 0.0f;
+    math::Mat3 invI = math::Mat3::zero();
+    math::Vec3 pivot = physics::computeCompoundMassProperties(shapes, totalMass, invI);
+
+    CHECK_THAT(totalMass, WithinAbs(2.0f * m, 1e-5f));
+    CHECK_THAT(pivot.x, WithinAbs(0.0f, 1e-5f));
+    CHECK_THAT(pivot.y, WithinAbs(0.0f, 1e-5f));
+    CHECK_THAT(pivot.z, WithinAbs(0.0f, 1e-5f));
+
+    // Hand-computed combined inertia about the (already-centered) COM: each
+    // sphere contributes 2/5 m r^2 about its own center; parallel-axis adds
+    // m*d^2 to the two axes perpendicular to the separation vector (x), and
+    // nothing to the axis along it (d has no y/z component).
+    float sphereI = 0.4f * m * r * r;
+    float Ixx = 2.0f * sphereI;
+    float Iyy = 2.0f * (sphereI + m * d * d);
+    float Izz = Iyy;
+
+    math::Mat3 combined = invI.inverse();   // back to the (non-inverted) tensor for readability
+    CHECK_THAT(combined.m[0], WithinAbs(Ixx, 1e-3f));
+    CHECK_THAT(combined.m[4], WithinAbs(Iyy, 1e-3f));
+    CHECK_THAT(combined.m[8], WithinAbs(Izz, 1e-3f));
+    // Off-diagonal terms vanish for this symmetric configuration.
+    CHECK_THAT(combined.m[1], WithinAbs(0.0f, 1e-3f));
+    CHECK_THAT(combined.m[2], WithinAbs(0.0f, 1e-3f));
+    CHECK_THAT(combined.m[3], WithinAbs(0.0f, 1e-3f));
+}
+
+TEST_CASE("Compound mass properties: mass conservation", "[compound][dynamic]") {
+    std::vector<physics::SubShape> shapes = {
+        makeSphereSubShape({1, 0, 0}, 0.3f, 1.5f),
+        makeSphereSubShape({0, 2, 0}, 0.6f, 4.0f),
+        makeSphereSubShape({-1, -1, 0.5f}, 0.2f, 0.7f),
+    };
+    float expectedTotal = 0.0f;
+    for (const auto& s : shapes) expectedTotal += s.mass;
+
+    float totalMass = 0.0f;
+    math::Mat3 invI = math::Mat3::zero();
+    physics::computeCompoundMassProperties(shapes, totalMass, invI);
+
+    CHECK_THAT(totalMass, WithinAbs(expectedTotal, 1e-5f));
+}
+
+TEST_CASE("Compound mass properties: COM recentering invariant", "[compound][dynamic]") {
+    // Asymmetric mass distribution — centroid is nowhere near the origin pre-bake.
+    std::vector<physics::SubShape> shapes = {
+        makeSphereSubShape({0, 0, 0}, 0.5f, 1.0f),
+        makeSphereSubShape({4, 0, 0}, 0.5f, 5.0f),
+        makeSphereSubShape({0, 3, 0}, 0.5f, 2.0f),
+    };
+    float totalMass = 0.0f;
+    math::Mat3 invI = math::Mat3::zero();
+    math::Vec3 pivot = physics::computeCompoundMassProperties(shapes, totalMass, invI);
+
+    // Post-bake, the mass-weighted centroid of the recentered shapes must be ~0.
+    math::Vec3 recomputedCentroid{};
+    for (const auto& s : shapes) recomputedCentroid = recomputedCentroid + s.localPos * s.mass;
+    recomputedCentroid = recomputedCentroid * (1.0f / totalMass);
+    CHECK_THAT(recomputedCentroid.x, WithinAbs(0.0f, 1e-4f));
+    CHECK_THAT(recomputedCentroid.y, WithinAbs(0.0f, 1e-4f));
+    CHECK_THAT(recomputedCentroid.z, WithinAbs(0.0f, 1e-4f));
+
+    // pivotOffset is the centroid in the shapes' ORIGINAL frame — hand-computed.
+    float expectedX = (0.0f * 1.0f + 4.0f * 5.0f + 0.0f * 2.0f) / 8.0f;
+    float expectedY = (0.0f * 1.0f + 0.0f * 5.0f + 3.0f * 2.0f) / 8.0f;
+    CHECK_THAT(pivot.x, WithinAbs(expectedX, 1e-4f));
+    CHECK_THAT(pivot.y, WithinAbs(expectedY, 1e-4f));
+}
+
+// Two 1-subshape (single sphere) compounds — mirrors the existing static
+// [compound][narrowphase] tests but exercises the aCompound&&bCompound path.
+static ecs::Entity makeSphereCompoundEntity(ecs::Registry& reg, math::Vec3 worldPos,
+                                            physics::CompiledCollider* col, bool fixed) {
+    ecs::Entity e = reg.create();
+    reg.add<Transform>(e, Transform{worldPos, {0, 0, 0, 1}, {1, 1, 1}});
+    ecs::Hull hc;
+    hc.mass = fixed ? 0.0f : 1.0f;
+    hc.inverseMass = fixed ? 0.0f : 1.0f;
+    reg.add<ecs::Hull>(e, hc);
+    if (fixed) reg.add<ecs::Fixed>(e);
+    ecs::CompoundCollider cc; cc.compiled = col;
+    reg.add<ecs::CompoundCollider>(e, cc);
+    return e;
+}
+
+TEST_CASE("Compound-vs-compound narrowphase: overlapping single-sphere compounds collide", "[compound][dynamic]") {
+    std::vector<physics::SubShape> shapesA = { makeSphereSubShape({0,0,0}, 0.5f, 1.0f) };
+    std::vector<physics::SubShape> shapesB = { makeSphereSubShape({0,0,0}, 0.5f, 0.0f) };
+    physics::CompiledCollider colA, colB;
+    physics::buildCompoundBvh(shapesA, colA, 4);
+    physics::buildCompoundBvh(shapesB, colB, 4);
+
+    ecs::Registry reg;
+    // A: dynamic body at the origin. B: static "level" compound offset by 0.8 —
+    // spheres of radius 0.5 each overlap (0.5+0.5=1.0 > 0.8).
+    ecs::Entity a = makeSphereCompoundEntity(reg, {0.0f, 0.0f, 0.0f}, &colA, false);
+    ecs::Entity b = makeSphereCompoundEntity(reg, {0.8f, 0.0f, 0.0f}, &colB, true);
+
+    std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
+    physics::ColliderDiscrete::detect(a, b, reg, contacts);
+
+    REQUIRE(!contacts.empty());
+    const auto& c = contacts.front();
+    CHECK(c.a == a);
+    CHECK(c.b == b);
+    CHECK(c.manifold.normal.x > 0.5f);   // a -> b points +x
+    CHECK(c.shapeKey == 0);              // subA=0, subCountB=1, subB=0 -> 0*1+0
+}
+
+TEST_CASE("Compound-vs-compound narrowphase: far-apart single-sphere compounds do not collide", "[compound][dynamic]") {
+    std::vector<physics::SubShape> shapesA = { makeSphereSubShape({0,0,0}, 0.5f, 1.0f) };
+    std::vector<physics::SubShape> shapesB = { makeSphereSubShape({0,0,0}, 0.5f, 0.0f) };
+    physics::CompiledCollider colA, colB;
+    physics::buildCompoundBvh(shapesA, colA, 4);
+    physics::buildCompoundBvh(shapesB, colB, 4);
+
+    ecs::Registry reg;
+    ecs::Entity a = makeSphereCompoundEntity(reg, {0.0f, 0.0f, 0.0f}, &colA, false);
+    ecs::Entity b = makeSphereCompoundEntity(reg, {50.0f, 0.0f, 0.0f}, &colB, true);
+
+    std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
+    physics::ColliderDiscrete::detect(a, b, reg, contacts);
+    CHECK(contacts.empty());
+}

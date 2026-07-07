@@ -350,21 +350,38 @@ physics::CompiledCollider* World::loadCompoundCollider(const std::string& assetR
 }
 
 ecs::Entity World::attachCompoundCollider(ecs::Entity e, physics::CompiledCollider* compiled,
-                                          const std::string& assetPath) {
+                                          const std::string& assetPath,
+                                          float mass, bool isStatic, float density) {
     std::lock_guard lk(structureMtx_);
     if (!registry_.valid(e)) return e;
 
     if (!registry_.has<Transform>(e)) registry_.add<Transform>(e);
-    if (!registry_.has<ecs::Hull>(e)) {
-        ecs::Hull h = makeHull(0.0f);              // static: mass 0, no inertia
-        h.inverseInertia = math::Mat3::zero();
-        registry_.add<ecs::Hull>(e, h);
+    if (!registry_.has<ecs::Hull>(e)) registry_.add<ecs::Hull>(e, makeHull(0.0f));
+
+    // Always (re-)apply the mass-derived fields — not just on first attach —
+    // so the editor's "Regenerate" action can flip static<->dynamic and/or
+    // refresh mass/inertia from a re-bake without disturbing velocity/damping/
+    // friction/etc. on an already-live body.
+    ecs::Hull* h = registry_.get<ecs::Hull>(e);
+    if (isStatic) {
+        h->mass = 0.0f; h->inverseMass = 0.0f;
+        h->inverseInertia = math::Mat3::zero();
+        h->gravity = false;
+    } else {
+        float bodyMass = (mass > 0.0f) ? mass : (compiled ? compiled->totalMass : 0.0f);
+        h->mass        = bodyMass;
+        h->inverseMass = (bodyMass > 0.0f) ? 1.0f / bodyMass : 0.0f;
+        h->inverseInertia = compiled ? compiled->inverseInertiaLocal : math::Mat3::zero();
+        h->gravity = true;
     }
-    if (!registry_.has<ecs::Fixed>(e)) registry_.add<ecs::Fixed>(e);
+    if (isStatic) { if (!registry_.has<ecs::Fixed>(e)) registry_.add<ecs::Fixed>(e); }
+    else          { if (registry_.has<ecs::Fixed>(e))  registry_.remove<ecs::Fixed>(e); }
 
     ecs::CompoundCollider cc{};
     std::snprintf(cc.assetPath, sizeof(cc.assetPath), "%s", assetPath.c_str());
-    cc.compiled = compiled;
+    cc.compiled  = compiled;
+    cc.density   = density;
+    cc.isStatic  = isStatic;
     if (registry_.has<ecs::CompoundCollider>(e)) *registry_.get<ecs::CompoundCollider>(e) = cc;
     else                                          registry_.add<ecs::CompoundCollider>(e, cc);
     if (debugPhysics) rebuildDebugMeshes();

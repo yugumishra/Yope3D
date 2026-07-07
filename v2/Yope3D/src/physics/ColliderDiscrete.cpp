@@ -311,9 +311,86 @@ static void worldAABBofGeom(const ShapeVariant& g, math::Vec3& mn, math::Vec3& m
     }
 }
 
+// Builds the world-space ShapeVariant for sub-shape `i` of a compound whose
+// body transform is (Rbody, posBody). Returns nullopt for capsule/cylinder
+// sub-shapes (no analytical pair yet).
+static std::optional<ShapeVariant> buildSubShapeWorldGeom(const physics::CompiledCollider& col, int i,
+                                                          const math::Mat3& Rbody, const math::Vec3& posBody) {
+    const physics::SubShape& s = col.subShapes[i];
+    math::Vec3 wpos = posBody + Rbody * s.localPos;
+    switch (s.type) {
+        case physics::SubShapeType::Sphere:
+            return ShapeVariant{SphereGeom{wpos, s.extent.x}};
+        case physics::SubShapeType::AABB:
+        case physics::SubShapeType::OBB:
+            return ShapeVariant{OBBGeom{wpos, s.extent, Rbody * s.localRot}};
+        default:
+            return std::nullopt;   // capsule/cylinder sub-shapes: no analytical pair yet
+    }
+}
+
+// Descends `col`'s baked BVH (body-local frame defined by Rbody/posBody)
+// against a world-space query AABB [wmn,wmx], invoking `fn(subIndex, subGeomWorld)`
+// for every surviving leaf sub-shape with an analytical world geom. Shared by
+// the compound-vs-single-shape and compound-vs-compound narrowphase paths.
+template <class Fn>
+static void descendCompoundBvh(const physics::CompiledCollider& col,
+                               const math::Mat3& Rbody, const math::Vec3& posBody,
+                               const math::Vec3& wmn, const math::Vec3& wmx, Fn&& fn) {
+    // Query AABB (world) -> compound-local frame via the 8 corners.
+    const math::Mat3 RbodyT = Rbody.transpose();
+    constexpr float kInf = std::numeric_limits<float>::max();
+    math::Vec3 qmn{kInf, kInf, kInf}, qmx{-kInf, -kInf, -kInf};
+    for (int c = 0; c < 8; ++c) {
+        math::Vec3 corner{ (c & 1) ? wmx.x : wmn.x, (c & 2) ? wmx.y : wmn.y, (c & 4) ? wmx.z : wmn.z };
+        math::Vec3 local = RbodyT * (corner - posBody);
+        qmn.x = std::min(qmn.x, local.x); qmn.y = std::min(qmn.y, local.y); qmn.z = std::min(qmn.z, local.z);
+        qmx.x = std::max(qmx.x, local.x); qmx.y = std::max(qmx.y, local.y); qmx.z = std::max(qmx.z, local.z);
+    }
+    auto overlaps = [&](const BvhNode& n) {
+        return !(qmn.x > n.aabbMax.x || qmx.x < n.aabbMin.x ||
+                 qmn.y > n.aabbMax.y || qmx.y < n.aabbMin.y ||
+                 qmn.z > n.aabbMax.z || qmx.z < n.aabbMin.z);
+    };
+
+    int32_t stack[64];
+    int sp = 0;
+    stack[sp++] = 0;
+    while (sp > 0) {
+        const BvhNode& n = col.nodes[stack[--sp]];
+        if (!overlaps(n)) continue;
+        if (n.count > 0) {
+            for (int i = n.first; i < n.first + n.count; ++i) {
+                auto subGeom = buildSubShapeWorldGeom(col, i, Rbody, posBody);
+                if (subGeom) fn(i, *subGeom);
+            }
+        } else {
+            if (n.right >= 0 && sp < 64) stack[sp++] = n.right;
+            if (n.left  >= 0 && sp < 64) stack[sp++] = n.left;
+        }
+    }
+}
+
+// Conservative world-space AABB of an entire compound body (root BVH bounds,
+// rotation-fattened — same trick as worldAABBofGeom's OBB branch).
+static void worldAABBofCompound(const physics::CompiledCollider& col,
+                                const math::Mat3& Rbody, const math::Vec3& posBody,
+                                math::Vec3& wmn, math::Vec3& wmx) {
+    math::Vec3 center = (col.localMin + col.localMax) * 0.5f;
+    math::Vec3 half   = (col.localMax - col.localMin) * 0.5f;
+    math::Vec3 fat{
+        std::fabs(Rbody.m[0]) * half.x + std::fabs(Rbody.m[3]) * half.y + std::fabs(Rbody.m[6]) * half.z,
+        std::fabs(Rbody.m[1]) * half.x + std::fabs(Rbody.m[4]) * half.y + std::fabs(Rbody.m[7]) * half.z,
+        std::fabs(Rbody.m[2]) * half.x + std::fabs(Rbody.m[5]) * half.y + std::fabs(Rbody.m[8]) * half.z,
+    };
+    math::Vec3 worldCenter = posBody + Rbody * center;
+    wmn = worldCenter - fat;
+    wmx = worldCenter + fat;
+}
+
 // ============================================================================
-// detectCompound() — narrowphase for a static compound body vs a single-shape
-// body. Descends the compound's baked BVH with the other body's query AABB (in
+// detectCompound() — narrowphase for a compound body vs a single-shape body.
+// Descends the compound's baked BVH with the other body's query AABB (in
 // compound-local space), then runs the analytical pair test per surviving
 // sub-shape. Pushes one manifold per colliding sub-shape, tagged with the
 // sub-shape index as shapeKey so warm-start caching stays per-sub-shape.
@@ -332,62 +409,79 @@ static void detectCompound(ecs::Entity compoundEnt, ecs::Entity other,
     auto* tfBody = reg.get<Transform>(compoundEnt);
     if (!tfBody) return;
     const math::Mat3 Rbody  = math::Mat3::rotation(tfBody->rotation);
-    const math::Mat3 RbodyT = Rbody.transpose();
     const math::Vec3 posBody = tfBody->position;
 
     auto otherGeomOpt = buildEntityWorldGeom(other, reg);
     if (!otherGeomOpt) return;
     const ShapeVariant& otherGeom = *otherGeomOpt;
 
-    // Query AABB (world) -> compound-local frame via the 8 corners.
     math::Vec3 wmn, wmx;
     worldAABBofGeom(otherGeom, wmn, wmx);
-    constexpr float kInf = std::numeric_limits<float>::max();
-    math::Vec3 qmn{kInf, kInf, kInf}, qmx{-kInf, -kInf, -kInf};
-    for (int c = 0; c < 8; ++c) {
-        math::Vec3 corner{ (c & 1) ? wmx.x : wmn.x, (c & 2) ? wmx.y : wmn.y, (c & 4) ? wmx.z : wmn.z };
-        math::Vec3 local = RbodyT * (corner - posBody);
-        qmn.x = std::min(qmn.x, local.x); qmn.y = std::min(qmn.y, local.y); qmn.z = std::min(qmn.z, local.z);
-        qmx.x = std::max(qmx.x, local.x); qmx.y = std::max(qmx.y, local.y); qmx.z = std::max(qmx.z, local.z);
-    }
-    auto overlaps = [&](const BvhNode& n) {
-        return !(qmn.x > n.aabbMax.x || qmx.x < n.aabbMin.x ||
-                 qmn.y > n.aabbMax.y || qmx.y < n.aabbMin.y ||
-                 qmn.z > n.aabbMax.z || qmx.z < n.aabbMin.z);
+
+    descendCompoundBvh(col, Rbody, posBody, wmn, wmx, [&](int i, const ShapeVariant& subGeom) {
+        ContactManifold m;
+        if (detectGeomPair(subGeom, otherGeom, m)) {
+            ActiveContact ac; ac.a = compoundEnt; ac.b = other; ac.shapeKey = i; ac.manifold = m;
+            contacts.push_back(ac);
+        }
+    });
+}
+
+// ============================================================================
+// detectCompoundCompound() — narrowphase for compound-vs-compound (e.g. a
+// dynamic multi-part prop landing on a static compound level). For each
+// sub-shape of A, cheap-reject its world AABB against B's overall world AABB,
+// then descend B's BVH with that sub-shape's AABB (same machinery as
+// detectCompound, just invoked once per A sub-shape instead of once for a
+// single external shape). Contacts are pushed as (a, b) with normal a -> b;
+// shapeKey combines both sub-shape indices (subA * subCountB + subB) so
+// warm-start caching stays per-sub-shape-pair.
+// ============================================================================
+static void detectCompoundCompound(ecs::Entity a, ecs::Entity b,
+                                   ecs::Registry& reg, std::vector<ActiveContact>& contacts)
+{
+    auto* ccA = reg.get<ecs::CompoundCollider>(a);
+    auto* ccB = reg.get<ecs::CompoundCollider>(b);
+    if (!ccA || !ccA->compiled || ccA->compiled->nodes.empty()) return;
+    if (!ccB || !ccB->compiled || ccB->compiled->nodes.empty()) return;
+    const physics::CompiledCollider& colA = *ccA->compiled;
+    const physics::CompiledCollider& colB = *ccB->compiled;
+
+    auto* tfA = reg.get<Transform>(a);
+    auto* tfB = reg.get<Transform>(b);
+    if (!tfA || !tfB) return;
+    const math::Mat3 RbodyA = math::Mat3::rotation(tfA->rotation);
+    const math::Vec3 posA   = tfA->position;
+    const math::Mat3 RbodyB = math::Mat3::rotation(tfB->rotation);
+    const math::Vec3 posB   = tfB->position;
+
+    math::Vec3 wBmn, wBmx;
+    worldAABBofCompound(colB, RbodyB, posB, wBmn, wBmx);
+    auto overlapsB = [&](const math::Vec3& mn, const math::Vec3& mx) {
+        return !(mn.x > wBmx.x || mx.x < wBmn.x ||
+                 mn.y > wBmx.y || mx.y < wBmn.y ||
+                 mn.z > wBmx.z || mx.z < wBmn.z);
     };
 
-    // Iterative BVH descent — collect candidate sub-shape indices.
-    int32_t stack[64];
-    int sp = 0;
-    stack[sp++] = 0;
-    while (sp > 0) {
-        const BvhNode& n = col.nodes[stack[--sp]];
-        if (!overlaps(n)) continue;
-        if (n.count > 0) {
-            for (int i = n.first; i < n.first + n.count; ++i) {
-                const physics::SubShape& s = col.subShapes[i];
-                // Compose sub-shape local frame with the body transform -> world geom.
-                math::Vec3 wpos = posBody + Rbody * s.localPos;
-                ShapeVariant subGeom;
-                switch (s.type) {
-                    case physics::SubShapeType::Sphere:
-                        subGeom = SphereGeom{wpos, s.extent.x}; break;
-                    case physics::SubShapeType::AABB:
-                    case physics::SubShapeType::OBB:
-                        subGeom = OBBGeom{wpos, s.extent, Rbody * s.localRot}; break;
-                    default:
-                        continue;   // capsule/cylinder sub-shapes: no analytical pair yet
-                }
-                ContactManifold m;
-                if (detectGeomPair(subGeom, otherGeom, m)) {
-                    ActiveContact ac; ac.a = compoundEnt; ac.b = other; ac.shapeKey = i; ac.manifold = m;
-                    contacts.push_back(ac);
-                }
+    const int subCountB = static_cast<int>(colB.subShapes.size());
+    for (int iA = 0; iA < static_cast<int>(colA.subShapes.size()); ++iA) {
+        auto subAGeomOpt = buildSubShapeWorldGeom(colA, iA, RbodyA, posA);
+        if (!subAGeomOpt) continue;
+        const ShapeVariant& subAGeom = *subAGeomOpt;
+
+        math::Vec3 amn, amx;
+        worldAABBofGeom(subAGeom, amn, amx);
+        if (!overlapsB(amn, amx)) continue;
+
+        descendCompoundBvh(colB, RbodyB, posB, amn, amx, [&](int iB, const ShapeVariant& subBGeom) {
+            ContactManifold m;
+            if (detectGeomPair(subAGeom, subBGeom, m)) {
+                ActiveContact ac; ac.a = a; ac.b = b;
+                ac.shapeKey = iA * subCountB + iB;
+                ac.manifold = m;
+                contacts.push_back(ac);
             }
-        } else {
-            if (n.right >= 0 && sp < 64) stack[sp++] = n.right;
-            if (n.left  >= 0 && sp < 64) stack[sp++] = n.left;
-        }
+        });
     }
 }
 
@@ -409,13 +503,12 @@ void detect(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg,
     if (aFixed && bFixed) return;
     if (!(hca->collisionLayer & hcb->collisionMask) || !(hcb->collisionLayer & hca->collisionMask)) return;
 
-    // Compound colliders (static level geometry) take a separate BVH-driven path.
-    // Both-compound can't happen in practice (both static => filtered above).
+    // Compound colliders (baked multi-shape bodies) take a separate BVH-driven path.
     bool aCompound = reg.has<ecs::CompoundCollider>(ea);
     bool bCompound = reg.has<ecs::CompoundCollider>(eb);
+    if (aCompound && bCompound)  { detectCompoundCompound(ea, eb, reg, contacts); return; }
     if (aCompound && !bCompound) { detectCompound(ea, eb, reg, contacts); return; }
     if (bCompound && !aCompound) { detectCompound(eb, ea, reg, contacts); return; }
-    if (aCompound && bCompound)  return;
 
     auto* tfa = reg.get<Transform>(ea);
     auto* tfb = reg.get<Transform>(eb);

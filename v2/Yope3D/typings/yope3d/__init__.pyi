@@ -989,6 +989,36 @@ class World:
         Warning:
             Composition change — see Hazard #1.
         """
+    def build_sphere_compound(
+        self,
+        spheres: list[tuple[Vec3, float]],
+        density: float = 1.0,
+        is_static: bool = False,
+        pos: Vec3 = ...,
+    ) -> Entity:
+        """Synthesize a compound collider from (center, radius) sphere sub-shapes.
+
+        Unlike the mesh-baked compound workflow (editor "Generate Collider"), this
+        builds the ``CompiledCollider`` procedurally — for scripted/programmatic
+        shapes (e.g. assembling primitives into one rigid body) rather than baking
+        from real mesh geometry. Mass, center-of-mass recentering, and inertia are
+        derived from ``density`` using the same math the mesh baker uses. Creates
+        a new entity at ``pos`` (Transform + Hull + CompoundCollider — same
+        factory-method convention as ``add_sphere``/``add_obb``) and returns it.
+        ``is_static=False`` (default) makes it a real dynamic body driven by its
+        true off-center inertia; ``is_static=True`` behaves like the baked
+        compound collider — Fixed, mass 0.
+
+        Args:
+            spheres: List of (center, radius) pairs in the new entity's local frame.
+            density: kg/m^3 driving each sphere's mass (default 1.0).
+            is_static: If ``True``, create an immovable (Fixed) body instead of
+                a dynamic one.
+            pos: Initial world position (defaults to the origin).
+
+        Returns:
+            The new entity, or a null ``Entity`` if ``spheres`` was empty.
+        """
     def fix_entity(self, entity: Entity) -> None:
         """Pin a body in place: zero mass/velocity, disable gravity, add the Fixed tag.
 
