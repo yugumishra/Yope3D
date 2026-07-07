@@ -154,12 +154,18 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
         if (!reg.valid(e)) return ecs::NullEntity;
     }
 
-    // Static compound level collider — attach before the Hull-properties restore
-    // below so that block finds a real Hull to populate (attachCompoundCollider
-    // adds Hull+Fixed if the entity doesn't have one yet).
+    // Compound collider — attach before the Hull-properties restore below so
+    // that block finds a real Hull to populate (attachCompoundCollider adds a
+    // Hull, and Fixed for static bodies, if the entity doesn't have one yet).
+    // Pass the snapshotted mass through for dynamic bodies so inverseMass is
+    // derived from the same value the Hull-restore block below will apply to
+    // Hull::mass — mirrors how addSphere/addOBB/etc. are called with hull.mass
+    // directly above (see the block's own "do NOT overwrite derived fields" note).
     if (hasCompoundCollider) {
         physics::CompiledCollider* compiled = world.loadCompoundCollider(compoundCollider.assetPath);
-        world.attachCompoundCollider(e, compiled, compoundCollider.assetPath);
+        float massArg = (hasHull && !compoundCollider.isStatic) ? hull.mass : 0.0f;
+        world.attachCompoundCollider(e, compiled, compoundCollider.assetPath,
+                                     massArg, compoundCollider.isStatic, compoundCollider.density);
     }
 
     // Restore hull properties (damping, friction, restitution, gravity, etc.).

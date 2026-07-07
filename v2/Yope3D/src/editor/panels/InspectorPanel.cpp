@@ -62,7 +62,8 @@ void InspectorPanel::draw(EditorContext& ctx) {
         if (ImGui::Button("Add Component..."))
             ImGui::OpenPopup("##add_comp");
 
-        // addCompMode: 0=root list, 1=physics body sub-UI, 2=spring sub-UI
+        // addCompMode: 0=root list, 1=physics body sub-UI, 2=spring sub-UI,
+        // 3=compound collider sub-UI
         static int addCompMode = 0;
 
         if (ImGui::BeginPopup("##add_comp")) {
@@ -76,12 +77,13 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     if (ImGui::Selectable("Physics Body (Sphere / AABB / OBB)...", false,
                                           ImGuiSelectableFlags_DontClosePopups))
                         addCompMode = 1;
-                    // Bakes every mesh in this entity's subtree into one static compound
-                    // body (Hull+Fixed) — the "walk-through-walls" fix for imported levels.
-                    if (ImGui::Selectable("Generate Static Collider (bake level mesh)")) {
-                        ctx.history->execute(ctx, std::make_unique<GenerateColliderCommand>(e));
-                        ImGui::CloseCurrentPopup();
-                    }
+                    // Bakes every mesh in this entity's subtree into one compound body
+                    // (Hull + CompoundCollider, +Fixed if static) — the "walk-through-walls"
+                    // fix for imported levels, or a real dynamic multi-part rigid body
+                    // (e.g. a modeled table) when Static is unchecked.
+                    if (ImGui::Selectable("Generate Compound Collider (bake mesh)...", false,
+                                          ImGuiSelectableFlags_DontClosePopups))
+                        addCompMode = 3;
                 }
                 if (hasHull && !hasSpring) {
                     if (ImGui::Selectable("Spring Constraint...", false,
@@ -293,6 +295,31 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 if (!canAddSpring) ImGui::EndDisabled();
                 ImGui::SameLine();
                 if (ImGui::Button("Back##spr")) { addCompMode = 0; }
+            }
+
+            // ---------- Compound collider sub-UI ----------
+            if (addCompMode == 3) {
+                ImGui::TextDisabled("Generate Compound Collider");
+                ImGui::Separator();
+
+                static float density  = 1.0f;
+                static bool  isStatic  = true;
+
+                ImGui::DragFloat("Density", &density, 0.05f, 0.001f, 1000.0f, "%.3f");
+                ImGui::Checkbox("Static", &isStatic);
+                ImGui::TextDisabled(isStatic
+                    ? "Immovable — the classic \"walk-through-walls\" level fix."
+                    : "Real rigid body driven by the baked mesh's mass/COM/inertia.");
+
+                ImGui::Spacing();
+                if (ImGui::Button("Generate")) {
+                    ctx.history->execute(ctx,
+                        std::make_unique<GenerateColliderCommand>(e, density, isStatic));
+                    addCompMode = 0;
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Back##cc")) { addCompMode = 0; }
             }
 
             ImGui::EndPopup();

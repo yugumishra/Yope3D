@@ -139,18 +139,23 @@ bool deserializeCylinderForm(const JsonNode& n, void* comp) {
 }
 
 // ---- CompoundCollider ----
-// Only the .bcbvh asset path is persisted; `compiled` is re-resolved by
-// World::loadCompoundCollider on load (see ComponentSnapshot::restore).
+// The .bcbvh asset path plus the bake-time density/isStatic choice are
+// persisted; `compiled` is re-resolved by World::loadCompoundCollider on load
+// (see ComponentSnapshot::restore).
 
 void serializeCompoundCollider(const void* comp, JsonWriter& w) {
     auto* cc = static_cast<const ecs::CompoundCollider*>(comp);
     if (cc->assetPath[0]) w.writeString("assetPath", cc->assetPath);
+    w.writeFloat("density",  cc->density);
+    w.writeBool ("isStatic", cc->isStatic);
 }
 
 bool deserializeCompoundCollider(const JsonNode& n, void* comp) {
     auto* cc = static_cast<ecs::CompoundCollider*>(comp);
     if (n.contains("assetPath"))
         std::strncpy(cc->assetPath, n["assetPath"].asString().c_str(), sizeof(cc->assetPath) - 1);
+    if (n.contains("density"))  cc->density  = n["density"].asFloat();
+    if (n.contains("isStatic")) cc->isStatic = n["isStatic"].asBool();
     return true;
 }
 

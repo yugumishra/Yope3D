@@ -63,16 +63,22 @@ struct CylinderForm {
     float halfHeight = 1.0f;  // axis +Y
 };
 
-// ---- Static compound collider (baked multi-shape body + mid-phase BVH) ----
-// A single static (mass 0, Fixed) rigid body whose collision volume is many
-// convex sub-shapes with a baked AABB BVH over them — used for large level
-// geometry so the player can't walk through walls. `assetPath` points at a
-// cooked `.bcbvh` file (asset-relative); `compiled` is the shared runtime
-// structure resolved lazily by World (non-owning, like Material::resolved /
-// MeshRenderer::mesh). Never serialized beyond the path.
+// ---- Compound collider (baked multi-shape body + mid-phase BVH) ----
+// A single rigid body whose collision volume is many convex sub-shapes with a
+// baked AABB BVH over them — used for large level geometry so the player can't
+// walk through walls (static), or for a multi-part prop that tumbles/settles
+// as one body under real inertia (dynamic). `assetPath` points at a cooked
+// `.bcbvh` file (asset-relative); `compiled` is the shared runtime structure
+// resolved lazily by World (non-owning, like Material::resolved / MeshRenderer::mesh).
+// `density`/`isStatic` are bake-time choices, persisted so the editor's
+// "Regenerate" action can re-bake with the same settings; they don't drive
+// runtime behavior directly (World::attachCompoundCollider already applied
+// them when this was baked/attached).
 struct CompoundCollider {
     char                       assetPath[256] = {};
     physics::CompiledCollider* compiled       = nullptr;   // runtime-only; World-cache owned
+    float                      density        = 1.0f;
+    bool                       isStatic       = true;
 };
 
 // ---- Visual ----
