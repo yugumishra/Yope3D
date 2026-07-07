@@ -5,6 +5,7 @@
 #include <string>
 #include "../gpu/Texture.h"
 #include "../rendering/MaterialCache.h"
+#include "TextureStreamer.h"
 
 class GpuDevice;
 class RenderMesh;
@@ -47,6 +48,17 @@ public:
     Texture* registerDecodedTexture(const std::string& path, bool srgb,
                                     const uint8_t* pixels, int width, int height);
 
+    // Async streaming: queue an embedded/base64 image (still-encoded bytes, e.g.
+    // PNG/JPEG) for background decode instead of decoding + uploading inline.
+    // No-op if `key` (srgb-aware) is already resident. `encodedBytes` is copied.
+    void enqueueTextureDecode(const std::string& key, bool srgb,
+                              const uint8_t* encodedBytes, int len);
+
+    // Call once per frame (main/render thread only, before drawFrame). Uploads
+    // decoded-but-not-yet-GPU-resident textures within a time budget, and
+    // rewrites any cached material descriptor sets that were waiting on them.
+    void pumpTextureUploads(double budgetMs = 5.0);
+
     // Get the default 1×1 white texture (used for untextured meshes).
     Texture* getDefaultTexture() const;
 
@@ -87,6 +99,7 @@ private:
     std::unordered_map<std::string, std::unique_ptr<RenderMesh>> meshes;
 
     MaterialCache         materialCache_;
+    TextureStreamer       streamer_;
 
     GpuDevice*            gpu_ = nullptr;
     VkDescriptorPool      descriptorPool = VK_NULL_HANDLE;

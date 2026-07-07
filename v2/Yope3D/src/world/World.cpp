@@ -2,7 +2,6 @@
 #include "../gpu/GpuDevice.h"
 #include "../assets/Primitives.h"
 #include "../assets/GltfLoader.h"
-#include "../assets/ImageLoader.h"
 #include "../assets/AssetManager.h"
 #include <cstring>
 #include <cctype>
@@ -497,9 +496,13 @@ std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
         // Decode glTF-embedded/base64 images and register them as GPU textures.
         GltfLoader::RegisterImageFn reg;
         if (assets) {
+            // Queue for background decode instead of decoding+uploading inline —
+            // `data` is copied synchronously before this callback returns, so it's
+            // safe even though GltfLoader may free/reuse its backing buffer after.
+            // Materials are stamped with `key` immediately; MaterialCache binds the
+            // 1x1 default until the streamer's per-frame pump makes it resident.
             reg = [assets](const std::string& key, const uint8_t* data, int len, bool srgb) -> std::string {
-                LoadedImage img = ImageLoader::loadFromMemory(data, len);
-                assets->registerDecodedTexture(key, srgb, img.pixels.data(), img.width, img.height);
+                assets->enqueueTextureDecode(key, srgb, data, len);
                 return key;
             };
         }
@@ -606,10 +609,12 @@ std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
 void World::reregisterEmbeddedTextures(const std::string& glbAbsPath) {
     if (!assets_) return;
     AssetManager* assets = assets_;
+    // Queue for background decode (see importModel's registerImage callback above
+    // for why this is safe/deferred) — this is what used to block scene load for
+    // 40-60s decoding+uploading every embedded image synchronously.
     GltfLoader::RegisterImageFn reg =
         [assets](const std::string& key, const uint8_t* data, int len, bool srgb) -> std::string {
-            LoadedImage img = ImageLoader::loadFromMemory(data, len);
-            assets->registerDecodedTexture(key, srgb, img.pixels.data(), img.width, img.height);
+            assets->enqueueTextureDecode(key, srgb, data, len);
             return key;
         };
     // Re-run the loader purely for its registerImage side-effects (geometry discarded).

@@ -30,28 +30,18 @@ uint32_t Texture::findMemoryType(VkPhysicalDevice pd, uint32_t filter,
 }
 
 // ---------------------------------------------------------------------------
-// Layout transition helper
+// Layout transition barrier — records into an already-open command buffer
+// (no allocate/submit/wait of its own). Texture::load records every transition,
+// the buffer-to-image copy, and every mip blit into ONE command buffer with a
+// single fenced submit at the end, instead of a separate vkQueueSubmit +
+// vkQueueWaitIdle per operation (~30 GPU-drain stalls per texture otherwise —
+// the dominant cost of the old synchronous load path).
 // ---------------------------------------------------------------------------
 
-static void transitionImageLayout(VkDevice device, VkCommandPool commandPool,
-                                  VkQueue graphicsQueue,
-                                  VkImage image, uint32_t mipLevel,
-                                  VkImageLayout oldLayout, VkImageLayout newLayout)
+static void recordLayoutTransition(VkCommandBuffer cmd, VkImage image,
+                                   uint32_t baseMip, uint32_t levelCount,
+                                   VkImageLayout oldLayout, VkImageLayout newLayout)
 {
-    VkCommandBufferAllocateInfo ai{};
-    ai.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    ai.commandPool        = commandPool;
-    ai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    ai.commandBufferCount = 1;
-
-    VkCommandBuffer cmd;
-    vkAllocateCommandBuffers(device, &ai, &cmd);
-
-    VkCommandBufferBeginInfo bi{};
-    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmd, &bi);
-
     VkPipelineStageFlags srcStage, dstStage;
     VkImageMemoryBarrier barrier{};
     barrier.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -61,8 +51,8 @@ static void transitionImageLayout(VkDevice device, VkCommandPool commandPool,
     barrier.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
     barrier.image                           = image;
     barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel   = mipLevel;
-    barrier.subresourceRange.levelCount     = 1;
+    barrier.subresourceRange.baseMipLevel   = baseMip;
+    barrier.subresourceRange.levelCount     = levelCount;
     barrier.subresourceRange.baseArrayLayer = 0;
     barrier.subresourceRange.layerCount     = 1;
 
@@ -101,16 +91,6 @@ static void transitionImageLayout(VkDevice device, VkCommandPool commandPool,
     }
 
     vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-    vkEndCommandBuffer(cmd);
-
-    VkSubmitInfo si{};
-    si.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    si.commandBufferCount = 1;
-    si.pCommandBuffers    = &cmd;
-    vkQueueSubmit(graphicsQueue, 1, &si, VK_NULL_HANDLE);
-    vkQueueWaitIdle(graphicsQueue);
-
-    vkFreeCommandBuffers(device, commandPool, 1, &cmd);
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +111,13 @@ Texture Texture::load(GpuDevice& gpu,
     uint32_t mipLevels = generateMipmaps ? calculateMipLevels(width, height) : 1u;
     VkDevice device = gpu.device();
     VkQueue graphicsQueue = gpu.graphicsQueue();
+
+    if (generateMipmaps && mipLevels > 1) {
+        VkFormatProperties fmtProps{};
+        vkGetPhysicalDeviceFormatProperties(gpu.physicalDevice(), format, &fmtProps);
+        if (!(fmtProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))
+            throw std::runtime_error("Texture format does not support linear blitting for mipmap generation");
+    }
 
     // ---------------------------------------------------------------------------
     // 1. Create VkImage with RGBA8_SRGB format, all mip levels
@@ -176,14 +163,8 @@ Texture Texture::load(GpuDevice& gpu,
     vkBindImageMemory(device, image, memory, 0);
 
     // ---------------------------------------------------------------------------
-    // 3. Transition base mip from UNDEFINED → TRANSFER_DST_OPTIMAL
-    // ---------------------------------------------------------------------------
-
-    transitionImageLayout(device, commandPool, graphicsQueue, image, 0,
-                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
-    // ---------------------------------------------------------------------------
-    // 4. Upload pixels via staging buffer (only to mip level 0)
+    // 3-5. Upload pixels + generate mipmaps — all recorded into ONE command
+    // buffer with a single fenced submit (see recordLayoutTransition comment).
     // ---------------------------------------------------------------------------
 
     VkDeviceSize pixelDataSize = static_cast<VkDeviceSize>(width * height * 4);
@@ -211,6 +192,13 @@ Texture Texture::load(GpuDevice& gpu,
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &bi);
 
+    // Transition every mip level to TRANSFER_DST up front (valid even though only
+    // mip 0 is written by the copy below — mips >0 get written by the blit loop,
+    // and are already in the right layout for vkCmdBlitImage's dst by the time
+    // each is targeted).
+    recordLayoutTransition(cmd, image, 0, mipLevels,
+                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
     VkBufferImageCopy region{};
     region.bufferOffset                    = 0;
     region.bufferRowLength                 = 0;
@@ -225,41 +213,17 @@ Texture Texture::load(GpuDevice& gpu,
 
     vkCmdCopyBufferToImage(cmd, staging.get(), image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                           1, &region);
-    vkEndCommandBuffer(cmd);
 
-    VkSubmitInfo si{};
-    si.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    si.commandBufferCount = 1;
-    si.pCommandBuffers    = &cmd;
-    vkQueueSubmit(graphicsQueue, 1, &si, VK_NULL_HANDLE);
-    vkQueueWaitIdle(graphicsQueue);
-
-    vkFreeCommandBuffers(device, commandPool, 1, &cmd);
-    staging.destroy(device);
-
-    // ---------------------------------------------------------------------------
-    // 5. Generate mipmaps via vkCmdBlitImage (skipped when generateMipmaps=false)
-    // ---------------------------------------------------------------------------
-
+    // Generate mipmaps via vkCmdBlitImage (skipped when generateMipmaps=false).
     int mipWidth = width;
     int mipHeight = height;
 
     for (uint32_t i = 1; generateMipmaps && i < mipLevels; ++i) {
-        // Transition previous mip from TRANSFER_DST → TRANSFER_SRC
-        transitionImageLayout(device, commandPool, graphicsQueue, image, i - 1,
-                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-
-        // Transition current mip from UNDEFINED → TRANSFER_DST
-        transitionImageLayout(device, commandPool, graphicsQueue, image, i,
-                             VK_IMAGE_LAYOUT_UNDEFINED,
-                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
-        // Allocate command buffer for the blit
-        vkAllocateCommandBuffers(device, &ai, &cmd);
-        bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(cmd, &bi);
+        // Previous mip TRANSFER_DST → TRANSFER_SRC so it can serve as this blit's
+        // source. Mip i is already TRANSFER_DST from the bulk transition above.
+        recordLayoutTransition(cmd, image, i - 1, 1,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
         VkImageBlit blit{};
         blit.srcOffsets[0]                   = {0, 0, 0};
@@ -280,47 +244,45 @@ Texture Texture::load(GpuDevice& gpu,
                       image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                       1, &blit, VK_FILTER_LINEAR);
 
-        vkEndCommandBuffer(cmd);
-        vkQueueSubmit(graphicsQueue, 1, &si, VK_NULL_HANDLE);
-        vkQueueWaitIdle(graphicsQueue);
-        vkFreeCommandBuffers(device, commandPool, 1, &cmd);
-
         if (mipWidth > 1) mipWidth /= 2;
         if (mipHeight > 1) mipHeight /= 2;
     }
 
-    // Transition all mips to final SHADER_READ_ONLY_OPTIMAL state.
-    // After the loop:
-    //   - Mip 0 is in TRANSFER_SRC_OPTIMAL (if mipLevels > 1) or TRANSFER_DST_OPTIMAL (if mipLevels == 1)
-    //   - Other mips (1 to last-1) are in TRANSFER_SRC_OPTIMAL (if they exist and were used)
-    //   - Last mip is in TRANSFER_DST_OPTIMAL
-
-    // Transition mip 0: handle both cases (1 mip or multiple mips)
+    // Transition to final SHADER_READ_ONLY_OPTIMAL. After the loop above:
+    //   - mips [0, mipLevels-2] are TRANSFER_SRC_OPTIMAL (each was a blit source)
+    //   - the last mip is still TRANSFER_DST_OPTIMAL (never blitted from)
+    //   - with mipLevels==1, the only mip is TRANSFER_DST_OPTIMAL (no blits ran)
     if (mipLevels == 1) {
-        // Only one mip: it's in TRANSFER_DST_OPTIMAL
-        transitionImageLayout(device, commandPool, graphicsQueue, image, 0,
-                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        recordLayoutTransition(cmd, image, 0, 1,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     } else {
-        // Multiple mips: mip 0 was transitioned to TRANSFER_SRC_OPTIMAL in the loop
-        transitionImageLayout(device, commandPool, graphicsQueue, image, 0,
-                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        recordLayoutTransition(cmd, image, 0, mipLevels - 1,
+                               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        recordLayoutTransition(cmd, image, mipLevels - 1, 1,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
 
-    // Transition mips 1 to (last-1) from TRANSFER_SRC → SHADER_READ_ONLY
-    for (uint32_t i = 1; i < mipLevels - 1; ++i) {
-        transitionImageLayout(device, commandPool, graphicsQueue, image, i,
-                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
+    vkEndCommandBuffer(cmd);
 
-    // Transition last mip from TRANSFER_DST → SHADER_READ_ONLY (only if there are multiple mips)
-    if (mipLevels > 1) {
-        transitionImageLayout(device, commandPool, graphicsQueue, image, mipLevels - 1,
-                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
+    VkFenceCreateInfo fenceCI{};
+    fenceCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    VkFence fence;
+    if (vkCreateFence(device, &fenceCI, nullptr, &fence) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create texture upload fence");
+
+    VkSubmitInfo si{};
+    si.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    si.commandBufferCount = 1;
+    si.pCommandBuffers    = &cmd;
+    vkQueueSubmit(graphicsQueue, 1, &si, fence);
+    vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+
+    vkDestroyFence(device, fence, nullptr);
+    vkFreeCommandBuffers(device, commandPool, 1, &cmd);
+    staging.destroy(device);
 
     // ---------------------------------------------------------------------------
     // 6. Create VkImageView

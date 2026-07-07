@@ -26,10 +26,12 @@
 #include "audio/Listener.h"
 #include "assets/Primitives.h"
 #include "rendering/Light.h"
+#include "debug/TaskProgress.h"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
 #include <string_view>
 #include <vector>
+#include <cstdio>
 
 bool EditorApp::init() {
     if (!engine_.init()) return false;
@@ -247,6 +249,12 @@ void EditorApp::tick() {
     Listener::setPosition(engine_.camera->getPosition());
     Listener::setOrientation(engine_.camera->getForward(), {0.0f, 1.0f, 0.0f});
 
+    // Upload textures streamed in from background decode (glb embedded images).
+    // The editor drives its own render loop instead of Engine::render(), so this
+    // pump has to be called here too — otherwise decoded textures pile up in the
+    // streamer's ready queue and never reach the GPU/material sets.
+    engine_.assets->pumpTextureUploads();
+
     // --- Set render mode before game pass ---
     engine_.renderer->setMode(engine_.renderMode_);
 
@@ -392,15 +400,86 @@ void EditorApp::buildMenuBar() {
         ImGui::EndMenu();
     }
 
-    // Right-aligned status strip: current scene + FPS
+    // Right-aligned status strip: active task progress (if any) + scene + FPS.
+    // The progress bar is universal — any long-running task (texture streaming
+    // today) reports into TaskProgress and shows up here automatically.
+    // Layout (left to right): subtitle (label + elapsed/ETA, never truncated) —
+    // thin progress bar (panel-blue fill, % left-aligned on top) — scene | fps.
     {
-        std::string scene = currentSceneFile_.empty() ? "(no scene)" : currentSceneFile_;
+        auto fmtSecs = [](double s) {
+            char buf[32];
+            if (s < 60.0) std::snprintf(buf, sizeof(buf), "%.0fs", s);
+            else          std::snprintf(buf, sizeof(buf), "%dm%02ds", (int)(s / 60.0), (int)s % 60);
+            return std::string(buf);
+        };
+
+        TaskProgress::Snapshot prog = TaskProgress::current();
+        std::string scene  = currentSceneFile_.empty() ? "(no scene)" : currentSceneFile_;
         std::string status = scene + "  |  " + std::to_string(engine_.displayFps) + " fps";
         float statusW = ImGui::CalcTextSize(status.c_str()).x + 16.f;
+
+        float barW = 0.0f;
+        float subtitleW = 0.0f;
+        float frac = 0.0f;
+        std::string subtitle, pctText;
+        constexpr float kGap = 10.0f;
+        if (prog.active && prog.total > 0) {
+            barW = 140.0f;
+            frac = static_cast<float>(prog.completed) / static_cast<float>(prog.total);
+            double eta = (frac > 0.01f) ? prog.elapsedSeconds * (1.0 - frac) / frac : 0.0;
+            // Full detail lives in the subtitle — plenty of room in the header,
+            // so this is never truncated.
+            subtitle = prog.label + "  —  " + fmtSecs(prog.elapsedSeconds) + " elapsed, ~" +
+                      fmtSecs(eta) + " remaining";
+            pctText  = std::to_string((int)(frac * 100.0f + 0.5f)) + "%";
+            subtitleW = ImGui::CalcTextSize(subtitle.c_str()).x;
+        }
+
+        float totalW  = statusW + (barW > 0.0f ? barW + subtitleW + kGap * 2.0f : 0.0f);
         float cursorX = ImGui::GetCursorPosX();
         float avail   = ImGui::GetContentRegionAvail().x;
-        if (avail > statusW)
-            ImGui::SetCursorPosX(cursorX + avail - statusW);
+        if (avail > totalW)
+            ImGui::SetCursorPosX(cursorX + avail - totalW);
+
+        if (barW > 0.0f) {
+            // Subtitle sits directly against the bar's left edge (right-justified
+            // within the group, not floating with a big gap).
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s", subtitle.c_str());
+            ImGui::SameLine(0.0f, kGap);
+
+            // Reserve a normal full-height cell (so SameLine()/row alignment
+            // matches the surrounding text), then draw a thinner bar by hand,
+            // vertically centered within it — ImGui::ProgressBar always anchors
+            // to the top of the line, which left a thin bar stuck at the top
+            // instead of centered against the subtitle/status text beside it.
+            float lineHeight = ImGui::GetFrameHeight();
+            ImGui::Dummy(ImVec2(barW, lineHeight));
+            ImVec2 cellMin = ImGui::GetItemRectMin();
+
+            float barHeight = ImGui::GetFontSize() * 0.55f;
+            float barY      = cellMin.y + (lineHeight - barHeight) * 0.5f;
+            ImVec2 barMin(cellMin.x, barY);
+            ImVec2 barMax(cellMin.x + barW, barY + barHeight);
+
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            float rounding = ImGui::GetStyle().FrameRounding;
+            dl->AddRectFilled(barMin, barMax, ImGui::GetColorU32(ImGuiCol_FrameBg), rounding);
+            float fillW = barW * frac;
+            if (fillW > 0.0f) {
+                ImDrawFlags flags = (frac >= 0.999f) ? ImDrawFlags_RoundCornersAll
+                                                      : ImDrawFlags_RoundCornersLeft;
+                dl->AddRectFilled(barMin, ImVec2(barMin.x + fillW, barMax.y),
+                                  ImGui::GetColorU32(ImGuiCol_Button), rounding, flags);
+            }
+
+            // Percentage left-aligned on top of the bar (ImGui::ProgressBar's
+            // built-in overlay text is center-only).
+            ImVec2 textPos(barMin.x + 4.0f, cellMin.y + (lineHeight - ImGui::GetFontSize()) * 0.5f);
+            dl->AddText(textPos, ImGui::GetColorU32(ImGuiCol_Text), pctText.c_str());
+
+            ImGui::SameLine(0.0f, kGap);
+        }
         ImGui::TextDisabled("%s", status.c_str());
     }
 
