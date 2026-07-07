@@ -154,6 +154,14 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
         if (!reg.valid(e)) return ecs::NullEntity;
     }
 
+    // Static compound level collider — attach before the Hull-properties restore
+    // below so that block finds a real Hull to populate (attachCompoundCollider
+    // adds Hull+Fixed if the entity doesn't have one yet).
+    if (hasCompoundCollider) {
+        physics::CompiledCollider* compiled = world.loadCompoundCollider(compoundCollider.assetPath);
+        world.attachCompoundCollider(e, compiled, compoundCollider.assetPath);
+    }
+
     // Restore hull properties (damping, friction, restitution, gravity, etc.).
     // CRITICAL: do NOT overwrite the factory-computed derived fields. The shape
     // factory (addSphere / addOBB / addAABB / addStaticAABB) sets inverseMass
@@ -327,6 +335,11 @@ ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world
     if (auto* of = reg.get<ecs::OBBForm>(e))     { s.hasOBB = true;       s.obb = *of; }
     if (auto* cf = reg.get<ecs::CapsuleForm>(e)) { s.hasCapsule = true;   s.capsule = *cf; }
     if (auto* cf = reg.get<ecs::CylinderForm>(e)){ s.hasCylinder = true;  s.cylinder = *cf; }
+    if (auto* cc = reg.get<ecs::CompoundCollider>(e)) {
+        s.hasCompoundCollider = true;
+        s.compoundCollider    = *cc;
+        s.compoundCollider.compiled = nullptr;   // never snapshot the runtime handle
+    }
     if (auto* ls = reg.get<ecs::LightSource>(e)) { s.hasLight = true;    s.light = *ls; }
     if (auto* n  = reg.get<ecs::Name>(e))        { s.hasName = true;     s.name = *n; }
     if (auto* as = reg.get<ecs::AudioSource>(e)) {

@@ -152,6 +152,7 @@ set(PHYSICS_SOURCES
     src/physics/ColliderAnalytical.cpp
     src/physics/ColliderGJK.cpp
     src/physics/ColliderDiscrete.cpp
+    src/physics/CompoundShape.cpp
     src/physics/IslandDetector.cpp
     src/physics/ThreadPool.cpp
     src/physics/Spring.cpp
@@ -197,6 +198,7 @@ set(ENGINE_SOURCES
     src/gpu/ComputePipeline.cpp
     src/world/World.cpp
     src/world/RenderMesh.cpp
+    src/world/ColliderBaker.cpp
     src/assets/AssetManager.cpp
     src/assets/ObjLoader.cpp
     src/assets/GltfLoader.cpp
@@ -246,6 +248,7 @@ set(EDITOR_SOURCES
     src/rendering/ViewportTarget.cpp
     src/editor/commands/EntityLifecycleCommands.cpp
     src/editor/commands/AddColliderCommand.cpp
+    src/editor/commands/GenerateColliderCommand.cpp
     src/editor/commands/ReparentCommand.cpp
     src/editor/commands/RemoveColliderCommand.cpp
     src/editor/commands/AddSpringConstraintCommand.cpp
@@ -256,6 +259,7 @@ set(EDITOR_SOURCES
     src/editor/inspectors/MeshRendererInspector.cpp
     src/editor/inspectors/MaterialInspector.cpp
     src/editor/inspectors/ShapeFormInspector.cpp
+    src/editor/inspectors/CompoundColliderInspector.cpp
     src/editor/inspectors/LightSourceInspector.cpp
     src/editor/inspectors/NameInspector.cpp
     src/editor/inspectors/AudioSourceInspector.cpp

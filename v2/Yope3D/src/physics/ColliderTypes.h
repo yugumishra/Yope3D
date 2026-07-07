@@ -21,6 +21,12 @@ namespace ColliderDiscrete {
     struct ActiveContact {
         ecs::Entity a;
         ecs::Entity b;
+        // Disambiguates the contact-cache key when one entity is a compound
+        // collider: a single (a,b) pair then produces one manifold per colliding
+        // sub-shape. The cache index is shapeKey*4 + pointIndex, so distinct
+        // sub-shapes never alias. 0 for ordinary single-shape pairs (identical
+        // keys to the pre-compound scheme).
+        int             shapeKey = 0;
         ContactManifold manifold;
         math::Vec3      T1, T2;
         float           mu = 0.0f, e = 0.0f;

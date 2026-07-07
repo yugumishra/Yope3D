@@ -230,3 +230,220 @@ TEST_CASE("ECS SAP: rotated OBB AABBs are rotation-fattened", "[sap][ecs][obb]")
     sap.collectPairs(entities2, reg2, pairs);
     CHECK(pairs.empty());
 }
+
+// ============================================================================
+// Static compound collider + mid-phase BVH
+// ============================================================================
+#include "../src/physics/CompoundShape.h"
+
+// A 3x3 grid of unit OBB floor tiles (identity rotation) centered at y=0,
+// spanning x,z in [-3,3]; each tile is 1x0.5x1 half-extents at 2-unit spacing.
+static std::vector<physics::SubShape> makeFloorTiles() {
+    std::vector<physics::SubShape> shapes;
+    for (int ix = -1; ix <= 1; ++ix)
+        for (int iz = -1; iz <= 1; ++iz) {
+            physics::SubShape s;
+            s.type     = physics::SubShapeType::OBB;
+            s.localPos = { ix * 2.0f, 0.0f, iz * 2.0f };
+            s.localRot = math::Mat3{};                 // identity
+            s.extent   = { 1.0f, 0.5f, 1.0f };
+            s.aabbMin  = s.localPos - s.extent;
+            s.aabbMax  = s.localPos + s.extent;
+            shapes.push_back(s);
+        }
+    return shapes;
+}
+
+static ecs::Entity makeCompoundEntity(ecs::Registry& reg, physics::CompiledCollider* col) {
+    ecs::Entity e = reg.create();
+    reg.add<Transform>(e, Transform{{0,0,0}, {0,0,0,1}, {1,1,1}});
+    ecs::Hull hc;
+    hc.mass = 0.0f; hc.inverseMass = 0.0f;
+    hc.inverseInertia = math::Mat3::zero();
+    reg.add<ecs::Hull>(e, hc);
+    reg.add<ecs::Fixed>(e);
+    ecs::CompoundCollider cc; cc.compiled = col;
+    reg.add<ecs::CompoundCollider>(e, cc);
+    return e;
+}
+
+TEST_CASE("Compound BVH: build invariants", "[compound][bvh]") {
+    auto shapes = makeFloorTiles();
+    physics::CompiledCollider col;
+    physics::buildCompoundBvh(shapes, col, 2);
+
+    REQUIRE(col.subShapes.size() == 9);
+    REQUIRE(!col.nodes.empty());
+
+    // Root bounds must enclose every sub-shape.
+    for (const auto& s : col.subShapes) {
+        CHECK(s.aabbMin.x >= col.localMin.x - 1e-4f);
+        CHECK(s.aabbMax.x <= col.localMax.x + 1e-4f);
+        CHECK(s.aabbMin.z >= col.localMin.z - 1e-4f);
+        CHECK(s.aabbMax.z <= col.localMax.z + 1e-4f);
+    }
+
+    // Every sub-shape index must be reachable through exactly one leaf.
+    std::vector<int> hits(col.subShapes.size(), 0);
+    for (const auto& n : col.nodes)
+        if (n.count > 0)
+            for (int i = n.first; i < n.first + n.count; ++i) hits[i]++;
+    for (int h : hits) CHECK(h == 1);
+}
+
+TEST_CASE("Compound BVH: descent matches brute force", "[compound][bvh]") {
+    auto shapes = makeFloorTiles();
+    physics::CompiledCollider col;
+    physics::buildCompoundBvh(shapes, col, 2);
+
+    // Query AABB overlapping only the +x,+z tile (index-agnostic; compare sets).
+    math::Vec3 qmn{1.2f, -0.4f, 1.2f}, qmx{2.8f, 0.4f, 2.8f};
+    auto boxOverlap = [](const math::Vec3& amn, const math::Vec3& amx,
+                         const math::Vec3& bmn, const math::Vec3& bmx) {
+        return !(amn.x > bmx.x || amx.x < bmn.x ||
+                 amn.y > bmx.y || amx.y < bmn.y ||
+                 amn.z > bmx.z || amx.z < bmn.z);
+    };
+
+    std::vector<int> brute;
+    for (size_t i = 0; i < col.subShapes.size(); ++i)
+        if (boxOverlap(qmn, qmx, col.subShapes[i].aabbMin, col.subShapes[i].aabbMax))
+            brute.push_back((int)i);
+
+    // Replicate detectCompound's descent using public node fields.
+    std::vector<int> descent;
+    int32_t stack[64]; int sp = 0; stack[sp++] = 0;
+    while (sp > 0) {
+        const physics::BvhNode& n = col.nodes[stack[--sp]];
+        if (!boxOverlap(qmn, qmx, n.aabbMin, n.aabbMax)) continue;
+        if (n.count > 0) {
+            for (int i = n.first; i < n.first + n.count; ++i)
+                if (boxOverlap(qmn, qmx, col.subShapes[i].aabbMin, col.subShapes[i].aabbMax))
+                    descent.push_back(i);
+        } else {
+            if (n.right >= 0) stack[sp++] = n.right;
+            if (n.left  >= 0) stack[sp++] = n.left;
+        }
+    }
+
+    std::sort(brute.begin(), brute.end());
+    std::sort(descent.begin(), descent.end());
+    CHECK(brute == descent);
+    CHECK(!brute.empty());
+}
+
+TEST_CASE("Compound narrowphase: sphere resting on a tile generates an upward contact", "[compound][narrowphase]") {
+    auto shapes = makeFloorTiles();
+    physics::CompiledCollider col;
+    physics::buildCompoundBvh(shapes, col, 2);
+
+    ecs::Registry reg;
+    ecs::Entity floorE  = makeCompoundEntity(reg, &col);
+    // Sphere r=0.5 centered at (2, 0.9, 2): bottom at 0.4 < tile top 0.5 => penetration.
+    ecs::Entity sphereE = makeSphereEntity(reg, {2.0f, 0.9f, 2.0f}, 0.5f);
+
+    std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
+    physics::ColliderDiscrete::detect(floorE, sphereE, reg, contacts);
+
+    REQUIRE(!contacts.empty());
+    const auto& c = contacts.front();
+    CHECK(c.a == floorE);
+    CHECK(c.b == sphereE);
+    // Normal points compound -> sphere, i.e. up (+Y).
+    CHECK(c.manifold.normal.y > 0.5f);
+    CHECK(c.manifold.numContacts > 0);
+    // shapeKey identifies which sub-shape it came from.
+    CHECK(c.shapeKey >= 0);
+    CHECK(c.shapeKey < (int)col.subShapes.size());
+}
+
+TEST_CASE("Compound narrowphase: sphere over a gap generates no contact", "[compound][narrowphase]") {
+    auto shapes = makeFloorTiles();
+    physics::CompiledCollider col;
+    physics::buildCompoundBvh(shapes, col, 2);
+
+    ecs::Registry reg;
+    ecs::Entity floorE  = makeCompoundEntity(reg, &col);
+    // Far above every tile.
+    ecs::Entity sphereE = makeSphereEntity(reg, {0.0f, 10.0f, 0.0f}, 0.5f);
+
+    std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
+    physics::ColliderDiscrete::detect(sphereE, floorE, reg, contacts);   // reversed order
+    CHECK(contacts.empty());
+}
+
+// ============================================================================
+// Compound baker shape inference (physics::classifyAsSphere / meshVolume)
+// ============================================================================
+
+// A 2x2x2 axis-aligned cube (positions only — 8 verts, 12 triangles, outward winding).
+static void makeCubeMeshData(std::vector<math::Vec3>& pos, std::vector<uint32_t>& idx) {
+    pos = {
+        {-1,-1,-1}, { 1,-1,-1}, { 1, 1,-1}, {-1, 1,-1},
+        {-1,-1, 1}, { 1,-1, 1}, { 1, 1, 1}, {-1, 1, 1},
+    };
+    idx = {
+        0,2,1, 0,3,2,       // -Z
+        4,5,6, 4,6,7,       // +Z
+        0,1,5, 0,5,4,       // -Y
+        3,7,6, 3,6,2,       // +Y
+        0,4,7, 0,7,3,       // -X
+        1,2,6, 1,6,5,       // +X
+    };
+}
+
+// A UV sphere of radius r (outward-winding triangles).
+static void makeUVSphereMeshData(float r, int rings, int segs,
+                                 std::vector<math::Vec3>& pos, std::vector<uint32_t>& idx) {
+    pos.clear(); idx.clear();
+    for (int ring = 0; ring <= rings; ++ring) {
+        float v = (float)ring / rings;
+        float phi = v * math::PI;
+        for (int seg = 0; seg <= segs; ++seg) {
+            float u = (float)seg / segs;
+            float theta = u * 2.0f * math::PI;
+            pos.push_back({
+                r * std::sin(phi) * std::cos(theta),
+                r * std::cos(phi),
+                r * std::sin(phi) * std::sin(theta)
+            });
+        }
+    }
+    int stride = segs + 1;
+    for (int ring = 0; ring < rings; ++ring) {
+        for (int seg = 0; seg < segs; ++seg) {
+            uint32_t a = ring * stride + seg;
+            uint32_t b = a + stride;
+            uint32_t c = a + 1;
+            uint32_t d = b + 1;
+            idx.insert(idx.end(), {a, b, c,  c, b, d});
+        }
+    }
+}
+
+TEST_CASE("Shape inference: cube is classified as a box, not a sphere", "[compound][infer]") {
+    std::vector<math::Vec3> pos; std::vector<uint32_t> idx;
+    makeCubeMeshData(pos, idx);
+    float vol = physics::meshVolume(pos, idx);
+    CHECK_THAT(vol, WithinAbs(8.0f, 0.01f));   // 2x2x2 cube
+    bool isSphere = physics::classifyAsSphere(pos, idx, {1.0f, 1.0f, 1.0f});
+    CHECK_FALSE(isSphere);
+}
+
+TEST_CASE("Shape inference: UV sphere is classified as a sphere", "[compound][infer]") {
+    std::vector<math::Vec3> pos; std::vector<uint32_t> idx;
+    makeUVSphereMeshData(1.0f, 24, 32, pos, idx);
+    float vol = physics::meshVolume(pos, idx);
+    float expected = (4.0f / 3.0f) * math::PI;   // r=1
+    CHECK_THAT(vol, WithinAbs(expected, 0.05f));
+    bool isSphere = physics::classifyAsSphere(pos, idx, {1.0f, 1.0f, 1.0f});
+    CHECK(isSphere);
+}
+
+TEST_CASE("Shape inference: stretched sphere (ellipsoid) is NOT classified as a sphere", "[compound][infer]") {
+    std::vector<math::Vec3> pos; std::vector<uint32_t> idx;
+    makeUVSphereMeshData(1.0f, 24, 32, pos, idx);
+    for (auto& p : pos) p.x *= 3.0f;   // stretch into an ellipsoid along X
+    bool isSphere = physics::classifyAsSphere(pos, idx, {3.0f, 1.0f, 1.0f});
+    CHECK_FALSE(isSphere);   // aspect ratio gate rejects it despite matching volume ratio
+}

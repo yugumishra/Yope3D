@@ -4,6 +4,7 @@
 #include "../assets/GltfLoader.h"
 #include "../assets/AssetManager.h"
 #include <cstring>
+#include <cstdio>
 #include <cctype>
 #include <cassert>
 #include <filesystem>
@@ -314,6 +315,62 @@ void World::attachCylinderCollider(ecs::Entity e, float mass, float radius, floa
     if (debugPhysics) rebuildDebugMeshes();
 }
 
+// ---- Static compound collider ----
+
+physics::CompiledCollider* World::buildCompoundCollider(const std::string& key,
+                                                        std::vector<physics::SubShape> shapes,
+                                                        int leafSize) {
+    std::lock_guard lk(structureMtx_);
+    auto compiled = std::make_unique<physics::CompiledCollider>();
+    physics::buildCompoundBvh(shapes, *compiled, leafSize);
+    physics::CompiledCollider* raw = compiled.get();
+    compoundColliderCache_[key] = std::move(compiled);
+    return raw;
+}
+
+physics::CompiledCollider* World::loadCompoundCollider(const std::string& assetRelPath, bool forceReload) {
+    std::lock_guard lk(structureMtx_);
+    auto it = compoundColliderCache_.find(assetRelPath);
+    if (it != compoundColliderCache_.end() && !forceReload) return it->second.get();
+
+    std::string fullPath = (std::filesystem::path(YOPE_ASSETS_DIR) / assetRelPath).string();
+    physics::CompiledCollider loaded;
+    if (!physics::readBcbvh(fullPath, loaded)) return nullptr;
+
+    if (it != compoundColliderCache_.end()) {
+        // In-place update: keep the object's address stable so pointers already
+        // handed out via ecs::CompoundCollider::compiled stay valid.
+        *it->second = std::move(loaded);
+        return it->second.get();
+    }
+    auto compiled = std::make_unique<physics::CompiledCollider>(std::move(loaded));
+    physics::CompiledCollider* raw = compiled.get();
+    compoundColliderCache_[assetRelPath] = std::move(compiled);
+    return raw;
+}
+
+ecs::Entity World::attachCompoundCollider(ecs::Entity e, physics::CompiledCollider* compiled,
+                                          const std::string& assetPath) {
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(e)) return e;
+
+    if (!registry_.has<Transform>(e)) registry_.add<Transform>(e);
+    if (!registry_.has<ecs::Hull>(e)) {
+        ecs::Hull h = makeHull(0.0f);              // static: mass 0, no inertia
+        h.inverseInertia = math::Mat3::zero();
+        registry_.add<ecs::Hull>(e, h);
+    }
+    if (!registry_.has<ecs::Fixed>(e)) registry_.add<ecs::Fixed>(e);
+
+    ecs::CompoundCollider cc{};
+    std::snprintf(cc.assetPath, sizeof(cc.assetPath), "%s", assetPath.c_str());
+    cc.compiled = compiled;
+    if (registry_.has<ecs::CompoundCollider>(e)) *registry_.get<ecs::CompoundCollider>(e) = cc;
+    else                                          registry_.add<ecs::CompoundCollider>(e, cc);
+    if (debugPhysics) rebuildDebugMeshes();
+    return e;
+}
+
 void World::detachPhysicsBody(ecs::Entity e) {
     std::lock_guard lk(structureMtx_);
     if (!registry_.valid(e)) return;
@@ -323,6 +380,7 @@ void World::detachPhysicsBody(ecs::Entity e) {
     if (registry_.has<ecs::OBBForm>(e))      registry_.remove<ecs::OBBForm>(e);
     if (registry_.has<ecs::CapsuleForm>(e))  registry_.remove<ecs::CapsuleForm>(e);
     if (registry_.has<ecs::CylinderForm>(e)) registry_.remove<ecs::CylinderForm>(e);
+    if (registry_.has<ecs::CompoundCollider>(e)) registry_.remove<ecs::CompoundCollider>(e);
     if (registry_.has<ecs::Fixed>(e))        registry_.remove<ecs::Fixed>(e);
     if (registry_.has<ecs::Sleeping>(e))     registry_.remove<ecs::Sleeping>(e);
     // Stale ContactCache entries are harmless — entity is no longer in Hull view
@@ -1470,7 +1528,41 @@ void World::rebuildDebugMeshes() {
             debugMeshes_.push_back(nullptr);
             continue;
         }
-        if (registry_.has<ecs::SphereForm>(e)) {
+        if (auto* cc = registry_.get<ecs::CompoundCollider>(e)) {
+            // Static compound collider: no single extent to scale a unit mesh by —
+            // bake one merged debug mesh per sub-shape (in the body's local frame)
+            // instead. syncDebugMeshes leaves scale at identity for this entity (no
+            // Sphere/AABB/OBB/Cylinder form matches), so the baked local-space
+            // vertices only need the body's Transform on top.
+            std::vector<Vertex>   verts;
+            std::vector<uint32_t> idx;
+            if (cc->compiled) {
+                for (const auto& sub : cc->compiled->subShapes) {
+                    // TODO(capsule/cylinder inference): once ColliderBaker classifies
+                    // those shapes too, branch here to DebugShapes::makeCapsule/makeCylinder
+                    // sized from sub.extent (radius = extent.x, halfHeight = extent.y),
+                    // oriented by sub.localRot (local +Y axis) — same pattern as Sphere below.
+                    bool isSphere = (sub.type == physics::SubShapeType::Sphere);
+                    auto [bv, bi] = isSphere ? DebugShapes::makeSphere() : DebugShapes::makeBox();
+                    uint32_t base = static_cast<uint32_t>(verts.size());
+                    for (auto v : bv) {
+                        math::Vec3 scale = isSphere ? math::Vec3{sub.extent.x, sub.extent.x, sub.extent.x}
+                                                    : sub.extent;
+                        math::Vec3 local{ v.position[0] * scale.x,
+                                         v.position[1] * scale.y,
+                                         v.position[2] * scale.z };
+                        math::Vec3 p = sub.localPos + sub.localRot * local;
+                        v.position[0] = p.x; v.position[1] = p.y; v.position[2] = p.z;
+                        math::Vec3 n = sub.localRot * math::Vec3{v.normal[0], v.normal[1], v.normal[2]};
+                        v.normal[0] = n.x; v.normal[1] = n.y; v.normal[2] = n.z;
+                        verts.push_back(v);
+                    }
+                    for (auto bIdx : bi) idx.push_back(base + bIdx);
+                }
+            }
+            if (verts.empty()) { verts = boxV; idx = boxI; }   // not yet resolved — placeholder cube
+            debugMeshes_.push_back(std::make_unique<RenderMesh>(*gpu_, pool_, verts, idx));
+        } else if (registry_.has<ecs::SphereForm>(e)) {
             debugMeshes_.push_back(std::make_unique<RenderMesh>(*gpu_, pool_, sphV, sphI));
         } else if (auto* cf = registry_.get<ecs::CapsuleForm>(e)) {
             // Baked at actual dims; syncDebugMeshes applies identity scale so no distortion.

@@ -138,6 +138,22 @@ bool deserializeCylinderForm(const JsonNode& n, void* comp) {
     return true;
 }
 
+// ---- CompoundCollider ----
+// Only the .bcbvh asset path is persisted; `compiled` is re-resolved by
+// World::loadCompoundCollider on load (see ComponentSnapshot::restore).
+
+void serializeCompoundCollider(const void* comp, JsonWriter& w) {
+    auto* cc = static_cast<const ecs::CompoundCollider*>(comp);
+    if (cc->assetPath[0]) w.writeString("assetPath", cc->assetPath);
+}
+
+bool deserializeCompoundCollider(const JsonNode& n, void* comp) {
+    auto* cc = static_cast<ecs::CompoundCollider*>(comp);
+    if (n.contains("assetPath"))
+        std::strncpy(cc->assetPath, n["assetPath"].asString().c_str(), sizeof(cc->assetPath) - 1);
+    return true;
+}
+
 // ---- MeshRenderer ----
 // Known primitives: store type + extents so they can be regenerated on load.
 // Custom meshes (drag-dropped OBJs): store just the source file path — the

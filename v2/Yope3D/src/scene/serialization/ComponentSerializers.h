@@ -29,6 +29,11 @@ bool deserializeCapsuleForm    (const JsonNode& node, void* comp);
 void serializeCylinderForm     (const void* comp, JsonWriter& w);
 bool deserializeCylinderForm   (const JsonNode& node, void* comp);
 
+// CompoundCollider (static compound level body; only the .bcbvh asset path is
+// serialized — the runtime CompiledCollider* is re-resolved via World on load)
+void serializeCompoundCollider (const void* comp, JsonWriter& w);
+bool deserializeCompoundCollider(const JsonNode& node, void* comp);
+
 // MeshRenderer (stores color; mesh path stored separately via cpuVerts/primType)
 void serializeMeshRenderer     (const void* comp, JsonWriter& w);
 bool deserializeMeshRenderer   (const JsonNode& node, void* comp);
