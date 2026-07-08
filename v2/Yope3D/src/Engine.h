@@ -9,6 +9,7 @@
 #include "rendering/Renderer.h"
 #include "rendering/Camera.h"
 #include "rendering/RenderMode.h"
+#include "rendering/LogoClip.h"
 #include "world/World.h"
 #include "assets/AssetManager.h"
 #include "audio/AudioSystem.h"
@@ -49,7 +50,9 @@ struct Engine {
     // parsed_, then committed to the registry in budgeted batches on the main
     // thread by pumpSceneLoad(). A loading splash renders while this runs, and the
     // physics thread + runtime script init() are deferred until it completes.
-    enum class LoadPhase { Parsing, Committing, Streaming, Done };
+    // Outro = load work is done, but the splash holds/fades out (min display +
+    // fade) before finishAsyncLoad tears it down. Runtime only.
+    enum class LoadPhase { Parsing, Committing, Streaming, Outro, Done };
     LoadPhase                    loadPhase_ = LoadPhase::Done;
     std::thread                  parseThread_;
     std::atomic<bool>            parseDone_{ false };
@@ -65,6 +68,17 @@ struct Engine {
     Background*         splashTrack_ = nullptr;
     Background*         splashFill_  = nullptr;
     double             splashStart_ = 0.0;
+
+    // Animated line-logo splash (runtime): baked clips streamed on a worker and
+    // fed to the debug-line stroke pipeline while the scene loads. See updateSplash.
+    LogoBundle         logo_;                  // packed part1 (reveal) + part2 (tumble)
+    std::atomic<bool>  logoReady_{ false };
+    std::thread        logoLoadThread_;
+    double             outroStart_      = 0.0; // when LoadPhase::Outro was entered
+    bool               splashOutroDone_ = false;
+    math::Vec3         savedCamPos_{};         // camera state to restore post-load
+    math::Vec3         savedCamRot_{};
+    float              savedCamFov_     = 0.0f;
 
     double lastTime  = 0.0;
 

@@ -111,13 +111,37 @@ private:
     };
     std::vector<Text3DDrawCall> ecsText3DDrawCalls_;
 
-    // Debug-line pipeline (GJK CSO / simplex viz). World-space LINE_LIST, no depth
-    // test (always-on-top gizmo), recorded INSIDE the main 3D pass. Source data
-    // comes from World::getDebugLines(), uploaded once per frame.
+    // Debug-line pipeline (GJK CSO / simplex viz). Thick, anti-aliased "stroke"
+    // pipeline: each World::getDebugLines() segment is drawn as one instance and
+    // expanded into a screen-space quad (see shaders/stroke.*). No depth test
+    // (always-on-top gizmo), recorded INSIDE the main 3D pass. The segment buffer
+    // is uploaded once per frame and consumed as per-instance data.
     VkPipelineLayout                    linePipelineLayout_ = VK_NULL_HANDLE;
     VkPipeline                          linePipeline_       = VK_NULL_HANDLE;
     std::array<LineBuffer, MAX_FRAMES>  lineBuffers_;
-    uint32_t                            lineVertexCount_    = 0;
+    uint32_t                            lineVertexCount_    = 0;  // DebugLineVertex count (2 per segment)
+
+    // Stroke width/glow for the debug-line draw (pushed as constants). The logo
+    // path may set larger values before its own recordDebugLines.
+    float debugStrokeWidthPx_ = 2.5f;
+    float debugStrokeGlowPx_  = 1.0f;
+
+    // Push constants for shaders/stroke.*; layout must match the GLSL block.
+    struct StrokePush {
+        float viewportPx[2];
+        float widthPx;
+        float glowPx;
+    };
+    // When true (during the async load splash), the 3D pass skips ALL scene
+    // drawing (skybox, meshes, world text) so the building scene stays hidden;
+    // only the debug-line logo + dark clear show. No opaque UI cover needed.
+    bool suppressScene_ = false;
+public:
+    void setDebugStrokeStyle(float widthPx, float glowPx) {
+        debugStrokeWidthPx_ = widthPx; debugStrokeGlowPx_ = glowPx;
+    }
+    void setSuppressScene(bool s) { suppressScene_ = s; }
+private:
 
     VkCommandPool                           commandPool = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, MAX_FRAMES> cmdBuffers{};
@@ -186,7 +210,9 @@ private:
     void createLinePipeline(VkDevice device);
     void createLineBuffers(GpuDevice& gpu);
     void uploadDebugLines(World& world);
-    void recordDebugLines(VkCommandBuffer cmd);
+    // extent = the target's pixel size (swapchain or offscreen viewport); the
+    // stroke shader needs it to keep width constant in pixels across resolutions.
+    void recordDebugLines(VkCommandBuffer cmd, VkExtent2D extent);
 
 #ifdef YOPE_EDITOR
 public:

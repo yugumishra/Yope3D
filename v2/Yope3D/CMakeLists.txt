@@ -38,6 +38,8 @@ set(SHADER_SOURCES
     "${SHADER_SRC_DIR}/text3d.frag"
     "${SHADER_SRC_DIR}/line3d.vert"
     "${SHADER_SRC_DIR}/line3d.frag"
+    "${SHADER_SRC_DIR}/stroke.vert"
+    "${SHADER_SRC_DIR}/stroke.frag"
     "${SHADER_SRC_DIR}/skybox.vert"
     "${SHADER_SRC_DIR}/skybox.frag"
     "${SHADER_SRC_DIR}/raytracer.comp"

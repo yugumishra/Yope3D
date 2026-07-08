@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cmath>     // std::sin for splash animation
 #include <cstdlib>   // YOPE_PROFILE_DURATION env var
+#include <algorithm> // std::clamp / std::max for the splash-logo timeline
 
 Engine::~Engine() = default;
 
@@ -189,16 +190,29 @@ void Engine::beginAsyncLoad(const std::string& scenePath, bool initScripts) {
     // (which would put the splash *inside* the viewport panel), so the editor draws
     // its own window-level ImGui overlay during load instead — see EditorApp.
 #ifndef YOPE_EDITOR
-    Texture* logo = nullptr;
-    try { logo = assets->loadTexture("textures/tnail.png"); } catch (...) {}
-    splashBg_    = uiManager->addBackground({0.0f, 0.0f}, {1.0f, 1.0f},
-                                            {0.06f, 0.07f, 0.09f, 1.0f}, -100);
-    splashLogo_  = uiManager->addTexturedBackground({0.42f, 0.34f}, {0.58f, 0.50f},
-                                                    {1.0f, 1.0f, 1.0f, 1.0f}, logo, 0);
-    splashTrack_ = uiManager->addBackground({0.32f, 0.600f}, {0.68f, 0.616f},
-                                            {1.0f, 1.0f, 1.0f, 0.15f}, 1);
-    splashFill_  = uiManager->addBackground({0.32f, 0.600f}, {0.32f, 0.616f},
-                                            {0.85f, 0.87f, 0.95f, 0.9f}, 2);
+    // The animated line logo is drawn as world-space debug lines in the 3D pass
+    // over the dark clear. The renderer suppresses ALL scene drawing during load
+    // (setSuppressScene) so the building scene stays hidden without an opaque UI
+    // cover — which would otherwise hide the logo. The UI pass adds only a slim
+    // bottom progress bar over it.
+    splashTrack_ = uiManager->addBackground({0.34f, 0.900f}, {0.66f, 0.908f},
+                                            {1.0f, 1.0f, 1.0f, 0.12f}, 1);
+    splashFill_  = uiManager->addBackground({0.34f, 0.900f}, {0.34f, 0.908f},
+                                            {0.85f, 0.87f, 0.95f, 0.75f}, 2);
+    renderer->setSuppressScene(true);
+
+    // Save the camera so the loaded scene isn't left with the splash framing.
+    savedCamPos_ = camera->getPosition();
+    savedCamRot_ = camera->getRotation();
+    savedCamFov_ = camera->getFov();
+
+    // Load the packed logo binary on a worker (one buffer, no parsing — ready in
+    // ~ms). Both clips live in it, so the reveal + tumble are available at once.
+    logoReady_.store(false, std::memory_order_release);
+    logoLoadThread_ = std::thread([this] {
+        if (logo_.load(std::string(YOPE_ASSETS_DIR) + "/logo/logo.bin"))
+            logoReady_.store(true, std::memory_order_release);
+    });
 #endif
 
     // Parse on a worker thread — parseScene touches no World/registry/GPU state.
@@ -209,28 +223,98 @@ void Engine::beginAsyncLoad(const std::string& scenePath, bool initScripts) {
 }
 
 void Engine::updateSplash() {
-    if (!splashLogo_ || !splashFill_) return;
-    const float t     = static_cast<float>(glfwGetTime() - splashStart_);
-    const float pulse = 0.5f + 0.5f * std::sin(t * 3.0f);
+    // Timeline / policy constants (agreed design). All reactive to elapsed time —
+    // the load ETA is unknowable (texture streaming is indeterminate).
+    constexpr float MIN_SPLASH = 3.0f;    // guarantee legibility; kills the fast-load flash
+    constexpr float T_CUE      = 3.0f;    // idle time before the ball drops (long loads)
+    constexpr float FADE_DUR   = 0.35f;   // outro cross-fade
 
-    // Logo: subtle alpha + scale pulse (no shader change — the UI textured path
-    // already multiplies the sampled texel by the per-vertex tint).
-    const float a  = 0.72f + 0.28f * pulse;
-    const float s  = 1.0f + 0.02f * pulse;
-    const float cx = 0.5f, cy = 0.42f, hw = 0.08f, hh = 0.08f;
-    splashLogo_->setBounds({cx - hw * s, cy - hh * s}, {cx + hw * s, cy + hh * s});
-    splashLogo_->setColor({1.0f, 1.0f, 1.0f, a});
+    const double now = glfwGetTime();
+    const float  t   = static_cast<float>(now - splashStart_);
 
-    // Progress bar: entity-commit fraction fills up to 90%; the last 10% waits on
-    // texture streaming (indeterminate — pulse the fill so it doesn't look frozen).
-    const float entityFrac = totalEntities_ > 0
-                               ? static_cast<float>(committedEntities_) / static_cast<float>(totalEntities_)
-                               : 1.0f;
-    const float progress = (loadPhase_ == LoadPhase::Streaming) ? 0.92f : 0.90f * entityFrac;
-    const float x0 = 0.32f, x1 = 0.68f;
-    splashFill_->setBounds({x0, 0.600f}, {x0 + (x1 - x0) * progress, 0.616f});
-    if (loadPhase_ == LoadPhase::Streaming)
-        splashFill_->setColor({0.85f, 0.87f, 0.95f, 0.55f + 0.45f * pulse});
+    // Outro fade — only after MIN_SPLASH, so a fast load still shows the logo.
+    float vis = 1.0f;
+    splashOutroDone_ = false;
+    if (loadPhase_ == LoadPhase::Outro) {
+        const double fadeStart = std::max(outroStart_, splashStart_ + MIN_SPLASH);
+        float fp = FADE_DUR > 0.0f ? static_cast<float>((now - fadeStart) / FADE_DUR) : 1.0f;
+        fp  = std::clamp(fp, 0.0f, 1.0f);
+        vis = 1.0f - fp;
+        if (fp >= 1.0f) splashOutroDone_ = true;
+    }
+
+    // ---- animated line logo (world-space debug lines in the 3D pass) ----
+    if (logoReady_.load(std::memory_order_acquire)) {
+        const LogoClipView& c1 = logo_.part1;
+        const LogoClipView& c2 = logo_.part2;
+        const float p1 = c1.durationSec();
+        const float p2 = c2.durationSec();
+
+        // reveal -> idle(breathe, wait T_CUE) -> tumble, then loop.
+        const LogoClipView* clip = &c1;
+        int  frame = 0;
+        bool idle  = false;
+        const float period = p1 + T_CUE + p2;
+        const float local  = std::fmod(t, period > 0.0f ? period : 1.0f);
+        if (local < p1) {
+            frame = static_cast<int>(local * c1.fps);
+        } else if (local < p1 + T_CUE) {
+            frame = c1.frameCount - 1; idle = true;          // standing == part2 frame 0
+        } else {
+            clip  = &c2;
+            frame = static_cast<int>((local - p1 - T_CUE) * c2.fps);
+        }
+        frame = std::clamp(frame, 0, std::max(0, clip->frameCount - 1));
+
+        // Frame the unit plane (matches scripts/behaviors/logo_playback.py).
+        const float halfH = 0.5f, halfW = 0.5f * clip->refAspect;
+        {
+            const int   w  = window->getWidth(), h = window->getHeight();
+            const float sa = h > 0 ? static_cast<float>(w) / static_cast<float>(h) : clip->refAspect;
+            const float vfov = 50.0f * 3.14159265f / 180.0f;
+            const float tvh  = std::tan(vfov * 0.5f);
+            const float cz   = std::max(halfH / tvh, halfW / (sa * tvh)) * 1.05f;
+            camera->setFOV(vfov);
+            camera->setPosition({0.0f, 0.0f, cz});
+            camera->lookAt({0.0f, 0.0f, 0.0f});
+        }
+
+        // Emit the frame's segments (uint16 grid -> cam-view coords, which may be
+        // off-screen so the sphere rolls in/out cleanly). Fade via rgb toward the
+        // dark clear (0.05).
+        world->clearDebugLines();
+        if (frame + 1 < static_cast<int>(clip->frameStart.size())) {
+            const uint32_t b = clip->frameStart[frame];
+            const uint32_t e = clip->frameStart[frame + 1];
+            const math::Vec3 col{vis, vis, vis};
+            const float lo = clip->coordLo, scale = (clip->coordHi - clip->coordLo) / 65535.0f;
+            for (uint32_t k = b; k + 3 < e; k += 4) {
+                const float u0 = lo + clip->coords[k]     * scale, v0 = lo + clip->coords[k + 1] * scale;
+                const float u1 = lo + clip->coords[k + 2] * scale, v1 = lo + clip->coords[k + 3] * scale;
+                world->addDebugLine({(u0 - 0.5f) * 2.0f * halfW, (v0 - 0.5f) * 2.0f * halfH, 0.0f},
+                                    {(u1 - 0.5f) * 2.0f * halfW, (v1 - 0.5f) * 2.0f * halfH, 0.0f}, col);
+            }
+        }
+
+        // Breathe the stroke width while idle; steady while drawing / tumbling.
+        const float base = 2.6f;
+        const float wpx  = idle ? base * (1.0f + 0.22f * std::sin(static_cast<float>(now) * 3.0f)) : base;
+        renderer->setDebugStrokeStyle(wpx, 1.4f);
+    }
+
+    // ---- progress bar (bottom) ----
+    if (splashFill_) {
+        const float pulse = 0.5f + 0.5f * std::sin(t * 3.0f);
+        const float entityFrac = totalEntities_ > 0
+            ? static_cast<float>(committedEntities_) / static_cast<float>(totalEntities_) : 1.0f;
+        const bool streaming = (loadPhase_ == LoadPhase::Streaming);
+        const float progress = streaming ? 0.92f : 0.90f * entityFrac;
+        const float x0 = 0.34f, x1 = 0.66f;
+        splashFill_->setBounds({x0, 0.900f}, {x0 + (x1 - x0) * progress, 0.908f});
+        splashFill_->setColor({0.85f, 0.87f, 0.95f, (0.55f + 0.35f * pulse) * vis});
+    }
+    if (splashTrack_) splashTrack_->setColor({1.0f, 1.0f, 1.0f, 0.12f * vis});
+    if (splashBg_) splashBg_->setColor({0.05f, 0.05f, 0.05f, 1.0f * vis});
 }
 
 void Engine::finishAsyncLoad() {
@@ -241,15 +325,31 @@ void Engine::finishAsyncLoad() {
     world->newSnapshotReady_.store(false, std::memory_order_release);
     world->syncRenderMeshesFromFront();
 
-    // Remove the splash UI.
-    uiManager->remove(splashFill_);
-    uiManager->remove(splashTrack_);
-    uiManager->remove(splashLogo_);
-    uiManager->remove(splashBg_);
+    // Remove the splash UI (some pointers may be null — the runtime splash only
+    // builds the progress bar; the editor builds none of these).
+    if (splashFill_)  uiManager->remove(splashFill_);
+    if (splashTrack_) uiManager->remove(splashTrack_);
+    if (splashLogo_)  uiManager->remove(splashLogo_);
+    if (splashBg_)    uiManager->remove(splashBg_);
     splashFill_ = splashTrack_ = splashBg_ = nullptr;
     splashLogo_ = nullptr;
 
+    // Tear down the animated line logo: stop feeding lines, reset the stroke
+    // style, restore the camera the scene will now drive, and free the clips
+    // (~100MB). (Runtime-only; the editor never started the loader thread.)
+    if (logoLoadThread_.joinable()) logoLoadThread_.join();
+    world->clearDebugLines();
+    renderer->setDebugStrokeStyle(2.5f, 1.0f);
+    renderer->setSuppressScene(false);
+    if (savedCamFov_ > 0.0f) {
+        camera->setPosition(savedCamPos_);
+        camera->setRotation(savedCamRot_);
+        camera->setFOV(savedCamFov_);
+    }
+    logo_.clear();
+
     // Adopt the scene path + instantiate runtime scripts (editor defers to Play).
+    // Scripts may set their own camera here, overriding the restore above.
     sceneManager->onAsyncLoadComplete(scriptCtx_, scenePath_, initScriptsOnLoad_);
 
     // Release the parsed-scene buffers (snapshots retain CPU mesh copies).
@@ -345,8 +445,18 @@ void Engine::pumpSceneLoad() {
         // Hold the splash until embedded-image textures finish streaming so the
         // scene doesn't pop in with placeholder textures.
         updateSplash();
-        if (!assets->isStreamingTextures())
-            finishAsyncLoad();
+        if (!assets->isStreamingTextures()) {
+            // Load work is done, but don't rip the splash out yet: the Outro
+            // holds for MIN_SPLASH then cross-fades (updateSplash owns the timing).
+            loadPhase_  = LoadPhase::Outro;
+            outroStart_ = glfwGetTime();
+        }
+        return;
+    }
+
+    if (loadPhase_ == LoadPhase::Outro) {
+        updateSplash();
+        if (splashOutroDone_) finishAsyncLoad();
         return;
     }
 }
@@ -386,7 +496,9 @@ void Engine::update() {
 #endif
         // Per-frame debug lines: clear before scripts run so yope3d.draw_line()
         // accumulates fresh segments each frame (Renderer reads getDebugLines()).
-        world->clearDebugLines();
+        // During the async load, the splash logo owns the debug lines (set in
+        // updateSplash, which runs in pumpSceneLoad before this) — don't wipe them.
+        if (isSceneLoaded()) world->clearDebugLines();
 
         // Collect under the structure lock: view iteration on the render thread
         // would race with Sleeping-tag archetype migrations on the physics thread.
@@ -476,8 +588,9 @@ void Engine::cleanup() {
     // every subsystem that came up gets torn down properly.
     stopPhysics_.store(true, std::memory_order_release);
     if (physicsThread_.joinable()) physicsThread_.join();
-    // May still be parsing if the user quit during the loading splash.
-    if (parseThread_.joinable()) parseThread_.join();
+    // May still be parsing / streaming the logo if the user quit during the splash.
+    if (parseThread_.joinable())     parseThread_.join();
+    if (logoLoadThread_.joinable())  logoLoadThread_.join();
 
     if (sceneManager) sceneManager->shutdown(scriptCtx_);
     sceneManager.reset();
