@@ -845,7 +845,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
             0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
         // Skybox first (depth LEQUAL, no write), then re-bind the main pipeline.
-        recordSkybox(cmd);
+        if (!suppressScene_) recordSkybox(cmd);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
             0, 1, &descriptorSets[currentFrame], 0, nullptr);
@@ -868,12 +868,12 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
             }
         }
 
-        recordSceneMeshes(cmd, world, assets);
+        if (!suppressScene_) recordSceneMeshes(cmd, world, assets);
 
-        // GJK CSO / simplex debug lines (always-on-top), then 3D world-space text.
-        recordDebugLines(cmd);
+        // Debug lines (also the loading-logo animation) — always on top.
+        recordDebugLines(cmd, swapchain->extent());
         // 3D world-space text — depth-tested against the scene, before pass end.
-        recordText3D(cmd);
+        if (!suppressScene_) recordText3D(cmd);
 
         vkCmdEndRenderPass(cmd);
     }
@@ -1413,8 +1413,8 @@ void Renderer::createLineBuffers(GpuDevice& gpu) {
 }
 
 void Renderer::createLinePipeline(VkDevice device) {
-    ShaderModule vert(device, std::string(YOPE_SHADER_DIR) + "/line3d.vert.spv");
-    ShaderModule frag(device, std::string(YOPE_SHADER_DIR) + "/line3d.frag.spv");
+    ShaderModule vert(device, std::string(YOPE_SHADER_DIR) + "/stroke.vert.spv");
+    ShaderModule frag(device, std::string(YOPE_SHADER_DIR) + "/stroke.frag.spv");
 
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1426,25 +1426,30 @@ void Renderer::createLinePipeline(VkDevice device) {
     stages[1].module = frag.get();
     stages[1].pName  = "main";
 
+    // One segment = one instance = a pair of DebugLineVertex (p0,color0,p1,color1).
+    // The stroke vertex shader synthesizes the 6 quad corners from gl_VertexIndex;
+    // there is no per-vertex data, only per-instance segment endpoints.
     VkVertexInputBindingDescription binding{};
     binding.binding   = 0;
-    binding.stride    = sizeof(DebugLineVertex);
-    binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    binding.stride    = 2 * sizeof(DebugLineVertex);
+    binding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
-    VkVertexInputAttributeDescription attrs[2]{};
-    attrs[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT,    offsetof(DebugLineVertex, x) };
-    attrs[1] = { 1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(DebugLineVertex, r) };
+    VkVertexInputAttributeDescription attrs[4]{};
+    attrs[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT,    offsetof(DebugLineVertex, x) };                        // p0
+    attrs[1] = { 1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(DebugLineVertex, r) };                        // color0
+    attrs[2] = { 2, 0, VK_FORMAT_R32G32B32_SFLOAT,    sizeof(DebugLineVertex) + offsetof(DebugLineVertex, x) }; // p1
+    attrs[3] = { 3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(DebugLineVertex) + offsetof(DebugLineVertex, r) }; // color1
 
     VkPipelineVertexInputStateCreateInfo vertexInput{};
     vertexInput.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInput.vertexBindingDescriptionCount   = 1;
     vertexInput.pVertexBindingDescriptions      = &binding;
-    vertexInput.vertexAttributeDescriptionCount = 2;
+    vertexInput.vertexAttributeDescriptionCount = 4;
     vertexInput.pVertexAttributeDescriptions    = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
     VkDynamicState dynStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
     VkPipelineDynamicStateCreateInfo dynamicState{};
@@ -1495,12 +1500,20 @@ void Renderer::createLinePipeline(VkDevice device) {
     colorBlend.attachmentCount = 1;
     colorBlend.pAttachments    = &blendAttachment;
 
-    // Set 0 = GlobalUBO (view/proj). No push constants — positions are world-space.
+    // Set 0 = GlobalUBO (view/proj). Push constants carry viewport size + stroke
+    // width/glow (StrokePush) so the shader keeps a constant pixel width.
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushRange.offset     = 0;
+    pushRange.size       = sizeof(StrokePush);
+
     VkDescriptorSetLayout setLayouts[1] = { uboLayout->get() };
     VkPipelineLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layoutInfo.setLayoutCount = 1;
-    layoutInfo.pSetLayouts    = setLayouts;
+    layoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount         = 1;
+    layoutInfo.pSetLayouts            = setLayouts;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges    = &pushRange;
     if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &linePipelineLayout_) != VK_SUCCESS)
         throw std::runtime_error("Failed to create line pipeline layout");
 
@@ -1531,15 +1544,28 @@ void Renderer::uploadDebugLines(World& world) {
         : lineBuffers_[currentFrame].upload(lines.data(), static_cast<uint32_t>(lines.size()));
 }
 
-void Renderer::recordDebugLines(VkCommandBuffer cmd) {
-    if (lineVertexCount_ == 0) return;
+void Renderer::recordDebugLines(VkCommandBuffer cmd, VkExtent2D extent) {
+    // The buffer holds DebugLineVertex pairs; each pair is one instanced segment.
+    const uint32_t segmentCount = lineVertexCount_ / 2;
+    if (segmentCount == 0) return;
+
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipelineLayout_,
         0, 1, &descriptorSets[currentFrame], 0, nullptr);
-    VkBuffer     vb  = lineBuffers_[currentFrame].vertexBuffer();
+
+    StrokePush push{};
+    push.viewportPx[0] = static_cast<float>(extent.width);
+    push.viewportPx[1] = static_cast<float>(extent.height);
+    push.widthPx       = debugStrokeWidthPx_;
+    push.glowPx        = debugStrokeGlowPx_;
+    vkCmdPushConstants(cmd, linePipelineLayout_,
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        0, sizeof(StrokePush), &push);
+
+    VkBuffer     vb  = lineBuffers_[currentFrame].vertexBuffer();  // per-instance segments
     VkDeviceSize off = 0;
     vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &off);
-    vkCmdDraw(cmd, lineVertexCount_, 1, 0, 0);
+    vkCmdDraw(cmd, 6, segmentCount, 0, 0);   // 6 quad verts × N segments
 }
 
 // ---------------------------------------------------------------------------
@@ -1869,7 +1895,7 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
         recordSceneMeshes(cmd, world, assets);
 
         // GJK CSO / simplex debug lines (always-on-top), then 3D world-space text.
-        recordDebugLines(cmd);
+        recordDebugLines(cmd, {vt.width(), vt.height()});
         // 3D world-space text — depth-tested against the scene, before pass end.
         recordText3D(cmd);
 
