@@ -161,6 +161,33 @@ private:
     std::array<VkFence,     MAX_FRAMES> inFlightFence{};
     uint32_t currentFrame = 0;
 
+#ifdef YOPE_PROF_ENABLED
+    // GPU-side pass timing — see CLAUDE.md "Profiler & Phase E Tooling". One
+    // VK_QUERY_TYPE_TIMESTAMP pool, begin/end (TOP_OF_PIPE/BOTTOM_OF_PIPE)
+    // timestamps per stage, double-buffered per MAX_FRAMES slot so a slot's
+    // results are read back only after its fence confirms the GPU has retired
+    // that submission (see drawFrame). Entirely compiled out unless
+    // YOPE_PROF_ENABLED (opt-in via CMake -DYOPE_ENABLE_PROFILER=ON) — never
+    // present in Release, and opt-in even in Debug builds.
+    enum class GpuStage : uint32_t {
+        ShadowPass = 0, Skybox, SceneMeshes, DebugLines, Text3D, UIPass,
+        RaytraceDispatch, RaytraceBlit, Count
+    };
+    static constexpr uint32_t kGpuStageCount = static_cast<uint32_t>(GpuStage::Count);
+    VkQueryPool gpuTimestampPool_     = VK_NULL_HANDLE;
+    float       gpuTimestampPeriodNs_ = 1.0f;
+    bool        gpuTimestampsValid_   = false;   // device supports timestamp queries
+    uint64_t    gpuFramesRecorded_    = 0;       // guards readback before any data exists
+
+    void        createGpuTimestampPool(GpuDevice& gpu);
+    void        destroyGpuTimestampPool(GpuDevice& gpu);
+    void        resetGpuTimestamps(VkCommandBuffer cmd);
+    void        beginGpuStage(VkCommandBuffer cmd, GpuStage stage);
+    void        endGpuStage(VkCommandBuffer cmd, GpuStage stage);
+    void        collectGpuTimestamps(GpuDevice& gpu);
+    static const char* gpuStageName(GpuStage stage);
+#endif
+
     // Raytracer
     std::unique_ptr<Raytracer>  raytracer_;
     RenderMode                  mode_          = RenderMode::RASTER;

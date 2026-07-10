@@ -61,6 +61,15 @@ RENDER_STAGES_ORDERED = [
     "view_lightsource", "view_meshrenderer", "raster_cmdbuffer_record",
     "renderer_drawframe", "total_frame",
 ]
+# GPU-timestamp stages (YOPE_PROF_ENABLED, see Renderer::GpuStage) — actual
+# device execution time per pass, not CPU command-buffer recording time. In
+# submission order within a frame; raytrace stages are 0 rows unless the
+# engine ran in RenderMode::RAYTRACE.
+GPU_STAGES_ORDERED = [
+    "gpu_shadow_pass", "gpu_skybox", "gpu_scene_meshes",
+    "gpu_debug_lines", "gpu_text3d", "gpu_ui_pass",
+    "gpu_rt_dispatch", "gpu_rt_blit",
+]
 NARROWPHASE_STAGES = [
     "nphase_sph_sph", "nphase_sph_aabb", "nphase_sph_obb",
     "nphase_aabb_aabb", "nphase_aabb_obb", "nphase_obb_obb",
@@ -132,6 +141,13 @@ RENDER_SUB_BREAKDOWN = {
     "view_meshrenderer",                    # child of raster_cmdbuffer_record
 }
 
+# GPU-timestamp leaves — a *separate* budget from RENDER_WALL_LEAVES. These
+# measure actual device execution time, not CPU recording time; they overlap
+# in wall-clock with CPU stages (the GPU is still finishing frame N's passes
+# while the CPU records frame N+1), so they get their own denominator
+# (share_gpu_pct) rather than being summed into the CPU render wall budget.
+GPU_WALL_LEAVES = set(GPU_STAGES_ORDERED)
+
 
 def classify_stage(stage: str, thread: str) -> str:
     if thread == "physics":
@@ -139,6 +155,7 @@ def classify_stage(stage: str, thread: str) -> str:
         if stage in PHYSICS_WORKER_CPU:     return "worker_cpu"
         if stage in PHYSICS_SUB_BREAKDOWN:  return "sub_breakdown"
     elif thread == "render":
+        if stage in GPU_WALL_LEAVES:        return "gpu_wall_leaf"
         if stage in RENDER_WALL_LEAVES:     return "main_wall_leaf"
         if stage in RENDER_SUB_BREAKDOWN:   return "sub_breakdown"
     return "other"
@@ -226,8 +243,12 @@ def stage_summary(df: pd.DataFrame) -> pd.DataFrame:
                         For pgs_island this is ≤100% and meaningful.
 
     `kind` column labels each row so you can filter:
-      main_wall_leaf   — counts toward physics step wall time
+      main_wall_leaf   — counts toward physics-step / render-CPU wall time
       worker_cpu       — runs in parallel on a worker thread
+      gpu_wall_leaf     — GPU-timestamp pass (thread=="render"); own budget,
+                          see share_gpu_pct — NOT part of share_wall_pct,
+                          since GPU execution overlaps CPU recording across
+                          frames rather than being a CPU wall-clock leaf
       sub_breakdown    — child of another scope; not summed in denominators
       other            — unrecognized stage (e.g. nphase_* on an old build)
     """
@@ -248,6 +269,7 @@ def stage_summary(df: pd.DataFrame) -> pd.DataFrame:
     # Denominators per (source_file, thread).
     leaf_mask  = summary["kind"] == "main_wall_leaf"
     cpu_mask   = summary["kind"].isin(["main_wall_leaf", "worker_cpu"])
+    gpu_mask   = summary["kind"] == "gpu_wall_leaf"
 
     leaf_totals = (summary.loc[leaf_mask]
                    .groupby(["source_file", "thread"])["total_us"].sum()
@@ -255,13 +277,18 @@ def stage_summary(df: pd.DataFrame) -> pd.DataFrame:
     cpu_totals  = (summary.loc[cpu_mask]
                    .groupby(["source_file", "thread"])["total_us"].sum()
                    .rename("cpu_denom").reset_index())
+    gpu_totals  = (summary.loc[gpu_mask]
+                   .groupby(["source_file", "thread"])["total_us"].sum()
+                   .rename("gpu_denom").reset_index())
 
     summary = summary.merge(leaf_totals, on=["source_file", "thread"], how="left")
     summary = summary.merge(cpu_totals,  on=["source_file", "thread"], how="left")
+    summary = summary.merge(gpu_totals,  on=["source_file", "thread"], how="left")
 
     summary["share_wall_pct"] = 100.0 * summary["total_us"] / summary["wall_denom"]
     summary["share_cpu_pct"]  = 100.0 * summary["total_us"] / summary["cpu_denom"]
-    summary = summary.drop(columns=["wall_denom", "cpu_denom"])
+    summary["share_gpu_pct"]  = 100.0 * summary["total_us"] / summary["gpu_denom"]
+    summary = summary.drop(columns=["wall_denom", "cpu_denom", "gpu_denom"])
 
     return summary.sort_values(
         ["source_file", "thread", "share_wall_pct"],
@@ -324,31 +351,60 @@ def physics_step_totals(df: pd.DataFrame) -> pd.DataFrame:
     ).reset_index()
 
 
+def gpu_frame_totals(df: pd.DataFrame) -> pd.DataFrame:
+    """Sum GPU-timestamp stages (see GPU_STAGES_ORDERED) per (file, step) —
+    the actual measured GPU time per frame, distinct from total_frame (CPU
+    wall clock) or renderer_drawframe (CPU submission cost). Empty unless
+    the CSV was captured with YOPE_PROF_ENABLED and real GPU timestamp
+    support (see Renderer::createGpuTimestampPool)."""
+    gpu = df[(df["thread"] == "render") & (df["stage"].isin(GPU_STAGES_ORDERED))]
+    if gpu.empty:
+        return pd.DataFrame(columns=["source_file", "scene", "step", "gpu_frame_us", "ts"])
+    return gpu.groupby(["source_file", "scene", "step"]).agg(
+        gpu_frame_us=("duration_us", "sum"),
+        ts          =("timestamp_s", "min"),
+    ).reset_index()
+
+
 # ============================================================================
 # Plots
 # ============================================================================
 
+# (thread, kind, share_col, file_prefix, title, xlabel) — one breakdown chart
+# per track. gpu_wall_leaf is its own track (see GPU_WALL_LEAVES) since it's
+# a separate device-time budget, not summed into the CPU render wall budget.
+_BREAKDOWN_TRACKS = [
+    ("physics", "main_wall_leaf", "share_wall_pct", "breakdown",
+     "physics stage breakdown", "mean µs per physics step (wall, main thread)"),
+    ("render", "main_wall_leaf", "share_wall_pct", "breakdown_rendercpu",
+     "render-thread CPU stage breakdown", "mean µs per frame (CPU wall, render thread)"),
+    ("render", "gpu_wall_leaf", "share_gpu_pct", "breakdown_gpu",
+     "GPU pass breakdown (device timestamps)", "mean µs per frame (GPU execution time)"),
+]
+
+
 def plot_stage_breakdown(summary: pd.DataFrame, outdir: Path) -> None:
-    """Per-file stacked bar: mean stage time as a fraction of total."""
+    """Per-file stacked bar: mean stage time as a fraction of total, one
+    chart per track (physics / render CPU / GPU passes)."""
     plt = _mpl()
-    for src, g in summary.groupby("source_file"):
-        # Show main-thread wall leaves only — that's the budget bar. pgs_island
-        # belongs in its own conversation (the parallel-efficiency table).
-        phys = (g[(g["thread"] == "physics") & (g["kind"] == "main_wall_leaf")]
-                .sort_values("share_wall_pct", ascending=True))
-        if phys.empty:
-            continue
-        fig, ax = plt.subplots(figsize=(8, 5))
-        ax.barh(phys["stage"], phys["mean_us"])
-        for i, (stage, share) in enumerate(zip(phys["stage"], phys["share_wall_pct"])):
-            ax.text(phys["mean_us"].iloc[i], i, f"  {share:5.1f}%", va="center", fontsize=8)
-        ax.set_xlabel("mean µs per physics step (wall, main thread)")
-        ax.set_title(f"physics stage breakdown — {src}")
-        fig.tight_layout()
-        out = outdir / f"breakdown_{Path(src).stem}.png"
-        fig.savefig(out, dpi=120)
-        plt.close(fig)
-        print(f"  wrote {out}")
+    for thread, kind, share_col, prefix, title, xlabel in _BREAKDOWN_TRACKS:
+        for src, g in summary.groupby("source_file"):
+            # pgs_island belongs in its own conversation (parallel-efficiency table).
+            sub = (g[(g["thread"] == thread) & (g["kind"] == kind)]
+                   .sort_values(share_col, ascending=True))
+            if sub.empty:
+                continue
+            fig, ax = plt.subplots(figsize=(8, 5))
+            ax.barh(sub["stage"], sub["mean_us"])
+            for i, (stage, share) in enumerate(zip(sub["stage"], sub[share_col])):
+                ax.text(sub["mean_us"].iloc[i], i, f"  {share:5.1f}%", va="center", fontsize=8)
+            ax.set_xlabel(xlabel)
+            ax.set_title(f"{title} — {src}")
+            fig.tight_layout()
+            out = outdir / f"{prefix}_{Path(src).stem}.png"
+            fig.savefig(out, dpi=120)
+            plt.close(fig)
+            print(f"  wrote {out}")
 
 
 def plot_scaling_loglog(steptotals: pd.DataFrame, df: pd.DataFrame, outdir: Path) -> None:
@@ -486,6 +542,39 @@ def plot_frametime_cdf(df: pd.DataFrame, outdir: Path) -> None:
     ax.legend(fontsize=8)
     fig.tight_layout()
     out = outdir / "frametime_cdf.png"
+    fig.savefig(out, dpi=120)
+    plt.close(fig)
+    print(f"  wrote {out}")
+
+
+def plot_gpu_frametime_cdf(gputotals: pd.DataFrame, outdir: Path) -> None:
+    """CDF of per-frame summed GPU-pass time (see gpu_frame_totals) — the
+    actual device-time budget consumed each frame, distinct from
+    frametime_cdf.png's CPU total_frame. Empty unless captured with
+    YOPE_PROF_ENABLED on a device with timestamp query support."""
+    plt = _mpl()
+    if gputotals.empty:
+        print("  (skipping GPU frametime CDF — no gpu_* stages in CSV; "
+              "requires -DYOPE_ENABLE_PROFILER=ON + timestamp query support)")
+        return
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for src, g in gputotals.groupby("source_file"):
+        d = np.sort(g["gpu_frame_us"].values)
+        y = np.arange(1, len(d) + 1) / len(d)
+        ax.plot(d, y, label=src)
+    ax.set_xscale("log")
+    ax.set_xlabel("summed GPU pass time µs (per frame)")
+    ax.set_ylabel("cumulative probability")
+    ax.set_title("GPU frame-time CDF (real device timestamps)")
+    for frac, fps in ((1_000_000/120, "120fps"), (1_000_000/60, "60fps")):
+        ax.axvline(frac, color="grey", linestyle="--", alpha=0.4)
+        ax.text(frac, 0.02, f" {fps} budget", fontsize=7, rotation=90, va="bottom")
+    ax.axhline(0.99, color="grey", linestyle="--", alpha=0.4)
+    ax.text(ax.get_xlim()[0], 0.99, " p99", fontsize=8, va="bottom")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    out = outdir / "gpu_frametime_cdf.png"
     fig.savefig(out, dpi=120)
     plt.close(fig)
     print(f"  wrote {out}")
@@ -635,6 +724,48 @@ def report_top5_cpu(df, summary, par_eff, outdir):
                .groupby("source_file").head(5))
     print(top_cpu[["source_file", "stage", "kind", "mean_us", "p99_us", "share_cpu_pct"]]
           .to_string(index=False, float_format=lambda x: f"{x:9.2f}"))
+
+
+def report_top5_render_wall(df, summary, par_eff, outdir):
+    """Top-5 render-thread CPU wall stages per file — script/UI/submission cost.
+    This is CPU command-buffer recording time, not GPU execution time —
+    see top5_gpu for actual per-pass device cost."""
+    print("\n=== top5_render_wall: top 5 RENDER-THREAD CPU wall stages per file ===")
+    print("    share_wall_pct = fraction of render-thread CPU wall time per file")
+    rend = summary[(summary["thread"] == "render") &
+                   (summary["kind"] == "main_wall_leaf")]
+    if rend.empty:
+        print("    SKIPPED — no render-thread CPU wall stages found "
+              "(script_update/ui_update/snapshot_sync/renderer_drawframe)")
+        return
+    top = (rend.sort_values(["source_file", "share_wall_pct"], ascending=[True, False])
+           .groupby("source_file").head(5))
+    print(top[["source_file", "stage", "mean_us", "p99_us", "share_wall_pct"]]
+          .to_string(index=False, float_format=lambda x: f"{x:9.2f}"))
+
+
+def report_top5_gpu(df, summary, par_eff, outdir):
+    """Top GPU passes by device execution time per file (YOPE_PROF_ENABLED
+    GPU timestamp queries — see Renderer::GpuStage). This is actual GPU ms,
+    not CPU recording time; use it to see where a frame's device budget
+    actually goes before adding a new pass (e.g. post-processing)."""
+    print("\n=== top5_gpu: GPU pass execution time per file (real device timestamps) ===")
+    print("    share_gpu_pct = fraction of summed GPU-pass time per file "
+          "(its own budget, separate from CPU wall time)")
+    gpu = summary[(summary["thread"] == "render") &
+                  (summary["kind"] == "gpu_wall_leaf")]
+    if gpu.empty:
+        print("    SKIPPED — no gpu_* stages found. Requires a build configured with "
+              "-DYOPE_ENABLE_PROFILER=ON on a device with timestamp query support "
+              "(see Renderer::createGpuTimestampPool).")
+        return
+    top = (gpu.sort_values(["source_file", "share_gpu_pct"], ascending=[True, False])
+           .groupby("source_file").head(len(GPU_STAGES_ORDERED)))
+    print(top[["source_file", "stage", "mean_us", "p99_us", "max_us", "share_gpu_pct"]]
+          .to_string(index=False, float_format=lambda x: f"{x:9.2f}"))
+    frame_budget_us = 1_000_000.0 / 120.0
+    print(f"\n    (for reference: 120fps frame budget = {frame_budget_us:.0f}us; "
+          f"60fps = {1_000_000.0/60.0:.0f}us)")
 
 
 def report_parallel(df, summary, par_eff, outdir):
@@ -918,6 +1049,8 @@ def report_shape_compare(df, summary, par_eff, outdir):
 REPORTS = {
     "top5_wall":       report_top5_wall,
     "top5_cpu":        report_top5_cpu,
+    "top5_render_wall": report_top5_render_wall,
+    "top5_gpu":        report_top5_gpu,
     "parallel":        report_parallel,
     "pairs":           report_pairs,
     "scaling":         report_scaling,
@@ -986,6 +1119,11 @@ def main(argv=None):
         steptotals.to_csv(outdir / "physics_step_totals.csv", index=False)
         print(f"wrote {outdir/'physics_step_totals.csv'} ({len(steptotals)} rows)")
 
+        gputotals = gpu_frame_totals(df)
+        if not gputotals.empty:
+            gputotals.to_csv(outdir / "gpu_frame_totals.csv", index=False)
+            print(f"wrote {outdir/'gpu_frame_totals.csv'} ({len(gputotals)} rows)")
+
         par_eff = parallel_efficiency(df)
         if not par_eff.empty:
             par_eff.to_csv(outdir / "parallel_efficiency.csv", index=False)
@@ -1009,6 +1147,7 @@ def main(argv=None):
         plot_query_vs_work      (df, outdir)
         plot_island_distribution(df, outdir)
         plot_frametime_cdf      (df, outdir)
+        plot_gpu_frametime_cdf  (gputotals, outdir)
         plot_steptime_series    (steptotals, outdir)
         plot_crossthread        (df, steptotals, outdir)
         plot_narrowphase_mix    (df, outdir)

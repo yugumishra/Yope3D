@@ -1,6 +1,6 @@
 #include "Profiler.h"
 
-#ifndef NDEBUG
+#ifdef YOPE_PROF_ENABLED
 
 #include <vector>
 #include <mutex>
@@ -187,4 +187,4 @@ Scope::~Scope() {
 
 } // namespace Profiler
 
-#endif // !NDEBUG
+#endif // YOPE_PROF_ENABLED
