@@ -87,7 +87,17 @@ void bind_ecs(py::module_& m) {
             [](ecs::LightSource& l, math::Vec3 v) { l.position[0]=v.x; l.position[1]=v.y; l.position[2]=v.z; })
         .def_property("direction",
             [](const ecs::LightSource& l) { return math::Vec3{l.direction[0], l.direction[1], l.direction[2]}; },
-            [](ecs::LightSource& l, math::Vec3 v) { l.direction[0]=v.x; l.direction[1]=v.y; l.direction[2]=v.z; });
+            [](ecs::LightSource& l, math::Vec3 v) { l.direction[0]=v.x; l.direction[1]=v.y; l.direction[2]=v.z; })
+        // Attenuation (point/spot) + cone angles in radians (spot/flash). The spot
+        // shadow frustum's FOV is derived from outer_cone_angle. Prefer
+        // World.set_shadow_caster over toggling casts_shadow directly — it enforces
+        // the single-caster (radio) invariant the renderer relies on.
+        .def_readwrite("constant",         &ecs::LightSource::constant)
+        .def_readwrite("linear",           &ecs::LightSource::linear)
+        .def_readwrite("quadratic",        &ecs::LightSource::quadratic)
+        .def_readwrite("inner_cone_angle", &ecs::LightSource::innerConeAngle)
+        .def_readwrite("outer_cone_angle", &ecs::LightSource::outerConeAngle)
+        .def_readwrite("casts_shadow",     &ecs::LightSource::castsShadow);
 
     // Name — expose as str-like access
     py::class_<ecs::Name>(m, "Name")

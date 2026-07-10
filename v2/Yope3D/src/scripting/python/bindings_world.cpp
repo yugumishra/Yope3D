@@ -206,6 +206,26 @@ void bind_world(py::module_& m) {
              py::arg("font"), py::arg("text"), py::arg("pos"))
         // ---- Springs / misc ----
         .def("remove_spring_between", &World::removeSpringBetween, py::arg("a"), py::arg("b"))
+        // ---- Scene shadow caster (single caster; radio behavior) ----
+        // set_shadow_caster flags this light's LightSource.casts_shadow and clears
+        // it on every other light. Pass a spot/directional light entity; point
+        // lights aren't a supported caster type. clear_shadow_caster disables all.
+        // get_shadow_caster returns the current caster entity, or None if unset.
+        .def("set_shadow_caster",   &World::setShadowCaster, py::arg("entity"))
+        .def("clear_shadow_caster", &World::clearShadowCaster)
+        .def("get_shadow_caster",   [](World& w) -> py::object {
+            ecs::Entity e = w.getShadowCaster();
+            return (e == ecs::NullEntity) ? py::none() : py::cast(e);
+        })
+        // ---- World Settings: shadow tuning + exposure (see World.h for field docs) ----
+        .def_readwrite("exposure",                 &World::exposure)
+        .def_readwrite("shadow_bias",              &World::shadowBias)
+        .def_readwrite("shadow_normal_bias",       &World::shadowNormalBias)
+        .def_readwrite("shadow_pcf_radius",        &World::shadowPcfRadius)
+        .def_readwrite("shadow_ortho_half_extent", &World::shadowOrthoHalfExtent)
+        .def_readwrite("shadow_ortho_far",         &World::shadowOrthoFar)
+        .def_readwrite("shadow_spot_near",         &World::shadowSpotNear)
+        .def_readwrite("shadow_spot_far",          &World::shadowSpotFar)
         .def_readwrite("debug_physics", &World::debugPhysics)
         .def("set_paused", &World::setPaused, py::arg("paused"))
         .def_property("paused",

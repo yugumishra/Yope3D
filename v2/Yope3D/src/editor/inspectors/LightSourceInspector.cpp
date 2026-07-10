@@ -3,6 +3,7 @@
 #include "editor/EditorContext.h"
 #include "editor/commands/SetComponentCommand.h"
 #include "ecs/Components.h"
+#include "world/World.h"
 #include <imgui.h>
 #include <cmath>
 
@@ -75,6 +76,17 @@ void drawLightSourceComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
         if (ImGui::IsItemActivated()) before = *ls;
         if (ImGui::IsItemDeactivatedAfterEdit())
             ctx.history->execute(ctx, std::make_unique<SetComponentCommand<ecs::LightSource>>(e, before, *ls, "Edit Attenuation"));
+    }
+
+    // Shadow caster (Spot / Directional only — the only two supported caster
+    // types). Acts as a radio button: checking this light clears the flag on
+    // whichever light previously had it (World::setShadowCaster enforces that).
+    if ((ls->type == 1 || ls->type == 2) && ImGui::CollapsingHeader("Shadows", ImGuiTreeNodeFlags_DefaultOpen)) {
+        bool casts = ls->castsShadow;
+        if (ImGui::Checkbox("Scene Shadow Caster", &casts) && ctx.world) {
+            if (casts) ctx.world->setShadowCaster(e);
+            else       ctx.world->clearShadowCaster();
+        }
     }
 
     // Cone angles (Spot / Flash)

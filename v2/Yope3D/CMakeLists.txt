@@ -49,6 +49,7 @@ set(SHADER_SOURCES
     "${SHADER_SRC_DIR}/id_buffer.frag"
     "${SHADER_SRC_DIR}/id_buffer_ui.vert"
     "${SHADER_SRC_DIR}/id_buffer_ui.frag"
+    "${SHADER_SRC_DIR}/shadow_depth.vert"
 )
 
 set(COMPILED_SHADERS "")
@@ -194,6 +195,7 @@ set(ENGINE_SOURCES
     src/rendering/MeshBuild.cpp
     src/rendering/MaterialCache.cpp
     src/rendering/Skybox.cpp
+    src/rendering/ShadowMap.cpp
     src/rendering/Camera.cpp
     src/rendering/Light.cpp
     src/gpu/StorageImage.cpp

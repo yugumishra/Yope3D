@@ -1,10 +1,17 @@
 #version 450
 
 layout(set = 0, binding = 0) uniform GlobalUBO {
-    mat4 view;
-    mat4 proj;
-    vec3 cameraPos;
-    int  numLights;
+    mat4  view;
+    mat4  proj;
+    vec3  cameraPos;
+    int   numLights;
+    float exposure;
+    int   shadowLightIndex;
+    float shadowBias;
+    float shadowTexel;
+    mat4  lightViewProj;
+    float shadowNormalBias;
+    float shadowPcfRadius;
 } ubo;
 
 layout(push_constant) uniform PushConstants {

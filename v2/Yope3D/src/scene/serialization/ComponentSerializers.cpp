@@ -238,6 +238,7 @@ void serializeLightSource(const void* comp, JsonWriter& w) {
     w.writeFloat("quadratic",      ls->quadratic);
     w.writeFloat("innerConeAngle", ls->innerConeAngle);
     w.writeFloat("outerConeAngle", ls->outerConeAngle);
+    w.writeBool("castsShadow", ls->castsShadow);
 }
 
 bool deserializeLightSource(const JsonNode& n, void* comp) {
@@ -259,6 +260,7 @@ bool deserializeLightSource(const JsonNode& n, void* comp) {
     if (n.contains("quadratic"))    ls->quadratic      = n["quadratic"].asFloat();
     if (n.contains("innerConeAngle")) ls->innerConeAngle = n["innerConeAngle"].asFloat();
     if (n.contains("outerConeAngle")) ls->outerConeAngle = n["outerConeAngle"].asFloat();
+    if (n.contains("castsShadow"))    ls->castsShadow    = n["castsShadow"].asBool();
     return true;
 }
 

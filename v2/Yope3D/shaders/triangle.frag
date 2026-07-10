@@ -1,16 +1,27 @@
 #version 450
 
 layout(set = 0, binding = 0) uniform GlobalUBO {
-    mat4 view;
-    mat4 proj;
-    vec3 cameraPos;
-    int  numLights;
-    float exposure;   // global scene exposure, applied pre-tonemap
+    mat4  view;
+    mat4  proj;
+    vec3  cameraPos;
+    int   numLights;
+    float exposure;          // global scene exposure, applied pre-tonemap
+    int   shadowLightIndex;  // ordinal of the shadow-casting light in the loop below; -1 = none
+    float shadowBias;        // depth-compare bias (NDC-space), safety margin on top of the below
+    float shadowTexel;       // 1 / shadow map resolution, for the 3x3 PCF offsets
+    mat4  lightViewProj;     // shadow caster's proj * view
+    float shadowNormalBias;  // world-space offset along the surface normal before the light transform
+    float shadowPcfRadius;   // PCF kernel spread, in shadowTexel multiples
 } ubo;
 
 layout(std430, set = 0, binding = 1) readonly buffer LightBuffer {
     float lightData[];
 };
+
+// Plain (non-comparison) sampler — the depth compare below is done manually
+// rather than via hardware PCF, since MoltenVK's portability subset only
+// supports comparison samplers with an optional feature that isn't guaranteed.
+layout(set = 0, binding = 2) uniform sampler2D shadowMap;
 
 // Set 1 — PBR material maps.
 layout(set = 1, binding = 0) uniform sampler2D albedoMap;
@@ -164,6 +175,37 @@ void main() {
         float NdotL = max(dot(N, L), 0.0);
         if (NdotL <= 0.0) continue;
 
+        // Shadow (single scene caster, see World::getShadowCaster): only the light
+        // at this loop index is shadow-tested; every other light is unaffected.
+        float shadow = 1.0;
+        if (i == ubo.shadowLightIndex) {
+            // World-space normal offset before the light-space transform: the
+            // primary acne fix. A fixed NDC-space depth bias alone requires a large
+            // value to hide acne on grazing-angle surfaces (curved geometry, a box
+            // face seen edge-on), but that same large value then detaches ("peter
+            // pans") shadows on more head-on surfaces — shrinking round shadows and
+            // misaligning box corners. Offsetting the sample point along N instead
+            // scales naturally with the angle, so shadowBias below can stay small.
+            vec3 offsetPos = fragPos + N * ubo.shadowNormalBias;
+            vec4 lightClip = ubo.lightViewProj * vec4(offsetPos, 1.0);
+            vec3 lightNdc  = lightClip.xyz / lightClip.w;
+            vec2 shadowUV  = lightNdc.xy * 0.5 + 0.5;
+            // Outside the light's frustum (UV or far-plane) -> fully lit.
+            if (shadowUV.x >= 0.0 && shadowUV.x <= 1.0 &&
+                shadowUV.y >= 0.0 && shadowUV.y <= 1.0 && lightNdc.z <= 1.0) {
+                float compareDepth = lightNdc.z - ubo.shadowBias;
+                float sum = 0.0;
+                float texel = ubo.shadowTexel * ubo.shadowPcfRadius;
+                for (int sx = -1; sx <= 1; ++sx) {
+                    for (int sy = -1; sy <= 1; ++sy) {
+                        float occluderDepth = texture(shadowMap, shadowUV + vec2(sx, sy) * texel).r;
+                        sum += (occluderDepth < compareDepth) ? 0.0 : 1.0;
+                    }
+                }
+                shadow = sum / 9.0;
+            }
+        }
+
         float D = distributionGGX(N, H, roughness);
         float G = geometrySmith(NdotV, NdotL, roughness);
         vec3  F = fresnelSchlick(max(dot(H, V), 0.0), F0);
@@ -175,7 +217,7 @@ void main() {
         // model, so dividing by PI here made unchanged scenes ~3.14x too dim. Keeping
         // kd*albedo restores the historical diffuse brightness; the GGX specular lobe
         // is unaffected. Use ubo.exposure for global brightness control.
-        Lo += (kd * albedo + specular) * radiance * NdotL;
+        Lo += (kd * albedo + specular) * radiance * NdotL * shadow;
     }
 
     // Constant ambient term modulated by occlusion (no IBL yet), plus emissive.

@@ -37,9 +37,15 @@ namespace math {
 
         // View matrix (camera transform)
         static Mat4 view(const Vec3& position, const Vec3& rotation);
-        
+
         // Frustum utility (used by perspective)
         static Mat4 frustum(float left, float right, float bottom, float top, float near, float far);
+
+        // Right-handed look-at view matrix: world -> view space, eye looking toward target.
+        static Mat4 lookAt(const Vec3& eye, const Vec3& target, const Vec3& up);
+
+        // Orthographic projection matrix (Vulkan NDC: Y down, Z in [0,1]).
+        static Mat4 ortho(float left, float right, float bottom, float top, float near, float far);
     };
 }
 
@@ -209,9 +215,42 @@ namespace math {
 
         // 5. Final View Matrix = Rotation * Translation
         // post multiplication
-        // This ensures the translation is applied after the orientation 
+        // This ensures the translation is applied after the orientation
         // has been set for the world relative to the camera.
         return res * translation;
+    }
+
+    // Right-handed look-at (camera looks down local -Z, matching Mat4::view / frustum's
+    // -z-forward convention). Standard GL-style construction.
+    Mat4 Mat4::lookAt(const Vec3& eye, const Vec3& target, const Vec3& up) {
+        Vec3 f = (target - eye).normalize();
+        Vec3 s = f.cross(up).normalize();
+        Vec3 u = s.cross(f);
+
+        Mat4 res;
+        res.m[0] = s.x; res.m[1] = u.x; res.m[2] = -f.x; res.m[3] = 0.0f;
+        res.m[4] = s.y; res.m[5] = u.y; res.m[6] = -f.y; res.m[7] = 0.0f;
+        res.m[8] = s.z; res.m[9] = u.z; res.m[10] = -f.z; res.m[11] = 0.0f;
+        res.m[12] = -s.dot(eye);
+        res.m[13] = -u.dot(eye);
+        res.m[14] =  f.dot(eye);
+        res.m[15] = 1.0f;
+        return res;
+    }
+
+    // Orthographic projection. Mirrors frustum()'s conventions: Y scale negated
+    // (Vulkan NDC Y is down) and z mapped to the same [-1,1] range as perspective().
+    Mat4 Mat4::ortho(float left, float right, float bottom, float top, float near, float far) {
+        Mat4 res;
+        res.m[0]  = 2.0f / (right - left);
+        res.m[5]  = -2.0f / (top - bottom);
+        res.m[10] = -2.0f / (far - near);
+        res.m[11] = 0.0f;
+        res.m[12] = -(right + left) / (right - left);
+        res.m[13] = -(top + bottom) / (top - bottom);
+        res.m[14] = -(far + near) / (far - near);
+        res.m[15] = 1.0f;
+        return res;
     }
 }
 #endif

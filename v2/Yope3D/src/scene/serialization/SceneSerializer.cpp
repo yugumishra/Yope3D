@@ -72,6 +72,13 @@ bool save(const char* path, ecs::Registry& reg, World& world) {
     // World settings
     w.writeFloat3("gravity", world.gravity.x, world.gravity.y, world.gravity.z);
     w.writeFloat("exposure", world.exposure);
+    w.writeFloat("shadowBias", world.shadowBias);
+    w.writeFloat("shadowNormalBias", world.shadowNormalBias);
+    w.writeFloat("shadowPcfRadius", world.shadowPcfRadius);
+    w.writeFloat("shadowOrthoHalfExtent", world.shadowOrthoHalfExtent);
+    w.writeFloat("shadowOrthoFar", world.shadowOrthoFar);
+    w.writeFloat("shadowSpotNear", world.shadowSpotNear);
+    w.writeFloat("shadowSpotFar", world.shadowSpotFar);
 
     // Build a runtime-id → fileId map so SpringConstraint can write the
     // target's *fileId* (stable across runs) instead of its runtime ID
@@ -184,6 +191,15 @@ ParsedScene parseScene(const char* path) {
 
     // Exposure (older scenes without the key keep the 1.0 default).
     out.exposure = root.contains("exposure") ? root["exposure"].asFloat() : 1.0f;
+
+    // Shadow tuning (older scenes without these keys keep ParsedScene's defaults).
+    if (root.contains("shadowBias"))            out.shadowBias            = root["shadowBias"].asFloat();
+    if (root.contains("shadowNormalBias"))       out.shadowNormalBias      = root["shadowNormalBias"].asFloat();
+    if (root.contains("shadowPcfRadius"))        out.shadowPcfRadius       = root["shadowPcfRadius"].asFloat();
+    if (root.contains("shadowOrthoHalfExtent"))  out.shadowOrthoHalfExtent = root["shadowOrthoHalfExtent"].asFloat();
+    if (root.contains("shadowOrthoFar"))         out.shadowOrthoFar        = root["shadowOrthoFar"].asFloat();
+    if (root.contains("shadowSpotNear"))         out.shadowSpotNear        = root["shadowSpotNear"].asFloat();
+    if (root.contains("shadowSpotFar"))          out.shadowSpotFar         = root["shadowSpotFar"].asFloat();
 
     if (!root.contains("entities")) { out.ok = true; return out; }
 
@@ -397,7 +413,14 @@ void commitBegin(ParsedScene& ps, World& world) {
     if (ps.begun) return;
     world.resetPhysics();
     if (ps.hasGravity) world.gravity = ps.gravity;
-    world.exposure = ps.exposure;
+    world.exposure              = ps.exposure;
+    world.shadowBias            = ps.shadowBias;
+    world.shadowNormalBias      = ps.shadowNormalBias;
+    world.shadowPcfRadius       = ps.shadowPcfRadius;
+    world.shadowOrthoHalfExtent = ps.shadowOrthoHalfExtent;
+    world.shadowOrthoFar        = ps.shadowOrthoFar;
+    world.shadowSpotNear        = ps.shadowSpotNear;
+    world.shadowSpotFar         = ps.shadowSpotFar;
     ps.cursor = 0;
     ps.fileIdToEntity.clear();
     ps.begun = true;

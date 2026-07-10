@@ -524,6 +524,21 @@ class LightSource:
     """RGB in ``[0, 1]``."""
     position: Vec3
     direction: Vec3
+    constant: float
+    """Constant attenuation term (point/spot)."""
+    linear: float
+    """Linear attenuation term (point/spot)."""
+    quadratic: float
+    """Quadratic attenuation term (point/spot)."""
+    inner_cone_angle: float
+    """Spot/flash inner cone half-angle in radians (full intensity inside)."""
+    outer_cone_angle: float
+    """Spot/flash outer cone half-angle in radians (zero intensity outside). The
+    spot shadow frustum's FOV is derived from this."""
+    casts_shadow: bool
+    """Whether this light is the scene shadow caster. Prefer
+    :meth:`World.set_shadow_caster` over setting this directly — it enforces the
+    single-caster (radio) invariant the renderer relies on."""
 
 class Name:
     """Editor-visible entity name (fixed-size buffer; long names truncate)."""
@@ -708,6 +723,42 @@ class World:
     """Toggle the physics debug overlay (collider wireframes)."""
     paused: bool
     """Whether the physics simulation is paused (same as ``set_paused``)."""
+
+    # ------------------------------------------------------------------ #
+    # World Settings: rendering / shadow tuning (mirror the editor panel)
+    # ------------------------------------------------------------------ #
+
+    exposure: float
+    """Global scene exposure applied pre-tonemap in the PBR shader (default ``1.0``)."""
+    shadow_bias: float
+    """NDC-space depth-compare bias; last-resort acne margin (default ``0.0006``)."""
+    shadow_normal_bias: float
+    """World-space offset along the surface normal before the light transform — the
+    primary acne fix for grazing-angle surfaces (default ``0.035``). Too large
+    detaches shadows (peter-panning)."""
+    shadow_pcf_radius: float
+    """PCF softening kernel spread, in shadow-texel multiples (default ``1.0``)."""
+    shadow_ortho_half_extent: float
+    """Directional caster's camera-centered ortho box half-size; smaller = sharper
+    but a smaller shadowed radius (default ``20.0``)."""
+    shadow_ortho_far: float
+    """Directional caster's ortho far plane (default ``40.0``)."""
+    shadow_spot_near: float
+    """Spot caster's perspective near plane (default ``1.0``). Keep as large as the
+    scene allows — perspective depth precision is dominated by the near/far ratio,
+    and too small crushes occluder depths toward 1.0 into detached blob shadows."""
+    shadow_spot_far: float
+    """Spot caster's perspective far plane (default ``30.0``). Keep no larger than
+    the light's actual reach."""
+
+    def set_shadow_caster(self, entity: Entity) -> None:
+        """Mark ``entity``'s light as the single scene shadow caster (radio behavior:
+        clears ``casts_shadow`` on every other light). Pass a spot or directional
+        light; point lights aren't a supported caster type."""
+    def clear_shadow_caster(self) -> None:
+        """Disable shadow casting on all lights (no scene caster)."""
+    def get_shadow_caster(self) -> Entity | None:
+        """The current shadow-caster entity, or ``None`` if unset."""
 
     @property
     def tick_count(self) -> int:
@@ -1244,7 +1295,8 @@ class Camera:
     def set_rotation(self, r: Vec3) -> None:
         """Set the Euler rotation (pitch/yaw/roll) in radians."""
     def set_fov(self, fov: float) -> None:
-        """Set the vertical field of view in degrees."""
+        """Set the vertical field of view in **radians** (feeds ``tan(fov/2)``
+        directly — pass ``yope3d.to_radians(60)``, not ``60``)."""
     def get_forward(self) -> Vec3:
         """Return the camera forward direction in world space (unit length)."""
     def look_at(self, target: Vec3) -> None:
@@ -1546,23 +1598,23 @@ def reg_has(e: Entity, name: ComponentName) -> bool:
 def reg_valid(e: Entity) -> bool:
     """Return ``True`` if the entity handle is still alive (generation matches)."""
 
-def is_sleeping(e: Entity) -> bool:
+def is_sleeping(entity: Entity) -> bool:
     """Return ``True`` if the body is asleep (physics has parked it).
 
     ``wake(e)`` clears it. Also reachable via ``reg_has(e, "Sleeping")``.
     """
 
-def is_fixed(e: Entity) -> bool:
+def is_fixed(entity: Entity) -> bool:
     """Return ``True`` if the body carries the Fixed (static) tag.
 
     See ``fix_entity``. Also reachable via ``reg_has(e, "Fixed")``.
     """
 
-def reg_add(e: Entity, name: ComponentName) -> None:
+def reg_add(entity: Entity, name: ComponentName) -> None:
     """Add a default-constructed component to an entity.
 
     Args:
-        e: Target entity.
+        entity: Target entity.
         name: A ``ComponentName``.
 
     Raises:
@@ -1574,11 +1626,11 @@ def reg_add(e: Entity, name: ComponentName) -> None:
         afterward.
     """
 
-def reg_remove(e: Entity, name: ComponentName) -> None:
+def reg_remove(entity: Entity, name: ComponentName) -> None:
     """Remove a component from an entity (no-op if absent).
 
     Args:
-        e: Target entity.
+        entity: Target entity.
         name: A ``ComponentName``.
 
     Raises:
