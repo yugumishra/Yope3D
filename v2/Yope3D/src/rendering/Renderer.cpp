@@ -28,6 +28,18 @@
 #include <iostream>
 #include <algorithm>
 
+// GPU pass-timing brackets — see the GpuStage block in Renderer.h. Expand to
+// nothing (no member access at all) unless YOPE_PROF_ENABLED, matching the
+// Profiler.h macro convention so this instrumentation can never leak into a
+// Release build or an opt-out Debug build.
+#ifdef YOPE_PROF_ENABLED
+#define YOPE_GPU_STAGE_BEGIN(cmd, stage) beginGpuStage((cmd), GpuStage::stage)
+#define YOPE_GPU_STAGE_END(cmd, stage)   endGpuStage((cmd), GpuStage::stage)
+#else
+#define YOPE_GPU_STAGE_BEGIN(cmd, stage)
+#define YOPE_GPU_STAGE_END(cmd, stage)
+#endif
+
 // ---------------------------------------------------------------------------
 // packLightSource — packs ecs::LightSource into the same float stream as packLight().
 // ---------------------------------------------------------------------------
@@ -168,6 +180,10 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
     allocateCommandBuffers(gpu.device());
     createSyncObjects(gpu.device());
 
+#ifdef YOPE_PROF_ENABLED
+    createGpuTimestampPool(gpu);
+#endif
+
     // Raytracer (requires commandPool, so constructed last)
     createRaytracePass(gpu);
 #ifdef YOPE_EDITOR
@@ -209,6 +225,10 @@ void Renderer::waitIdle(GpuDevice& gpu) {
     // Destroy raytracer before destroying commandPool / buffers it references.
     raytracer_.reset();
     raytracePass_.reset();
+
+#ifdef YOPE_PROF_ENABLED
+    destroyGpuTimestampPool(gpu);
+#endif
 
     for (int i = 0; i < MAX_FRAMES; ++i) {
         vkDestroySemaphore(gpu.device(), imageAvailable[i], nullptr);
@@ -265,6 +285,106 @@ void Renderer::waitIdle(GpuDevice& gpu) {
     renderPass.reset();
     swapchain.reset();
 }
+
+#ifdef YOPE_PROF_ENABLED
+// ---------------------------------------------------------------------------
+// GPU pass timing (YOPE_PROF_ENABLED only) — see the GpuStage block in
+// Renderer.h. Feeds Profiler::emitRecord on the "render" thread, alongside
+// the existing CPU-side scopes (raster_cmdbuffer_record etc.), so
+// analyze_profile.py sees both without any changes on its end.
+// ---------------------------------------------------------------------------
+
+void Renderer::createGpuTimestampPool(GpuDevice& gpu) {
+    gpuTimestampPeriodNs_ = gpu.deviceProps().limits.timestampPeriod;
+    gpuTimestampsValid_   = gpuTimestampPeriodNs_ > 0.0f;
+    if (!gpuTimestampsValid_) return;
+
+    VkQueryPoolCreateInfo qi{};
+    qi.sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+    qi.queryType  = VK_QUERY_TYPE_TIMESTAMP;
+    qi.queryCount = kGpuStageCount * 2 * MAX_FRAMES;
+
+    if (vkCreateQueryPool(gpu.device(), &qi, nullptr, &gpuTimestampPool_) != VK_SUCCESS)
+        gpuTimestampsValid_ = false;
+}
+
+void Renderer::destroyGpuTimestampPool(GpuDevice& gpu) {
+    if (gpuTimestampPool_ != VK_NULL_HANDLE) {
+        vkDestroyQueryPool(gpu.device(), gpuTimestampPool_, nullptr);
+        gpuTimestampPool_ = VK_NULL_HANDLE;
+    }
+}
+
+void Renderer::resetGpuTimestamps(VkCommandBuffer cmd) {
+    if (!gpuTimestampsValid_) return;
+    uint32_t base = currentFrame * kGpuStageCount * 2;
+    vkCmdResetQueryPool(cmd, gpuTimestampPool_, base, kGpuStageCount * 2);
+    ++gpuFramesRecorded_;
+}
+
+void Renderer::beginGpuStage(VkCommandBuffer cmd, GpuStage stage) {
+    if (!gpuTimestampsValid_) return;
+    uint32_t idx = currentFrame * kGpuStageCount * 2 + static_cast<uint32_t>(stage) * 2;
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, gpuTimestampPool_, idx);
+}
+
+void Renderer::endGpuStage(VkCommandBuffer cmd, GpuStage stage) {
+    if (!gpuTimestampsValid_) return;
+    uint32_t idx = currentFrame * kGpuStageCount * 2 + static_cast<uint32_t>(stage) * 2 + 1;
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, gpuTimestampPool_, idx);
+}
+
+const char* Renderer::gpuStageName(GpuStage stage) {
+    switch (stage) {
+        case GpuStage::ShadowPass:       return "gpu_shadow_pass";
+        case GpuStage::Skybox:           return "gpu_skybox";
+        case GpuStage::SceneMeshes:      return "gpu_scene_meshes";
+        case GpuStage::DebugLines:       return "gpu_debug_lines";
+        case GpuStage::Text3D:           return "gpu_text3d";
+        case GpuStage::UIPass:           return "gpu_ui_pass";
+        case GpuStage::RaytraceDispatch: return "gpu_rt_dispatch";
+        case GpuStage::RaytraceBlit:     return "gpu_rt_blit";
+        default:                         return "gpu_unknown";
+    }
+}
+
+// Reads back the timestamps this same slot (currentFrame) recorded MAX_FRAMES
+// submissions ago. Called right after drawFrame's vkWaitForFences for
+// currentFrame, which already guarantees that submission has fully retired —
+// no VK_QUERY_RESULT_WAIT_BIT needed, and stages that didn't run this frame
+// (e.g. raytrace stages while in RASTER mode) simply report unavailable.
+void Renderer::collectGpuTimestamps(GpuDevice& gpu) {
+    if (!gpuTimestampsValid_) return;
+    if (gpuFramesRecorded_ < static_cast<uint64_t>(MAX_FRAMES)) return;
+
+    struct QueryResult { uint64_t value; uint64_t available; };
+    std::array<QueryResult, kGpuStageCount * 2> raw{};
+
+    uint32_t base = currentFrame * kGpuStageCount * 2;
+    VkResult qr = vkGetQueryPoolResults(
+        gpu.device(), gpuTimestampPool_, base, kGpuStageCount * 2,
+        sizeof(raw), raw.data(), sizeof(QueryResult),
+        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+    // VK_NOT_READY is expected here, not an error: with WITH_AVAILABILITY_BIT
+    // set and no WAIT_BIT, the driver still returns VK_NOT_READY whenever any
+    // requested query in the range is unavailable — which happens constantly
+    // in normal operation (shadow/skybox/scene-mesh stages skip while
+    // suppressScene_ is set during the load screen; raytrace stages never run
+    // in RASTER mode). Only bail on a genuine error (negative VkResult).
+    if (qr != VK_SUCCESS && qr != VK_NOT_READY) return;
+
+    for (uint32_t s = 0; s < kGpuStageCount; ++s) {
+        const QueryResult& beginQ = raw[s * 2 + 0];
+        const QueryResult& endQ   = raw[s * 2 + 1];
+        if (!beginQ.available || !endQ.available) continue;   // stage didn't run this cycle
+        if (endQ.value <= beginQ.value) continue;              // guard against wraparound/noise
+
+        double us = static_cast<double>(endQ.value - beginQ.value) *
+                    static_cast<double>(gpuTimestampPeriodNs_) / 1000.0;
+        Profiler::emitRecord(gpuStageName(static_cast<GpuStage>(s)), "render", us, 0);
+    }
+}
+#endif // YOPE_PROF_ENABLED
 
 void Renderer::createRaytracePass(GpuDevice& gpu) {
     raytracePass_ = std::make_unique<RenderPass>(
@@ -1044,10 +1164,16 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
 
+#ifdef YOPE_PROF_ENABLED
+    resetGpuTimestamps(cmd);
+#endif
+
     if (mode_ == RenderMode::RAYTRACE) {
         // ---- Raytracer path ----
         // Compute dispatch (outside any render pass), then blit into raytrace pass.
+        YOPE_GPU_STAGE_BEGIN(cmd, RaytraceDispatch);
         raytracer_->dispatch(cmd, currentFrame);
+        YOPE_GPU_STAGE_END(cmd, RaytraceDispatch);
 
         VkClearValue rtClear{};
         rtClear.color = {0.0f, 0.0f, 0.0f, 1.0f};
@@ -1072,14 +1198,20 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
         VkRect2D rtSc{ {0, 0}, swapchain->extent() };
         vkCmdSetScissor(cmd, 0, 1, &rtSc);
 
+        YOPE_GPU_STAGE_BEGIN(cmd, RaytraceBlit);
         raytracer_->recordBlit(cmd, currentFrame);
+        YOPE_GPU_STAGE_END(cmd, RaytraceBlit);
         vkCmdEndRenderPass(cmd);
 
     } else {
         // ---- Rasterizer path ----
         // Shadow depth pass (before the main pass — the render-pass dependencies on
         // both passes handle the write->sample ordering on the shared shadow image).
-        if (!suppressScene_) recordShadowPass(cmd, world);
+        if (!suppressScene_) {
+            YOPE_GPU_STAGE_BEGIN(cmd, ShadowPass);
+            recordShadowPass(cmd, world);
+            YOPE_GPU_STAGE_END(cmd, ShadowPass);
+        }
 
         VkClearValue clearValues[2]{};
         clearValues[0].color        = {0.05f, 0.05f, 0.05f, 1.0f};
@@ -1113,7 +1245,11 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
             0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
         // Skybox first (depth LEQUAL, no write), then re-bind the main pipeline.
-        if (!suppressScene_) recordSkybox(cmd);
+        if (!suppressScene_) {
+            YOPE_GPU_STAGE_BEGIN(cmd, Skybox);
+            recordSkybox(cmd);
+            YOPE_GPU_STAGE_END(cmd, Skybox);
+        }
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
             0, 1, &descriptorSets[currentFrame], 0, nullptr);
@@ -1136,12 +1272,22 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
             }
         }
 
-        if (!suppressScene_) recordSceneMeshes(cmd, world, assets);
+        if (!suppressScene_) {
+            YOPE_GPU_STAGE_BEGIN(cmd, SceneMeshes);
+            recordSceneMeshes(cmd, world, assets);
+            YOPE_GPU_STAGE_END(cmd, SceneMeshes);
+        }
 
         // Debug lines (also the loading-logo animation) — always on top.
+        YOPE_GPU_STAGE_BEGIN(cmd, DebugLines);
         recordDebugLines(cmd, swapchain->extent());
+        YOPE_GPU_STAGE_END(cmd, DebugLines);
         // 3D world-space text — depth-tested against the scene, before pass end.
-        if (!suppressScene_) recordText3D(cmd);
+        if (!suppressScene_) {
+            YOPE_GPU_STAGE_BEGIN(cmd, Text3D);
+            recordText3D(cmd);
+            YOPE_GPU_STAGE_END(cmd, Text3D);
+        }
 
         vkCmdEndRenderPass(cmd);
     }
@@ -1159,6 +1305,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
         allUICalls.insert(allUICalls.end(), ecsUIDrawCalls_.begin(), ecsUIDrawCalls_.end());
 
         if (!allUICalls.empty()) {
+            YOPE_GPU_STAGE_BEGIN(cmd, UIPass);
             VkRenderPassBeginInfo uiRpbi{};
             uiRpbi.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             uiRpbi.renderPass        = uiRenderPass->get();
@@ -1209,6 +1356,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
             }
 
             vkCmdEndRenderPass(cmd);
+            YOPE_GPU_STAGE_END(cmd, UIPass);
         }
     }
 
@@ -1843,6 +1991,13 @@ void Renderer::recordDebugLines(VkCommandBuffer cmd, VkExtent2D extent) {
 void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, World& world,
                         AssetManager& assets) {
     vkWaitForFences(gpu.device(), 1, &inFlightFence[currentFrame], VK_TRUE, UINT64_MAX);
+
+#ifdef YOPE_PROF_ENABLED
+    // This slot's fence just confirmed the GPU has fully retired the submission
+    // that last wrote its timestamps (MAX_FRAMES submissions ago) — safe to
+    // read back now, before recordCommandBuffer resets and reuses the slot.
+    collectGpuTimestamps(gpu);
+#endif
 
     uint32_t imageIndex;
     VkResult result = vkAcquireNextImageKHR(gpu.device(), swapchain->handle(),

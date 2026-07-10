@@ -1,7 +1,9 @@
 #pragma once
 
-// Per-stage timing instrumentation — debug builds only.
-// In release (NDEBUG defined) all macros expand to nothing, zero overhead.
+// Per-stage timing instrumentation — opt-in via YOPE_PROF_ENABLED.
+// Configure with -DYOPE_ENABLE_PROFILER=ON (any build type); without it all
+// macros expand to nothing, zero overhead. Decoupled from NDEBUG/build type
+// on purpose — debug builds no longer silently accumulate CSVs on every run.
 //
 // Usage:
 //   YOPE_PROF_INIT("yope_profile.csv");                  // once at startup
@@ -18,7 +20,7 @@
 //   object_count, island_count, contact_count, archetype_count, archetype_migrations,
 //   scope_n
 
-#ifndef NDEBUG
+#ifdef YOPE_PROF_ENABLED
 
 #include <chrono>
 
@@ -71,7 +73,7 @@ private:
 #define YOPE_PROF_SET_ARCHETYPE_MIGRATIONS(n)      ::Profiler::setArchetypeMigrations(static_cast<int>(n))
 #define YOPE_PROF_EMIT(stage, thread, us, n)       ::Profiler::emitRecord(stage, thread, us, static_cast<int>(n))
 
-#else // NDEBUG
+#else // YOPE_PROF_ENABLED
 
 #define YOPE_PROF_INIT(path)
 #define YOPE_PROF_SHUTDOWN()
@@ -87,4 +89,4 @@ private:
 #define YOPE_PROF_SET_ARCHETYPE_MIGRATIONS(n)
 #define YOPE_PROF_EMIT(stage, thread, us, n)
 
-#endif // NDEBUG
+#endif // YOPE_PROF_ENABLED

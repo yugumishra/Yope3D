@@ -78,6 +78,8 @@ add_custom_target(compile_shaders ALL DEPENDS ${COMPILED_SHADERS})
 # for an ordinary compile (the committed atlases are picked up by GLOB embed).
 # ---------------------------------------------------------------------------
 
+option(YOPE_ENABLE_PROFILER "Enable Profiler instrumentation (writes timestamped CSVs each run)" OFF)
+
 option(YOPE_BAKE_FONTS "Build the MSDF baker and regenerate font atlases" OFF)
 set(YOPE_MSDF_PX_RANGE  4  CACHE STRING "MSDF distance range in atlas texels")
 set(YOPE_MSDF_BAKE_SIZE 48 CACHE STRING "MSDF glyph bake size (pixels per em)")
@@ -323,6 +325,7 @@ target_compile_definitions(yope3d PRIVATE
     YOPE_SHADER_DIR="${CMAKE_SOURCE_DIR}/compiled_shaders"
     YOPE_SCRIPTS_DIR="${CMAKE_SOURCE_DIR}/scripts"
     $<$<BOOL:${YOPE_EMBED_ASSETS}>:YOPE_EMBED_ASSETS>
+    $<$<BOOL:${YOPE_ENABLE_PROFILER}>:YOPE_PROF_ENABLED>
 )
 
 target_link_libraries(yope3d PRIVATE
@@ -369,6 +372,7 @@ target_compile_definitions(yope_editor PRIVATE
     YOPE_SHADER_DIR="${CMAKE_SOURCE_DIR}/compiled_shaders"
     YOPE_SCRIPTS_DIR="${CMAKE_SOURCE_DIR}/scripts"
     $<$<BOOL:${YOPE_EMBED_ASSETS}>:YOPE_EMBED_ASSETS>
+    $<$<BOOL:${YOPE_ENABLE_PROFILER}>:YOPE_PROF_ENABLED>
 )
 
 target_link_libraries(yope_editor PRIVATE
@@ -436,6 +440,9 @@ add_executable(yope_physics_tests
 )
 
 target_include_directories(yope_physics_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+target_compile_definitions(yope_physics_tests PRIVATE
+    $<$<BOOL:${YOPE_ENABLE_PROFILER}>:YOPE_PROF_ENABLED>
+)
 target_link_libraries(yope_physics_tests PRIVATE Catch2::Catch2WithMain)
 
 # ---------------------------------------------------------------------------

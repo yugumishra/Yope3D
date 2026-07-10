@@ -439,11 +439,12 @@ void bind_world(py::module_& m) {
     // Wall-clock seconds since engine startup (GLFW timer).
     m.def("time", []() { return glfwGetTime(); });
 
-    // Stamp the profiler CSV's `scene` column (debug builds; no-op under NDEBUG).
-    // Profiler::setScene stores the pointer directly (string-literal contract),
-    // so Python strings are interned here to give them static lifetime.
+    // Stamp the profiler CSV's `scene` column (opt-in via YOPE_PROF_ENABLED;
+    // no-op otherwise). Profiler::setScene stores the pointer directly
+    // (string-literal contract), so Python strings are interned here to give
+    // them static lifetime.
     m.def("set_profile_scene", [](const std::string& name) {
-#ifndef NDEBUG
+#ifdef YOPE_PROF_ENABLED
         static std::unordered_set<std::string> interned;
         Profiler::setScene(interned.insert(name).first->c_str());
 #else
