@@ -14,6 +14,7 @@
 #include "../world/World.h"
 #include "RenderMode.h"
 #include "Skybox.h"
+#include "../math/Mat4.h"
 
 class GpuDevice;
 class Window;
@@ -25,6 +26,7 @@ class DescriptorSetLayout;
 class DescriptorPool;
 class UIManager;
 class Raytracer;
+class ShadowMap;
 
 // ---------------------------------------------------------------------------
 // Renderer
@@ -85,6 +87,14 @@ private:
     Skybox           skybox_;
     VkPipelineLayout skyboxPipelineLayout_ = VK_NULL_HANDLE;
     VkPipeline       skyboxPipeline_       = VK_NULL_HANDLE;
+
+    // Single generic shadow caster (see World::getShadowCaster). Independent of the
+    // swapchain — one fixed-resolution depth map, rendered before the main 3D pass
+    // in both the runtime and editor-offscreen record paths.
+    std::unique_ptr<RenderPass> shadowPass_;
+    std::unique_ptr<ShadowMap>  shadowMap_;
+    VkPipelineLayout             shadowPipelineLayout_ = VK_NULL_HANDLE;
+    VkPipeline                   shadowPipeline_        = VK_NULL_HANDLE;
 
     std::vector<VkFramebuffer> framebuffers;
 
@@ -161,6 +171,14 @@ private:
     void createTextureSetLayout(VkDevice device);
     void createMaterialSetLayout(VkDevice device);
     void createSkyboxPipeline(VkDevice device);
+
+    // Shadow map: fixed-resolution, independent of the swapchain. createShadowPass
+    // builds shadowPass_ + shadowMap_; createShadowPipeline builds the depth-only
+    // pipeline against it. recordShadowPass renders the caster's depth (no-op if
+    // World::getShadowCaster() is NullEntity this frame).
+    void createShadowPass(GpuDevice& gpu);
+    void createShadowPipeline(VkDevice device);
+    void recordShadowPass(VkCommandBuffer cmd, World& world);
 
     // Records the scene mesh draws (mesh loop + debug-physics meshes) into the
     // main 3D pass. Shared by the runtime and editor-offscreen record paths.

@@ -1171,6 +1171,27 @@ ecs::Entity World::addUIText(const char* fontPath, const char* text,
     return e;
 }
 
+// ---- Shadow caster ----
+
+void World::setShadowCaster(ecs::Entity e) {
+    for (auto [ent, ls] : registry_.view<ecs::LightSource>()) {
+        ls.castsShadow = (ent == e);
+    }
+    shadowCaster_ = (e != ecs::NullEntity && registry_.has<ecs::LightSource>(e)) ? e : ecs::NullEntity;
+}
+
+ecs::Entity World::getShadowCaster() {
+    if (shadowCaster_ != ecs::NullEntity && registry_.has<ecs::LightSource>(shadowCaster_) &&
+        registry_.get<ecs::LightSource>(shadowCaster_)->castsShadow) {
+        return shadowCaster_;
+    }
+    shadowCaster_ = ecs::NullEntity;
+    for (auto [e, ls] : registry_.view<ecs::LightSource>()) {
+        if (ls.castsShadow) { shadowCaster_ = e; break; }
+    }
+    return shadowCaster_;
+}
+
 void World::removeLight(int index) {
     if (index >= 0 && index < static_cast<int>(lightEntities_.size())) {
         registry_.destroy(lightEntities_[index]);

@@ -26,6 +26,13 @@ public:
     // finalLayout = SHADER_READ_ONLY_OPTIMAL so ImGui can sample the result.
     static RenderPass createOffscreenRaytracePass(VkDevice device, VkFormat colorFormat);
 
+    // Shadow depth pass: single depth-only attachment, clears each frame, finalLayout
+    // = DEPTH_STENCIL_READ_ONLY_OPTIMAL so the main pass can sample it directly. The
+    // shadow map is a persistent image reused every frame (like the main depth
+    // buffer) — dependencies guard both the previous frame's sampled-read before this
+    // frame's write, and this frame's write before the main pass samples it.
+    static RenderPass createShadowPass(VkDevice device, VkFormat depthFormat);
+
     // UI offscreen pass (YOPE_EDITOR): loads existing color (preserves the 3D
     // game pass underneath), no depth attachment, initialLayout and finalLayout
     // both SHADER_READ_ONLY_OPTIMAL so the same texture stays consumable by ImGui.

@@ -359,6 +359,60 @@ RenderPass RenderPass::createOffscreenRaytracePass(VkDevice device, VkFormat col
     return RenderPass(device, rp);
 }
 
+RenderPass RenderPass::createShadowPass(VkDevice device, VkFormat depthFormat) {
+    VkAttachmentDescription depthAttachment{};
+    depthAttachment.format         = depthFormat;
+    depthAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    depthAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+    VkAttachmentReference depthRef{ 0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount    = 0;
+    subpass.pDepthStencilAttachment = &depthRef;
+
+    // Two dependencies, both against the same persistent shadow-map image:
+    //  1. EXTERNAL -> subpass 0: the previous frame's main pass sampled this image
+    //     in FRAGMENT_SHADER; wait for that read before this frame's clear/write.
+    //  2. subpass 0 -> EXTERNAL: this frame's depth write must complete (and layout
+    //     transition to DEPTH_STENCIL_READ_ONLY_OPTIMAL) before the main pass's
+    //     fragment shader samples it later this same frame.
+    VkSubpassDependency deps[2]{};
+    deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[0].dstSubpass    = 0;
+    deps[0].srcStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    deps[0].dstStageMask  = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    deps[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+    deps[1].srcSubpass    = 0;
+    deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[1].srcStageMask  = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    deps[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    deps[1].dstStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    VkRenderPassCreateInfo createInfo{};
+    createInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    createInfo.attachmentCount = 1;
+    createInfo.pAttachments    = &depthAttachment;
+    createInfo.subpassCount    = 1;
+    createInfo.pSubpasses      = &subpass;
+    createInfo.dependencyCount = 2;
+    createInfo.pDependencies   = deps;
+
+    VkRenderPass rp = VK_NULL_HANDLE;
+    if (vkCreateRenderPass(device, &createInfo, nullptr, &rp) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create shadow render pass");
+    return RenderPass(device, rp);
+}
+
 RenderPass::~RenderPass() {
     if (renderPass != VK_NULL_HANDLE)
         vkDestroyRenderPass(device, renderPass, nullptr);

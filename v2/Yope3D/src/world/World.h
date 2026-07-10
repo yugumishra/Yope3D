@@ -208,6 +208,17 @@ public:
     const std::array<std::string, 6>& skyboxFaces() const { return skyboxFaces_; }
     int  getLightCount() const { return static_cast<int>(lightEntities_.size()); }
 
+    // ---- Shadow caster (single, generic — any light type with castsShadow set) ----
+    // setShadowCaster acts as a radio button: flags `e`'s LightSource.castsShadow and
+    // clears it on every other light. Pass NullEntity (or call clearShadowCaster) to
+    // disable shadows entirely.
+    void setShadowCaster(ecs::Entity e);
+    void clearShadowCaster() { setShadowCaster(ecs::NullEntity); }
+    // Lazily re-validates/re-scans the registry for the flagged caster (self-heals
+    // after deserialization, undo/redo, or entity deletion — no scene-load hook
+    // needed). Returns NullEntity if no light is flagged.
+    ecs::Entity getShadowCaster();
+
     // ---- Simulation ----
     void advance(float dt);
     void resetPhysics();
@@ -249,6 +260,31 @@ public:
 
     // Global scene exposure applied pre-tonemap in the PBR shader (World Settings).
     float exposure = 1.0f;
+
+    // ---- Shadow tuning (World Settings) ----
+    // shadowBias: NDC-space depth-compare bias, last-resort safety margin on top of
+    //   the normal-offset below (see triangle.frag) and the shadow pipeline's
+    //   rasterizer depth bias. shadowNormalBias: world-space offset along the
+    //   surface normal before the light-space transform — the primary acne fix for
+    //   grazing-angle surfaces (curved geometry, box corners/edges seen edge-on);
+    //   too small and those surfaces show acne, too large and shadows detach
+    //   (peter-panning). shadowPcfRadius: multiplier on the fixed-texel PCF kernel
+    //   spread (1.0 = 1 texel). shadowOrthoHalfExtent/shadowOrthoFar: size of the
+    //   directional-caster's camera-centered ortho box — smaller = sharper/more
+    //   precise shadows but a smaller shadowed radius around the camera.
+    //   shadowSpotNear/shadowSpotFar: near/far planes of the spot-caster's
+    //   perspective shadow frustum. Keep the near plane as large as the scene
+    //   allows and the far plane no larger than the light's actual reach —
+    //   perspective depth precision is dominated by their ratio, and a too-small
+    //   near (or too-large far) crushes all occluder depths toward 1.0, producing
+    //   unstable, detached ("peter-panned") blob shadows.
+    float shadowBias             = 0.0006f;
+    float shadowNormalBias       = 0.035f;
+    float shadowPcfRadius        = 1.0f;
+    float shadowOrthoHalfExtent  = 20.0f;
+    float shadowOrthoFar         = 40.0f;
+    float shadowSpotNear         = 1.0f;
+    float shadowSpotFar          = 30.0f;
 
     physics::CollisionLayers layers;
 
@@ -319,6 +355,8 @@ private:
     std::array<std::string, 6> skyboxFaces_{};
     bool                       skyboxDirty_ = false;
     bool                       hasSkybox_   = false;
+
+    ecs::Entity shadowCaster_ = ecs::NullEntity;  // cache; see getShadowCaster()
 
     std::vector<TransformSnapshot> snapshotBack_, snapshotFront_;
     std::vector<SpringSnapshot>    springSnapshotBack_, springSnapshotFront_;

@@ -1,6 +1,7 @@
 #include "Renderer.h"
 #include "Raytracer.h"
 #include "Camera.h"
+#include "ShadowMap.h"
 #ifdef YOPE_EDITOR
 #include "rendering/ViewportTarget.h"
 #endif
@@ -12,6 +13,7 @@
 #include "gpu/DescriptorPool.h"
 #include "gpu/Texture.h"
 #include "math/Mat4.h"
+#include "math/Math.h"
 #include "platform/Window.h"
 #include "assets/AssetManager.h"
 #include "ui/UIManager.h"
@@ -24,6 +26,7 @@
 #include <vector>
 #include <cstring>
 #include <iostream>
+#include <algorithm>
 
 // ---------------------------------------------------------------------------
 // packLightSource — packs ecs::LightSource into the same float stream as packLight().
@@ -69,14 +72,25 @@ static std::vector<float> packLightSource(const ecs::LightSource& ls) {
 // numLights:   int (replaces _pad, same 4-byte slot).
 // ---------------------------------------------------------------------------
 
+// shadowLightIndex/shadowBias/shadowTexel occupy the 3 scalar slots between
+// exposure and lightViewProj — this exactly fills std140's implicit padding up to
+// the next 16-byte boundary (144+4+4+4+4=160), so lightViewProj needs no manual
+// padding float on either side. Keep the declaration order below and in
+// triangle.vert/triangle.frag/shadow_depth.vert's GlobalUBO block identical.
 struct GlobalUBO {
-    math::Mat4 view;        // 64 bytes
-    math::Mat4 proj;        // 64 bytes
-    float      cameraPos[3]; // 12 bytes — vec3 body
-    int        numLights;    //  4 bytes — std140 pads vec3 to vec4, now holds light count
-    float      exposure;     //  4 bytes — global pre-tonemap exposure
+    math::Mat4 view;             // 64 bytes
+    math::Mat4 proj;             // 64 bytes
+    float      cameraPos[3];     // 12 bytes — vec3 body
+    int        numLights;        //  4 bytes — std140 pads vec3 to vec4, now holds light count
+    float      exposure;         //  4 bytes — global pre-tonemap exposure
+    int        shadowLightIndex; //  4 bytes — ordinal in the light loop; -1 = no shadow caster
+    float      shadowBias;       //  4 bytes — depth-compare bias, safety margin on top of the below
+    float      shadowTexel;      //  4 bytes — 1/shadow map resolution, for manual PCF offsets
+    math::Mat4 lightViewProj;    // 64 bytes — the shadow caster's proj * view
+    float      shadowNormalBias; //  4 bytes — world-space offset along the surface normal
+    float      shadowPcfRadius;  //  4 bytes — PCF kernel spread, in shadowTexel multiples
 };
-static_assert(sizeof(GlobalUBO) == 148, "GlobalUBO size must match std140 layout");
+static_assert(sizeof(GlobalUBO) == 232, "GlobalUBO size must match std140 layout");
 
 // ---------------------------------------------------------------------------
 // Default quad (normals pointing toward camera at +Z)
@@ -133,11 +147,13 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
     createUBOLayout(gpu.device());
     createTextureSetLayout(gpu.device());
     createMaterialSetLayout(gpu.device());
+    createShadowPass(gpu);   // must precede createDescriptorSets — writes binding 2
     createUniformBuffers(gpu);
     createLightBuffers(gpu);
     createDescriptorPool(gpu.device());
     createDescriptorSets(gpu.device());
     createPipeline(gpu.device());
+    createShadowPipeline(gpu.device());
     createSkyboxPipeline(gpu.device());
     createFramebuffers(gpu.device());
     createUIRenderPass(gpu);
@@ -212,6 +228,12 @@ void Renderer::waitIdle(GpuDevice& gpu) {
     vkDestroyPipeline(gpu.device(), skyboxPipeline_, nullptr);
     vkDestroyPipelineLayout(gpu.device(), skyboxPipelineLayout_, nullptr);
 
+    // Shadow map cleanup
+    vkDestroyPipeline(gpu.device(), shadowPipeline_, nullptr);
+    vkDestroyPipelineLayout(gpu.device(), shadowPipelineLayout_, nullptr);
+    shadowMap_.reset();
+    shadowPass_.reset();
+
     // UI pipeline cleanup
     vkDestroyPipeline(gpu.device(), uiPipeline, nullptr);
     vkDestroyPipelineLayout(gpu.device(), uiPipelineLayout, nullptr);
@@ -262,7 +284,7 @@ void Renderer::createRenderPass(GpuDevice& gpu) {
 // ---------------------------------------------------------------------------
 
 void Renderer::createUBOLayout(VkDevice device) {
-    // Binding 0: GlobalUBO (view, proj, cameraPos, numLights)
+    // Binding 0: GlobalUBO (view, proj, cameraPos, numLights, shadow fields)
     VkDescriptorSetLayoutBinding uboBinding{};
     uboBinding.binding         = 0;
     uboBinding.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -276,7 +298,14 @@ void Renderer::createUBOLayout(VkDevice device) {
     ssboBinding.descriptorCount = 1;
     ssboBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;  // Fragment stage only
 
-    uboLayout = std::make_unique<DescriptorSetLayout>(device, std::vector{uboBinding, ssboBinding});
+    // Binding 2: shadow map (comparison sampler2DShadow, fragment stage only)
+    VkDescriptorSetLayoutBinding shadowBinding{};
+    shadowBinding.binding         = 2;
+    shadowBinding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    shadowBinding.descriptorCount = 1;
+    shadowBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    uboLayout = std::make_unique<DescriptorSetLayout>(device, std::vector{uboBinding, ssboBinding, shadowBinding});
 }
 
 void Renderer::createTextureSetLayout(VkDevice device) {
@@ -379,6 +408,127 @@ void Renderer::createSkyboxPipeline(VkDevice device) {
         throw std::runtime_error("Failed to create skybox pipeline");
 }
 
+void Renderer::createShadowPass(GpuDevice& gpu) {
+    shadowPass_ = std::make_unique<RenderPass>(
+        RenderPass::createShadowPass(gpu.device(), VK_FORMAT_D32_SFLOAT));
+    shadowMap_ = std::make_unique<ShadowMap>(gpu, shadowPass_->get());
+}
+
+void Renderer::createShadowPipeline(VkDevice device) {
+    ShaderModule vert(device, std::string(YOPE_SHADER_DIR) + "/shadow_depth.vert.spv");
+
+    VkPipelineShaderStageCreateInfo stage{};
+    stage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stage.stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    stage.module = vert.get();
+    stage.pName  = "main";
+
+    // Same vertex input as the main pipeline (32-byte PackedVertex) — the shader
+    // only reads inPosition (location 0), but sharing the binding/attribute layout
+    // lets the shadow pass draw the exact same vertex/index buffers with no re-upload.
+    VkVertexInputBindingDescription binding{};
+    binding.binding   = 0;
+    binding.stride    = sizeof(PackedVertex);
+    binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    VkVertexInputAttributeDescription attr{};
+    attr.location = 0; attr.binding = 0;
+    attr.format   = VK_FORMAT_R32G32B32_SFLOAT;
+    attr.offset   = offsetof(PackedVertex, position);
+
+    VkPipelineVertexInputStateCreateInfo vertexInput{};
+    vertexInput.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInput.vertexBindingDescriptionCount   = 1;
+    vertexInput.pVertexBindingDescriptions      = &binding;
+    vertexInput.vertexAttributeDescriptionCount = 1;
+    vertexInput.pVertexAttributeDescriptions    = &attr;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkDynamicState dynStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = 2;
+    dynamicState.pDynamicStates    = dynStates;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount  = 1;
+
+    // No culling — matches the main pipeline's convention (cullMode = NONE at its
+    // creation site), since this engine doesn't guarantee consistent front-face
+    // winding across all meshes/transforms (mirrored/negative-scale transforms
+    // flip winding). Front-face culling was tried as an acne mitigation but
+    // silently drops an object's entire shadow whenever its winding doesn't match
+    // the assumed convention — worse than the acne it was meant to fix. Rely on
+    // slope-scaled depth bias alone instead.
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.polygonMode             = VK_POLYGON_MODE_FILL;
+    rasterizer.cullMode                = VK_CULL_MODE_NONE;
+    rasterizer.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.lineWidth               = 1.0f;
+    rasterizer.depthBiasEnable         = VK_TRUE;
+    rasterizer.depthBiasConstantFactor = 1.25f;
+    rasterizer.depthBiasSlopeFactor    = 1.75f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    // No color attachment — depth-only pass.
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlend.attachmentCount = 0;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable       = VK_TRUE;
+    depthStencil.depthWriteEnable      = VK_TRUE;
+    depthStencil.depthCompareOp        = VK_COMPARE_OP_LESS;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable     = VK_FALSE;
+
+    // Push constant: mat4 model only (64 bytes). Reads lightViewProj from GlobalUBO
+    // (set 0, binding 0 — already bound; no separate descriptor set needed).
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pushRange.offset     = 0;
+    pushRange.size       = 64;
+
+    VkDescriptorSetLayout setLayouts[1] = { uboLayout->get() };
+    VkPipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount         = 1;
+    layoutInfo.pSetLayouts            = setLayouts;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges    = &pushRange;
+    if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &shadowPipelineLayout_) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create shadow pipeline layout");
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount          = 1;
+    pipelineInfo.pStages             = &stage;
+    pipelineInfo.pVertexInputState   = &vertexInput;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState      = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState   = &multisampling;
+    pipelineInfo.pColorBlendState    = &colorBlend;
+    pipelineInfo.pDepthStencilState  = &depthStencil;
+    pipelineInfo.pDynamicState       = &dynamicState;
+    pipelineInfo.layout              = shadowPipelineLayout_;
+    pipelineInfo.renderPass          = shadowPass_->get();
+    pipelineInfo.subpass             = 0;
+
+    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &shadowPipeline_) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create shadow pipeline");
+}
+
 void Renderer::updateSkybox(GpuDevice& gpu, World& world) {
     if (!world.skyboxDirty()) return;
     skybox_.init(gpu, commandPool, textureSetLayout->get(), world.skyboxFaces());
@@ -410,8 +560,9 @@ void Renderer::createLightBuffers(GpuDevice& gpu) {
 }
 
 void Renderer::createDescriptorPool(VkDevice device) {
-    // Pool sizes for both UBO (binding 0) and SSBO (binding 1) per frame
-    VkDescriptorPoolSize poolSizes[2]{};
+    // Pool sizes for UBO (binding 0), SSBO (binding 1), and the shadow sampler
+    // (binding 2) per frame.
+    VkDescriptorPoolSize poolSizes[3]{};
 
     poolSizes[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = MAX_FRAMES;  // one UBO per frame
@@ -419,7 +570,11 @@ void Renderer::createDescriptorPool(VkDevice device) {
     poolSizes[1].type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     poolSizes[1].descriptorCount = MAX_FRAMES;  // one SSBO per frame
 
-    descriptorPool = std::make_unique<DescriptorPool>(device, std::vector{poolSizes[0], poolSizes[1]}, MAX_FRAMES);
+    poolSizes[2].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[2].descriptorCount = MAX_FRAMES;  // one shadow sampler per frame
+
+    descriptorPool = std::make_unique<DescriptorPool>(
+        device, std::vector{poolSizes[0], poolSizes[1], poolSizes[2]}, MAX_FRAMES);
 }
 
 void Renderer::createDescriptorSets(VkDevice device) {
@@ -461,8 +616,22 @@ void Renderer::createDescriptorSets(VkDevice device) {
         ssboWrite.descriptorCount = 1;
         ssboWrite.pBufferInfo     = &ssboBuf;
 
-        VkWriteDescriptorSet writes[2] = {uboWrite, ssboWrite};
-        vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+        // Write binding 2: shadow map (shared single resource, same for both frames)
+        VkDescriptorImageInfo shadowImg{};
+        shadowImg.sampler     = shadowMap_->sampler();
+        shadowImg.imageView   = shadowMap_->imageView();
+        shadowImg.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet shadowWrite{};
+        shadowWrite.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        shadowWrite.dstSet          = descriptorSets[i];
+        shadowWrite.dstBinding      = 2;
+        shadowWrite.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        shadowWrite.descriptorCount = 1;
+        shadowWrite.pImageInfo      = &shadowImg;
+
+        VkWriteDescriptorSet writes[3] = {uboWrite, ssboWrite, shadowWrite};
+        vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
     }
 }
 
@@ -715,6 +884,49 @@ struct PBRPush {
     float      emissive[4]; // 16  rgb + _
 };
 static_assert(sizeof(PBRPush) == 112, "PBRPush must match pushRange size");
+
+// Push constant for shadow_depth.vert — model matrix only.
+struct ShadowPush {
+    math::Mat4 model;  // 64
+};
+static_assert(sizeof(ShadowPush) == 64, "ShadowPush must match shadow pipeline push range");
+
+// Computes lightViewProj (proj * view) for the flagged shadow caster. Spot lights
+// get a perspective frustum from position/direction/outerConeAngle; directional
+// lights get an orthographic box centered on the camera, sized by World's
+// shadowOrthoHalfExtent/shadowOrthoFar (World Settings — coarse fixed-extent fit,
+// not scene-AABB-fitted; cascades are future work). Point lights aren't a
+// supported caster type (World::setShadowCaster only flags spot/directional in
+// the inspector).
+math::Mat4 computeShadowLightViewProj(const ecs::LightSource& ls, const math::Vec3& cameraPos,
+                                      float orthoHalfExtent, float orthoFar,
+                                      float spotNear, float spotFar) {
+    math::Vec3 dir{ls.direction[0], ls.direction[1], ls.direction[2]};
+    if (dir.length() < 1e-6f) dir = {0.0f, -1.0f, 0.0f};
+    dir = dir.normalize();
+    math::Vec3 up = (std::abs(dir.y) > 0.99f) ? math::Vec3{1.0f, 0.0f, 0.0f} : math::Vec3{0.0f, 1.0f, 0.0f};
+
+    if (ls.type == 2) {  // Spot
+        math::Vec3 pos{ls.position[0], ls.position[1], ls.position[2]};
+        math::Mat4 view = math::Mat4::lookAt(pos, pos + dir, up);
+        float fov = math::clamp(2.0f * ls.outerConeAngle, 0.1f, 3.0f);
+        // near/far bracket the light's actual reach (World Settings). Perspective
+        // depth precision is dominated by near — too small (or far too large) piles
+        // all occluder depths at ~1.0 and the depth compare degenerates into
+        // detached blob shadows. Guard the ordering so a bad config can't invert it.
+        float n = std::max(spotNear, 0.01f);
+        float f = std::max(spotFar, n + 0.1f);
+        math::Mat4 proj = math::Mat4::perspective(fov, 1.0f, n, f);
+        return proj * view;
+    }
+    // Directional (type 1)
+    float he  = std::max(orthoHalfExtent, 0.1f);
+    float far = std::max(orthoFar, 0.2f);
+    math::Vec3 eye  = cameraPos - dir * he;
+    math::Mat4 view = math::Mat4::lookAt(eye, cameraPos, up);
+    math::Mat4 proj = math::Mat4::ortho(-he, he, -he, he, 0.1f, far);
+    return proj * view;
+}
 }
 
 void Renderer::recordSceneMeshes(VkCommandBuffer cmd, World& world, AssetManager& assets) {
@@ -774,6 +986,58 @@ void Renderer::recordSceneMeshes(VkCommandBuffer cmd, World& world, AssetManager
     }
 }
 
+void Renderer::recordShadowPass(VkCommandBuffer cmd, World& world) {
+    // triangle.frag statically declares the shadow sampler binding, so the main
+    // pipeline's validation-expected layout for it is fixed regardless of whether
+    // a caster is active this frame. The render pass must therefore always run
+    // (clearing the map to "far" and transitioning it to
+    // DEPTH_STENCIL_READ_ONLY_OPTIMAL) — only the mesh draws are conditional on a
+    // caster existing. Skipping the whole pass when there's no caster is what
+    // left the image in UNDEFINED and tripped validation on the very first
+    // main-pipeline draw of any scene with no shadow caster set.
+    ecs::Entity caster = world.getShadowCaster();
+
+    VkClearValue clear{};
+    clear.depthStencil = {1.0f, 0};
+
+    VkRenderPassBeginInfo rpbi{};
+    rpbi.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    rpbi.renderPass        = shadowPass_->get();
+    rpbi.framebuffer       = shadowMap_->framebuffer();
+    rpbi.renderArea.offset = {0, 0};
+    rpbi.renderArea.extent = {shadowMap_->resolution(), shadowMap_->resolution()};
+    rpbi.clearValueCount   = 1;
+    rpbi.pClearValues      = &clear;
+
+    vkCmdBeginRenderPass(cmd, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
+
+    if (caster != ecs::NullEntity) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipelineLayout_,
+            0, 1, &descriptorSets[currentFrame], 0, nullptr);
+
+        float res = static_cast<float>(shadowMap_->resolution());
+        VkViewport vp{};
+        vp.width = res; vp.height = res;
+        vp.minDepth = 0.0f; vp.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd, 0, 1, &vp);
+        VkRect2D scissor{{0, 0}, {shadowMap_->resolution(), shadowMap_->resolution()}};
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        auto& reg = world.getRegistry();
+        for (auto [entity, tf, mr] : reg.view<Transform, ecs::MeshRenderer>()) {
+            if (!mr.mesh || !mr.mesh->transformReady || !mr.mesh->visible) continue;
+            ShadowPush push{};
+            push.model = mr.mesh->modelMatrix;
+            vkCmdPushConstants(cmd, shadowPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
+                0, sizeof(ShadowPush), &push);
+            mr.mesh->draw(cmd);
+        }
+    }
+
+    vkCmdEndRenderPass(cmd);
+}
+
 void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, World& world,
                                   AssetManager& assets) {
     VkCommandBufferBeginInfo bi{};
@@ -813,6 +1077,10 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
 
     } else {
         // ---- Rasterizer path ----
+        // Shadow depth pass (before the main pass — the render-pass dependencies on
+        // both passes handle the write->sample ordering on the shared shadow image).
+        if (!suppressScene_) recordShadowPass(cmd, world);
+
         VkClearValue clearValues[2]{};
         clearValues[0].color        = {0.05f, 0.05f, 0.05f, 1.0f};
         clearValues[1].depthStencil = {1.0f, 0};
@@ -1602,20 +1870,34 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, W
     uboData.cameraPos[1] = pos.y;
     uboData.cameraPos[2] = pos.z;
 
-    // Pack lights from ECS registry.
+    // Pack lights from ECS registry. Also locate the shadow caster's ordinal (if
+    // any) so triangle.frag shadow-tests the matching loop iteration only.
+    ecs::Entity shadowCaster = world.getShadowCaster();
     std::vector<float> packedLights;
     int numLights = 0;
+    int shadowIdx = -1;
     {
         YOPE_PROF_SCOPE("view_lightsource", "render");
         for (auto [entity, ls] : world.getRegistry().view<ecs::LightSource>()) {
             if (numLights >= static_cast<int>(YOPE_MAX_LIGHTS)) break;
             auto lightData = packLightSource(ls);
             packedLights.insert(packedLights.end(), lightData.begin(), lightData.end());
+            if (entity == shadowCaster) {
+                shadowIdx = numLights;
+                uboData.lightViewProj = computeShadowLightViewProj(
+                    ls, pos, world.shadowOrthoHalfExtent, world.shadowOrthoFar,
+                    world.shadowSpotNear, world.shadowSpotFar);
+            }
             ++numLights;
         }
     }
-    uboData.numLights = numLights;
-    uboData.exposure  = world.exposure;
+    uboData.numLights        = numLights;
+    uboData.exposure         = world.exposure;
+    uboData.shadowLightIndex = shadowIdx;
+    uboData.shadowBias       = world.shadowBias;
+    uboData.shadowTexel      = 1.0f / static_cast<float>(ShadowMap::RESOLUTION);
+    uboData.shadowNormalBias = world.shadowNormalBias;
+    uboData.shadowPcfRadius  = world.shadowPcfRadius;
 
     // Upload light data to the SSBO. Write only the actual packed size.
     if (!packedLights.empty()) {
@@ -1799,16 +2081,29 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
     math::Vec3 pos       = camera.getPosition();
     uboData.cameraPos[0] = pos.x; uboData.cameraPos[1] = pos.y; uboData.cameraPos[2] = pos.z;
 
+    ecs::Entity shadowCaster = world.getShadowCaster();
     std::vector<float> packedLights;
     int numLights = 0;
+    int shadowIdx = -1;
     for (auto [entity, ls] : world.getRegistry().view<ecs::LightSource>()) {
         if (numLights >= static_cast<int>(YOPE_MAX_LIGHTS)) break;
         auto d = packLightSource(ls);
         packedLights.insert(packedLights.end(), d.begin(), d.end());
+        if (entity == shadowCaster) {
+            shadowIdx = numLights;
+            uboData.lightViewProj = computeShadowLightViewProj(
+                ls, pos, world.shadowOrthoHalfExtent, world.shadowOrthoFar,
+                world.shadowSpotNear, world.shadowSpotFar);
+        }
         ++numLights;
     }
-    uboData.numLights = numLights;
-    uboData.exposure  = world.exposure;
+    uboData.numLights        = numLights;
+    uboData.exposure         = world.exposure;
+    uboData.shadowLightIndex = shadowIdx;
+    uboData.shadowBias       = world.shadowBias;
+    uboData.shadowTexel      = 1.0f / static_cast<float>(ShadowMap::RESOLUTION);
+    uboData.shadowNormalBias = world.shadowNormalBias;
+    uboData.shadowPcfRadius  = world.shadowPcfRadius;
     if (!packedLights.empty())
         lightBuffers[currentFrame].write(packedLights.data(), packedLights.size() * sizeof(float));
     uniformBuffers[currentFrame].write(&uboData, sizeof(GlobalUBO));
@@ -1858,6 +2153,10 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
             buildECSText3DGeometry(text3DBuffers_[currentFrame], world);
             uploadDebugLines(world);
         }
+
+        // Shadow depth pass (before the main pass — see recordCommandBuffer's
+        // runtime equivalent for the write->sample ordering note).
+        recordShadowPass(cmd, world);
 
         VkClearValue clearValues[2]{};
         clearValues[0].color        = {0.05f, 0.05f, 0.05f, 1.0f};

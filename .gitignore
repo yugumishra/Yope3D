@@ -9,8 +9,14 @@ scripts/buildsystems/vcpkg.cmake
 claude.md
 
 
+#ignore logo animations (large files)
+v2/Yope3D/assets/logo/logo_part*.csv
+
 #ignore all profile csvs (huge files)
 yope_profile_*.csv
+
+#ignore all mesh binary files
+*.meshbin
 
 #ignore old source directory (already tracked)
 old_src_java/

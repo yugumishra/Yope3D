@@ -54,6 +54,15 @@ struct ParsedScene {
     math::Vec3  gravity{0.0f, 0.0f, 0.0f};
     float       exposure = 1.0f;
 
+    // Shadow tuning (World Settings) — see World.h for field docs.
+    float       shadowBias            = 0.0006f;
+    float       shadowNormalBias      = 0.035f;
+    float       shadowPcfRadius       = 1.0f;
+    float       shadowOrthoHalfExtent = 20.0f;
+    float       shadowOrthoFar        = 40.0f;
+    float       shadowSpotNear        = 1.0f;
+    float       shadowSpotFar         = 30.0f;
+
     struct Ent {
         ComponentSnapshot snap;
         uint32_t fileId             = UINT32_MAX;
