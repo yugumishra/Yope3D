@@ -17,6 +17,8 @@
 #include "platform/Window.h"
 #include "assets/AssetManager.h"
 #include "ui/UIManager.h"
+#include "ui/UILayout.h"
+#include "ui/UIHierarchy.h"
 #include "ecs/Components.h"
 #include "world/TransformHierarchy.h"
 #include "debug/Profiler.h"
@@ -1400,16 +1402,21 @@ void Renderer::buildECSUIGeometry(UIBuffer& buf, World& world, float sw, float s
         const auto* uiTf = reg.get<ecs::UITransform>(e);
         if (!uiTf) continue;
 
-        math::Vec2 mn{uiTf->minX, uiTf->minY};
-        math::Vec2 mx{uiTf->maxX, uiTf->maxY};
+        // Resolve against the Parent chain (UIHierarchy.h) rather than the raw
+        // UITransform: a parented panel's move/hide/fade applies to the whole
+        // subtree. Roots (no UI parent) resolve exactly as before.
+        ui::ResolvedUIRect resolved = ui::resolveUIRectWorld(reg, e, sw, sh);
+        if (!resolved.visible) continue;
+        math::Vec2 mn = resolved.min, mx = resolved.max;
+        float op = resolved.opacity;
 
         if (const auto* bg = reg.get<ecs::UIBackground>(e)) {
-            Background tmp(mn, mx, {bg->r, bg->g, bg->b, bg->a}, uiTf->depth);
+            Background tmp(mn, mx, {bg->r, bg->g, bg->b, bg->a * op}, uiTf->depth);
             tmp.buildMesh(buf, sw, sh);
             if (tmp.drawCall.indexCount > 0) ecsUIDrawCalls_.push_back(tmp.drawCall);
 
         } else if (const auto* cbg = reg.get<ecs::UICurvedBackground>(e)) {
-            CurvedBackground tmp(mn, mx, {cbg->r, cbg->g, cbg->b, cbg->a},
+            CurvedBackground tmp(mn, mx, {cbg->r, cbg->g, cbg->b, cbg->a * op},
                                  uiTf->depth, cbg->curvature);
             tmp.buildMesh(buf, sw, sh);
             if (tmp.drawCall.indexCount > 0) ecsUIDrawCalls_.push_back(tmp.drawCall);
@@ -1417,11 +1424,22 @@ void Renderer::buildECSUIGeometry(UIBuffer& buf, World& world, float sw, float s
         } else if (const auto* tbg = reg.get<ecs::UITexturedBackground>(e)) {
             if (tbg->texture) {
                 TexturedBackground tmp(mn, mx,
-                                       {tbg->tintR, tbg->tintG, tbg->tintB, tbg->tintA},
+                                       {tbg->tintR, tbg->tintG, tbg->tintB, tbg->tintA * op},
                                        uiTf->depth, tbg->texture);
                 tmp.buildMesh(buf, sw, sh);
                 if (tmp.drawCall.indexCount > 0) ecsUIDrawCalls_.push_back(tmp.drawCall);
             }
+
+        } else if (const auto* btn = reg.get<ecs::UIButton>(e)) {
+            math::Vec4 col;
+            if (!btn->enabled)               col = {btn->disabledR, btn->disabledG, btn->disabledB, btn->disabledA};
+            else if (world.uiPressed() == e) col = {btn->pressedR,  btn->pressedG,  btn->pressedB,  btn->pressedA};
+            else if (world.uiHovered() == e) col = {btn->hoverR,    btn->hoverG,    btn->hoverB,    btn->hoverA};
+            else                              col = {btn->normalR,   btn->normalG,   btn->normalB,   btn->normalA};
+            col.w *= op;
+            Background tmp(mn, mx, col, uiTf->depth);
+            tmp.buildMesh(buf, sw, sh);
+            if (tmp.drawCall.indexCount > 0) ecsUIDrawCalls_.push_back(tmp.drawCall);
 
         } else if (const auto* ut = reg.get<ecs::UIText>(e)) {
             if (uiManager_ && ut->fontPath[0] && ut->text[0]) {
@@ -1433,10 +1451,53 @@ void Renderer::buildECSUIGeometry(UIBuffer& buf, World& world, float sw, float s
                 int displayPx = (ut->displayPx > 0) ? ut->displayPx : kDefaultUITextPx;
                 TextAtlas* atlas = uiManager_->loadAtlas(ut->fontPath, displayPx);
                 if (atlas) {
+                    // Auto-size: snap this entity's own UITransform to the text's
+                    // natural (unwrapped) extent, only when `text` changed since
+                    // the last time we sized it — a manual editor resize sticks
+                    // until the text itself is edited again, instead of being
+                    // fought every frame. Recomputed rect is applied immediately
+                    // (not next frame) so text never renders wrapped/tiny for a frame.
+                    if (ut->autoSize && std::strcmp(ut->text, ut->autoSizedText) != 0) {
+                        float natW, natH;
+                        TextBox::measureNatural(atlas, ut->text, displayPx, sw, sh, natW, natH);
+                        if (auto* tfMut = reg.get<ecs::UITransform>(e)) {
+                            if (static_cast<ui::Anchor>(tfMut->anchor) == ui::Anchor::Free) {
+                                // minX/maxX are LOCAL fractions of the parent's
+                                // resolved rect (or the full screen, if root) —
+                                // natW/natH are absolute screen pixels, so divide
+                                // by the parent's resolved size or this gets
+                                // re-scaled down again when UIHierarchy.h composes
+                                // it back up through the chain.
+                                math::Vec2 parentSize{1.0f, 1.0f};
+                                if (auto* p = reg.get<ecs::Parent>(e);
+                                    p && reg.valid(p->parent) && reg.has<ecs::UITransform>(p->parent)) {
+                                    ui::ResolvedUIRect parentRect = ui::resolveUIRectWorld(reg, p->parent, sw, sh);
+                                    parentSize.x = parentRect.max.x - parentRect.min.x;
+                                    parentSize.y = parentRect.max.y - parentRect.min.y;
+                                    if (parentSize.x < 1e-5f) parentSize.x = 1.0f;
+                                    if (parentSize.y < 1e-5f) parentSize.y = 1.0f;
+                                }
+                                tfMut->maxX = tfMut->minX + (natW / sw) / parentSize.x;
+                                tfMut->maxY = tfMut->minY + (natH / sh) / parentSize.y;
+                            } else {
+                                tfMut->sizeMode   = static_cast<int>(ui::SizeMode::Pixel);
+                                tfMut->pixelWidth  = natW;
+                                tfMut->pixelHeight = natH;
+                            }
+                        }
+                        if (auto* utMut = reg.get<ecs::UIText>(e)) {
+                            std::strncpy(utMut->autoSizedText, utMut->text, sizeof(utMut->autoSizedText) - 1);
+                            utMut->autoSizedText[sizeof(utMut->autoSizedText) - 1] = 0;
+                        }
+                        // Re-resolve so this frame's draw reflects the new size.
+                        ui::ResolvedUIRect resized = ui::resolveUIRectWorld(reg, e, sw, sh);
+                        mn = resized.min; mx = resized.max;
+                    }
+
                     Background boundsBox(mn, mx, {0,0,0,0}, 0);
                     TextBox tb(&boundsBox, atlas, ut->text, uiTf->depth,
                                displayPx, static_cast<Alignment>(ut->alignment));
-                    tb.setColor(ut->cr, ut->cg, ut->cb, ut->ca);
+                    tb.setColor(ut->cr, ut->cg, ut->cb, ut->ca * op);
                     tb.buildMesh(buf, sw, sh);
                     if (tb.drawCall.indexCount > 0) ecsUIDrawCalls_.push_back(tb.drawCall);
                 }

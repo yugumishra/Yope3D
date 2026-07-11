@@ -2,6 +2,7 @@
 
 #include <GLFW/glfw3.h>
 #include <array>
+#include <vector>
 
 // Per-frame mouse movement accumulated from the cursor callback.
 struct MouseDelta {
@@ -83,13 +84,30 @@ public:
     double getScrollY() const { return prevScrollY; }
 
     // ------------------------------------------------------------------
+    // Cursor position (absolute, screen pixels)
+    // ------------------------------------------------------------------
+
+    double getCursorX() const { return cursorX; }
+    double getCursorY() const { return cursorY; }
+
+    // ------------------------------------------------------------------
+    // Typed text (codepoints accumulated since last beginFrame)
+    // ------------------------------------------------------------------
+
+    // UTF-32 codepoints typed this frame, in order (GLFW char callback — key
+    // events carry no shift/layout/IME info, this does). Cleared each beginFrame.
+    const std::vector<unsigned int>& getTypedChars() const { return prevTypedChars; }
+
+    // ------------------------------------------------------------------
     // Callback sinks — called by Window's static GLFW callbacks only.
     // ------------------------------------------------------------------
 
     void onKey        (int key,    int action);
     void onMouseButton(int button, int action);
     void onMouseMove  (double dx,  double dy);   // receives DELTA, not absolute pos
+    void onCursorPos  (double x,   double y);    // receives ABSOLUTE pos
     void onScroll     (double xOffset, double yOffset);
+    void onChar        (unsigned int codepoint);
 
 private:
     // Persistent key state.
@@ -124,4 +142,15 @@ private:
     double scrollY = 0.0;
     double prevScrollX = 0.0;
     double prevScrollY = 0.0;
+
+    // Absolute cursor position (screen pixels) — written by onCursorPos,
+    // tracked independent of paused/cursor-mode so UI hit-testing works
+    // whenever the OS cursor is visible.
+    double cursorX = 0.0;
+    double cursorY = 0.0;
+
+    // Typed codepoints: live accumulator (written by onChar during poll) +
+    // frame snapshot (read by getTypedChars), same pattern as scroll.
+    std::vector<unsigned int> typedCharsLive;
+    std::vector<unsigned int> prevTypedChars;
 };

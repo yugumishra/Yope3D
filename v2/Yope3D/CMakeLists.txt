@@ -241,6 +241,7 @@ set(ENGINE_SOURCES
     src/ui/TextAtlas.cpp
     src/ui/TextBox.cpp
     src/ui/UIManager.cpp
+    src/ui/UIInput.cpp
     ${PHYSICS_SOURCES}
 )
 
@@ -256,6 +257,7 @@ set(EDITOR_SOURCES
     src/editor/commands/AddColliderCommand.cpp
     src/editor/commands/GenerateColliderCommand.cpp
     src/editor/commands/ReparentCommand.cpp
+    src/editor/commands/SetUIParentCommand.cpp
     src/editor/commands/RemoveColliderCommand.cpp
     src/editor/commands/AddSpringConstraintCommand.cpp
     src/editor/commands/SetAssetCommands.cpp
@@ -273,6 +275,7 @@ set(EDITOR_SOURCES
     src/editor/inspectors/ParentInspector.cpp
     src/editor/inspectors/UITransformInspector.cpp
     src/editor/inspectors/UIBackgroundInspector.cpp
+    src/editor/inspectors/UIButtonInspector.cpp
     src/editor/picking/IdBufferPass.cpp
     src/platform/FileWatcher.cpp
     src/editor/panels/ViewportPanel.cpp

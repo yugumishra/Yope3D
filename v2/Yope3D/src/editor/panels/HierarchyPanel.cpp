@@ -5,12 +5,14 @@
 #include "editor/FileDialog.h"
 #include "editor/commands/EntityLifecycleCommands.h"
 #include "editor/commands/ReparentCommand.h"
+#include "editor/commands/SetUIParentCommand.h"
 #include "ecs/Registry.h"
 #include "ecs/Components.h"
 #include "world/World.h"
 #include "world/Transform.h"
 #include "assets/Primitives.h"
 #include "rendering/Light.h"
+#include "rendering/ViewportTarget.h"
 #include <imgui.h>
 #include <algorithm>
 #include <vector>
@@ -162,6 +164,12 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                     EntityKind::UIText));
             ImGui::CloseCurrentPopup();
         }
+        if (ImGui::MenuItem("UI Button")) {
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::UIButton));
+            ImGui::CloseCurrentPopup();
+        }
         if (ImGui::MenuItem("Text Label (3D)")) {
             if (ctx.world && ctx.history)
                 ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
@@ -204,18 +212,37 @@ void HierarchyPanel::draw(EditorContext& ctx) {
         else                                                  roots.push_back(e);
     }
 
-    // Flattened DFS order (roots → children), then UI. Used for Shift+range.
+    // Same parent → children partition for UI entities, so parented UI groups
+    // nest under their group like the 3D tree instead of a flat depth-sorted
+    // list. uiEnts is already globally depth-sorted (above), and that relative
+    // order is preserved when entities are bucketed below, so per-parent
+    // sibling order stays depth-sorted too without a second sort pass.
+    std::unordered_set<uint32_t> uiSet;
+    for (ecs::Entity e : uiEnts) uiSet.insert(e.id);
+    std::unordered_map<uint32_t, std::vector<ecs::Entity>> uiChildrenOf;
+    std::vector<ecs::Entity> uiRoots;
+    for (ecs::Entity e : uiEnts) {
+        ecs::Entity par = ecs::NullEntity;
+        if (auto* p = ctx.registry->get<ecs::Parent>(e); p && ctx.registry->valid(p->parent))
+            par = p->parent;
+        if (par != ecs::NullEntity && uiSet.count(par.id)) uiChildrenOf[par.id].push_back(e);
+        else                                               uiRoots.push_back(e);
+    }
+
+    // Flattened DFS order (3D roots → children, then UI roots → children).
+    // Used for Shift+range selection.
     std::vector<ecs::Entity> ordered;
     ordered.reserve(nonUI.size() + uiEnts.size());
     {
-        std::function<void(ecs::Entity)> collect = [&](ecs::Entity e) {
+        std::function<void(ecs::Entity, decltype(childrenOf)&)> collect =
+            [&](ecs::Entity e, decltype(childrenOf)& kids) {
             ordered.push_back(e);
-            auto it = childrenOf.find(e.id);
-            if (it != childrenOf.end()) for (ecs::Entity c : it->second) collect(c);
+            auto it = kids.find(e.id);
+            if (it != kids.end()) for (ecs::Entity c : it->second) collect(c, kids);
         };
-        for (ecs::Entity r : roots) collect(r);
+        for (ecs::Entity r : roots)   collect(r, childrenOf);
+        for (ecs::Entity r : uiRoots) collect(r, uiChildrenOf);
     }
-    ordered.insert(ordered.end(), uiEnts.begin(), uiEnts.end());
 
     auto indexOf = [&](ecs::Entity e) -> int {
         for (int i = 0; i < static_cast<int>(ordered.size()); ++i)
@@ -244,13 +271,27 @@ void HierarchyPanel::draw(EditorContext& ctx) {
         }
     };
 
-    // Drag-drop payload id used to reparent within the tree.
+    // Drag-drop payload id used to reparent within the 3D tree.
     static constexpr const char* kDragType = "YOPE_ENTITY";
     auto dropReparentOnto = [&](ecs::Entity newParent) {
         if (auto* pl = ImGui::AcceptDragDropPayload(kDragType)) {
             ecs::Entity dragged = *static_cast<const ecs::Entity*>(pl->Data);
             if (ctx.history && ReparentCommand::canReparent(*ctx.registry, dragged, newParent))
                 ctx.history->execute(ctx, std::make_unique<ReparentCommand>(dragged, newParent));
+        }
+    };
+
+    // Separate payload type for UI drag-drop — distinct strings mean an
+    // AcceptDragDropPayload call for one kind never matches a drag of the
+    // other, so 3D/UI reparenting can never cross without any extra checks.
+    static constexpr const char* kUIDragType = "YOPE_UI_ENTITY";
+    auto dropUIReparentOnto = [&](ecs::Entity newParent) {
+        if (auto* pl = ImGui::AcceptDragDropPayload(kUIDragType)) {
+            ecs::Entity dragged = *static_cast<const ecs::Entity*>(pl->Data);
+            float sw = ctx.viewportTarget ? static_cast<float>(ctx.viewportTarget->width())  : 0.0f;
+            float sh = ctx.viewportTarget ? static_cast<float>(ctx.viewportTarget->height()) : 0.0f;
+            if (ctx.history && SetUIParentCommand::canReparent(*ctx.registry, dragged, newParent))
+                ctx.history->execute(ctx, std::make_unique<SetUIParentCommand>(dragged, newParent, sw, sh));
         }
     };
 
@@ -302,31 +343,77 @@ void HierarchyPanel::draw(EditorContext& ctx) {
 
     for (ecs::Entity r : roots) drawNode(r);
 
-    // Empty space below the tree is a drop target that detaches to root.
-    float avail = ImGui::GetContentRegionAvail().y;
-    if (avail > 4.0f) {
-        ImGui::Dummy(ImVec2(-1.0f, avail));
-        if (ImGui::BeginDragDropTarget()) { dropReparentOnto(ecs::NullEntity); ImGui::EndDragDropTarget(); }
-    }
+    // Recursive UI tree node draw — same TreeNodeEx/drag-drop/context-menu
+    // shape as drawNode above (3D), just against uiChildrenOf/kUIDragType so
+    // parented UI groups nest visually instead of a flat depth-sorted list.
+    std::function<void(ecs::Entity)> drawUINode = [&](ecs::Entity e) {
+        auto childIt = uiChildrenOf.find(e.id);
+        bool hasChildren = childIt != uiChildrenOf.end() && !childIt->second.empty();
 
+        char name[96];
+        if (auto* n = ctx.registry->get<ecs::Name>(e))
+            std::snprintf(name, sizeof(name), "[UI] %s##%u", n->value, e.id);
+        else
+            std::snprintf(name, sizeof(name), "[UI] Entity #%u##%u", e.id, e.id);
+
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
+                                   ImGuiTreeNodeFlags_SpanAvailWidth |
+                                   ImGuiTreeNodeFlags_DefaultOpen;
+        if (ctx.selection && ctx.selection->contains(e)) flags |= ImGuiTreeNodeFlags_Selected;
+        if (!hasChildren) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+
+        bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<uintptr_t>(e.id)),
+                                      flags, "%s", name);
+
+        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+            handleSelect(e);
+
+        if (ImGui::BeginDragDropSource()) {
+            ImGui::SetDragDropPayload(kUIDragType, &e, sizeof(e));
+            ImGui::Text("%s", name);
+            ImGui::EndDragDropSource();
+        }
+        if (ImGui::BeginDragDropTarget()) { dropUIReparentOnto(e); ImGui::EndDragDropTarget(); }
+
+        if (ImGui::BeginPopupContextItem()) {
+            if (ctx.registry->has<ecs::Parent>(e) && ImGui::MenuItem("Detach to Root")) {
+                float sw = ctx.viewportTarget ? static_cast<float>(ctx.viewportTarget->width())  : 0.0f;
+                float sh = ctx.viewportTarget ? static_cast<float>(ctx.viewportTarget->height()) : 0.0f;
+                if (ctx.history && SetUIParentCommand::canReparent(*ctx.registry, e, ecs::NullEntity))
+                    ctx.history->execute(ctx, std::make_unique<SetUIParentCommand>(e, ecs::NullEntity, sw, sh));
+            }
+            if (ImGui::MenuItem("Delete")) {
+                if (ctx.history)
+                    ctx.history->execute(ctx, std::make_unique<DeleteEntityCommand>(e));
+            }
+            ImGui::EndPopup();
+        }
+
+        if (hasChildren && open) {
+            for (ecs::Entity c : childIt->second) drawUINode(c);
+            ImGui::TreePop();
+        }
+    };
+
+    // Drawn immediately after the 3D tree (not after the space-filling dummy
+    // below) — otherwise a mostly-empty 3D tree leaves a huge invisible Dummy
+    // that pushes this section below the visible window, making UI entities
+    // look entirely absent from the Hierarchy on small/sparse scenes.
     if (!uiEnts.empty()) {
         ImGui::Separator();
         ImGui::TextDisabled("  UI Elements");
-        for (ecs::Entity e : uiEnts) {
-            char label[96];
-            if (auto* n = ctx.registry->get<ecs::Name>(e))
-                std::snprintf(label, sizeof(label), "[UI] %s##%u", n->value, e.id);
-            else
-                std::snprintf(label, sizeof(label), "[UI] Entity #%u##%u", e.id, e.id);
-            bool selected = ctx.selection && ctx.selection->contains(e);
-            if (ImGui::Selectable(label, selected)) handleSelect(e);
-            if (ImGui::BeginPopupContextItem()) {
-                if (ImGui::MenuItem("Delete")) {
-                    if (ctx.history)
-                        ctx.history->execute(ctx, std::make_unique<DeleteEntityCommand>(e));
-                }
-                ImGui::EndPopup();
-            }
+        for (ecs::Entity r : uiRoots) drawUINode(r);
+    }
+
+    // Empty space below everything is a drop target that detaches to root
+    // (3D or UI, whichever payload type is actually being dragged).
+    float avail = ImGui::GetContentRegionAvail().y;
+    if (avail > 4.0f) {
+        ImGui::Dummy(ImVec2(-1.0f, avail));
+        if (ImGui::BeginDragDropTarget()) {
+            dropReparentOnto(ecs::NullEntity);
+            dropUIReparentOnto(ecs::NullEntity);
+            ImGui::EndDragDropTarget();
         }
     }
 

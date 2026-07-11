@@ -11,6 +11,7 @@
 #include "ecs/Registry.h"
 #include "ecs/Components.h"
 #include "world/TransformHierarchy.h"
+#include "ui/UIHierarchy.h"
 #include "Engine.h"
 #include "assets/AssetManager.h"
 #include "gpu/Texture.h"
@@ -166,76 +167,14 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
         ImGui::EndDragDropTarget();
     }
 
-    // Determined by icon hit-test below; suppresses ID buffer readback so the
-    // mesh under the icon doesn't overwrite the icon-driven selection a frame later.
-    bool iconConsumedClick = false;
-
-    // ---- Hit-test screen-space icons (lights + audio sources) BEFORE the ID
-    // buffer click so an icon under the cursor consumes the click. The actual
-    // icon draw happens further down (after gizmo overlay) using the same loop.
-    if (!playing && ctx.registry && ctx.editorCamera && ctx.viewportTarget &&
-        imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
-        !ImGuizmo::IsOver())
-    {
-        math::Mat4 vw = ctx.editorCamera->genViewMatrix();
-        math::Mat4 pr = ctx.editorCamera->genProjectionMatrix();
-        pr.m[5] = -pr.m[5];
-        float fw = static_cast<float>(ctx.viewportTarget->width());
-        float fh = static_cast<float>(ctx.viewportTarget->height());
-        const float iconHalf = 12.0f;
-        ImVec2 mouse = ImGui::GetMousePos();
-        auto hit = [&](const math::Vec3& world) {
-            ImVec2 px;
-            if (!projectWorldToScreen(world, vw, pr, imgTopLeft, fw, fh, px)) return false;
-            return mouse.x >= px.x - iconHalf && mouse.x <= px.x + iconHalf &&
-                   mouse.y >= px.y - iconHalf && mouse.y <= px.y + iconHalf;
-        };
-        bool additive = ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift;
-        for (auto [le, ls] : ctx.registry->view<ecs::LightSource>()) {
-            if (ls.type == 1) continue;
-            math::Vec3 p{ls.position[0], ls.position[1], ls.position[2]};
-            if (hit(p)) {
-                if (ctx.selection) {
-                    if (additive) ctx.selection->add(le);
-                    else          ctx.selection->set(le);
-                }
-                iconConsumedClick = true;
-                break;
-            }
-        }
-        if (!iconConsumedClick) {
-            for (auto [ae, tf, _as] : ctx.registry->view<Transform, ecs::AudioSource>()) {
-                if (hit(hierarchy::worldTransform(*ctx.registry, ae).position)) {
-                    if (ctx.selection) {
-                        if (additive) ctx.selection->add(ae);
-                        else          ctx.selection->set(ae);
-                    }
-                    iconConsumedClick = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    // ---- Viewport click → ID buffer picking (skipped when an icon was hit) ----
-    if (!playing && ctx.idBufferPass && ctx.viewportTarget && !iconConsumedClick) {
-        if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
-            && !ImGuizmo::IsOver())
-        {
-            ImVec2 mousePos  = ImGui::GetMousePos();
-            int lx = static_cast<int>(mousePos.x - imgTopLeft.x);
-            int ly = static_cast<int>(mousePos.y - imgTopLeft.y);
-            if (lx >= 0 && ly >= 0 &&
-                static_cast<uint32_t>(lx) < ctx.viewportTarget->width() &&
-                static_cast<uint32_t>(ly) < ctx.viewportTarget->height())
-            {
-                bool additive = ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift;
-                ctx.idBufferPass->scheduleReadback(static_cast<uint32_t>(lx),
-                                                   static_cast<uint32_t>(ly),
-                                                   additive);
-            }
-        }
-    }
+    // Icon hit-test + ID buffer picking are deferred to AFTER the gizmo overlay
+    // sections below (both ImGuizmo and the custom 2D UI gizmo) — ImGuizmo::IsOver()
+    // only reflects the CURRENT frame's gizmo geometry once Manipulate() has run,
+    // so checking it here (before Manipulate) reads last frame's stale state and
+    // lets a click meant for the gizmo fall through to object picking instead.
+    // See the deferred block below the UI-gizmo overlay for the actual dispatch.
+    bool clickCandidate = !playing && imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+    bool uiGizmoHovered  = false; // set by the UI gizmo section below
 
     // ---- Gizmo mode shortcuts (Q/E/R) — GLFW edge-detection to bypass ImGui routing issues.
     // W is skipped (conflicts with WASD camera forward). Fly mode suppresses shortcuts.
@@ -596,9 +535,23 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                 u = (sx - imgTopLeft.x) / vpW;
                 v = (sy - imgTopLeft.y) / vpH;
             };
+            // The entity's UITransform is stored LOCAL (relative to its parent's
+            // resolved rect, or the anchor's fixed-pixel formula) — resolve
+            // through the same hierarchy+anchor path as the renderer/hit-tester
+            // so the gizmo box always sits exactly where the element is drawn,
+            // whether it's anchored, parented, or both (both are chains of
+            // resolveUIRectWorld, same as buildECSUIGeometry/UIInputRouter).
+            auto resolveWorldRect = [&](ecs::Entity e) {
+                return ui::resolveUIRectWorld(*ctx.registry, e, vpW, vpH);
+            };
+            ecs::Entity parentEnt = ecs::NullEntity;
+            if (auto* p = ctx.registry->get<ecs::Parent>(sel);
+                p && ctx.registry->valid(p->parent) && ctx.registry->has<ecs::UITransform>(p->parent))
+                parentEnt = p->parent;
 
-            float x0 = uiTf->minX, y0 = uiTf->minY;
-            float x1 = uiTf->maxX, y1 = uiTf->maxY;
+            ui::ResolvedUIRect worldRect = resolveWorldRect(sel);
+            float x0 = worldRect.min.x, y0 = worldRect.min.y;
+            float x1 = worldRect.max.x, y1 = worldRect.max.y;
             float mx = (x0 + x1) * 0.5f, my = (y0 + y1) * 0.5f;
 
             ImVec2 handles[9] = {
@@ -645,14 +598,39 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                     }
                 }
             }
+            // A click landing on a handle should start a drag, not fall through
+            // to ID buffer picking underneath — see the deferred pick block below.
+            uiGizmoHovered = (hoveredHandle >= 0) || (uiDragHandle_ >= 0);
 
             // Drag start
             if (mouseClicked && hoveredHandle >= 0 && uiDragHandle_ < 0) {
                 uiDragHandle_  = hoveredHandle;
                 uiDragEntity_  = sel;
                 uiDragStart_   = *uiTf;
-                uiDragMinX_    = x0; uiDragMinY_ = y0;
-                uiDragMaxX_    = x1; uiDragMaxY_ = y1;
+
+                // Dragging always edits LOCAL Free/Fraction coords relative to
+                // the immediate parent (identity rect if root) — if the entity
+                // was anchored (or already Free but under a resized parent),
+                // convert its CURRENT resolved world rect into that local space
+                // first so the box doesn't jump, then drag from there. This
+                // mirrors SetUIParentCommand's reparent conversion.
+                ui::ResolvedUIRect parentRect = (parentEnt != ecs::NullEntity)
+                    ? resolveWorldRect(parentEnt) : ui::ResolvedUIRect{};
+                dragParentMin_  = {parentRect.min.x, parentRect.min.y};
+                dragParentSize_ = {parentRect.max.x - parentRect.min.x,
+                                    parentRect.max.y - parentRect.min.y};
+                if (dragParentSize_.x < 1e-5f) dragParentSize_.x = 1.0f;
+                if (dragParentSize_.y < 1e-5f) dragParentSize_.y = 1.0f;
+
+                uiTf->anchor   = 0; // Free
+                uiTf->sizeMode = 0; // Fraction
+                uiTf->minX = (x0 - dragParentMin_.x) / dragParentSize_.x;
+                uiTf->minY = (y0 - dragParentMin_.y) / dragParentSize_.y;
+                uiTf->maxX = (x1 - dragParentMin_.x) / dragParentSize_.x;
+                uiTf->maxY = (y1 - dragParentMin_.y) / dragParentSize_.y;
+
+                uiDragMinX_    = uiTf->minX; uiDragMinY_ = uiTf->minY;
+                uiDragMaxX_    = uiTf->maxX; uiDragMaxY_ = uiTf->maxY;
                 float originU, originV;
                 screenToVP(mouse.x, mouse.y, originU, originV);
                 uiDragOriginX_ = originU;
@@ -663,8 +641,13 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
             if (uiDragHandle_ >= 0 && uiDragEntity_ == sel && mouseDown) {
                 float curU, curV;
                 screenToVP(mouse.x, mouse.y, curU, curV);
-                float du = curU - uiDragOriginX_;
-                float dv = curV - uiDragOriginY_;
+                // Mouse delta is in WORLD/screen-fraction space; the fields being
+                // dragged are LOCAL (relative to the parent's rect captured at
+                // drag-start), so scale down by the parent's size — a parent
+                // half the screen wide means a given screen-space drag distance
+                // is twice as many LOCAL fraction units.
+                float du = (curU - uiDragOriginX_) / dragParentSize_.x;
+                float dv = (curV - uiDragOriginY_) / dragParentSize_.y;
 
                 auto clamp01 = [](float v){ return v < 0.f ? 0.f : (v > 1.f ? 1.f : v); };
 
@@ -705,9 +688,12 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                         break;
                 }
 
-                // Recalculate handles for current frame draw with updated uiTf
-                x0 = uiTf->minX; y0 = uiTf->minY;
-                x1 = uiTf->maxX; y1 = uiTf->maxY;
+                // Recalculate handles for current frame draw with updated uiTf —
+                // re-resolve (not raw minX/maxX) so a parented entity's box
+                // reflects the parent-relative composition, matching rendering.
+                ui::ResolvedUIRect dragRect = resolveWorldRect(sel);
+                x0 = dragRect.min.x; y0 = dragRect.min.y;
+                x1 = dragRect.max.x; y1 = dragRect.max.y;
                 mx = (x0+x1)*0.5f; my = (y0+y1)*0.5f;
                 handles[0] = vpToScreen(mx, my);
                 handles[1] = vpToScreen(x0, y0); handles[2] = vpToScreen(x1, y0);
@@ -745,6 +731,71 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
                     dl->AddRectFilled(a, b, col);
                     dl->AddRect(a, b, IM_COL32(0,0,0,180), 0.0f, 0, 1.5f);
                 }
+            }
+        }
+    }
+
+    // ---- Deferred icon hit-test + ID buffer picking ----
+    // Runs after both gizmo overlays above so ImGuizmo::IsOver()/IsUsing() and
+    // uiGizmoHovered reflect this frame's just-computed gizmo geometry — a click
+    // that lands on a gizmo handle starts a drag instead of falling through to
+    // object picking underneath it.
+    if (clickCandidate && !ImGuizmo::IsOver() && !uiGizmoHovered) {
+        bool iconConsumedClick = false;
+
+        if (ctx.registry && ctx.editorCamera && ctx.viewportTarget) {
+            math::Mat4 vw = ctx.editorCamera->genViewMatrix();
+            math::Mat4 pr = ctx.editorCamera->genProjectionMatrix();
+            pr.m[5] = -pr.m[5];
+            float fw = static_cast<float>(ctx.viewportTarget->width());
+            float fh = static_cast<float>(ctx.viewportTarget->height());
+            const float iconHalf = 12.0f;
+            ImVec2 mouse = ImGui::GetMousePos();
+            auto hit = [&](const math::Vec3& world) {
+                ImVec2 px;
+                if (!projectWorldToScreen(world, vw, pr, imgTopLeft, fw, fh, px)) return false;
+                return mouse.x >= px.x - iconHalf && mouse.x <= px.x + iconHalf &&
+                       mouse.y >= px.y - iconHalf && mouse.y <= px.y + iconHalf;
+            };
+            bool additive = ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift;
+            for (auto [le, ls] : ctx.registry->view<ecs::LightSource>()) {
+                if (ls.type == 1) continue;
+                math::Vec3 p{ls.position[0], ls.position[1], ls.position[2]};
+                if (hit(p)) {
+                    if (ctx.selection) {
+                        if (additive) ctx.selection->add(le);
+                        else          ctx.selection->set(le);
+                    }
+                    iconConsumedClick = true;
+                    break;
+                }
+            }
+            if (!iconConsumedClick) {
+                for (auto [ae, tf, _as] : ctx.registry->view<Transform, ecs::AudioSource>()) {
+                    if (hit(hierarchy::worldTransform(*ctx.registry, ae).position)) {
+                        if (ctx.selection) {
+                            if (additive) ctx.selection->add(ae);
+                            else          ctx.selection->set(ae);
+                        }
+                        iconConsumedClick = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!iconConsumedClick && ctx.idBufferPass && ctx.viewportTarget) {
+            ImVec2 mousePos = ImGui::GetMousePos();
+            int lx = static_cast<int>(mousePos.x - imgTopLeft.x);
+            int ly = static_cast<int>(mousePos.y - imgTopLeft.y);
+            if (lx >= 0 && ly >= 0 &&
+                static_cast<uint32_t>(lx) < ctx.viewportTarget->width() &&
+                static_cast<uint32_t>(ly) < ctx.viewportTarget->height())
+            {
+                bool additive = ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift;
+                ctx.idBufferPass->scheduleReadback(static_cast<uint32_t>(lx),
+                                                   static_cast<uint32_t>(ly),
+                                                   additive);
             }
         }
     }

@@ -34,8 +34,14 @@ Window::Window(const std::string& title, int screenW, int screenH)
     if (!window)
         throw std::runtime_error("Failed to create GLFW window");
 
-    width  = initW;
-    height = initH;
+    // Query actual framebuffer pixel size rather than assuming it equals
+    // initW/initH — on HiDPI/Retina displays glfwCreateWindow's args are in
+    // screen points, but width/height here (like the framebuffer-resize
+    // callback below) must stay in pixels to match the swapchain extent.
+    int fbW = initW, fbH = initH;
+    glfwGetFramebufferSize(window, &fbW, &fbH);
+    width  = fbW;
+    height = fbH;
 
     // Store 'this' so static callbacks can reach the instance.
     glfwSetWindowUserPointer(window, this);
@@ -67,6 +73,7 @@ void Window::init(Input* inp) {
     glfwSetMouseButtonCallback    (window, mouseButtonCallback);
     glfwSetCursorPosCallback      (window, cursorPosCallback);
     glfwSetScrollCallback         (window, scrollCallback);
+    glfwSetCharCallback           (window, charCallback);
 
     applyCursorMode();
 }
@@ -189,6 +196,12 @@ void Window::cursorPosCallback(GLFWwindow* w, double xPos, double yPos) {
         self->input->onMouseMove(dx, dy);
     }
 
+    // Absolute position is only meaningful while the cursor is visible/bounded
+    // (CURSOR_NORMAL, i.e. paused) — UI hit-testing only runs then. Tracked
+    // unconditionally regardless so it's always current when pause toggles.
+    if (self->input)
+        self->input->onCursorPos(xPos, yPos);
+
     self->lastCursorX = xPos;
     self->lastCursorY = yPos;
 }
@@ -197,6 +210,12 @@ void Window::scrollCallback(GLFWwindow* w, double xOffset, double yOffset) {
     auto* self = static_cast<Window*>(glfwGetWindowUserPointer(w));
     if (self->input)
         self->input->onScroll(xOffset, yOffset);
+}
+
+void Window::charCallback(GLFWwindow* w, unsigned int codepoint) {
+    auto* self = static_cast<Window*>(glfwGetWindowUserPointer(w));
+    if (self->input)
+        self->input->onChar(codepoint);
 }
 
 void Window::setIcon(const std::string& assetPath) {

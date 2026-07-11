@@ -21,6 +21,11 @@ void Input::beginFrame() {
     mouseDelta  = {};
     prevScrollX = scrollX;  scrollX = 0.0;
     prevScrollY = scrollY;  scrollY = 0.0;
+
+    // Same live/snapshot scheme as scroll: hand off what accumulated during the
+    // poll that just finished, then clear the accumulator for the next one.
+    prevTypedChars = std::move(typedCharsLive);
+    typedCharsLive.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -96,4 +101,13 @@ void Input::onMouseMove(double dx, double dy) {
 void Input::onScroll(double xOffset, double yOffset) {
     scrollX += xOffset;
     scrollY += yOffset;
+}
+
+void Input::onCursorPos(double x, double y) {
+    cursorX = x;
+    cursorY = y;
+}
+
+void Input::onChar(unsigned int codepoint) {
+    typedCharsLive.push_back(codepoint);
 }

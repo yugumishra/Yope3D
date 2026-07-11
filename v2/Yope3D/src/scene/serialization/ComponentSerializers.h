@@ -77,6 +77,8 @@ void serializeUICurvedBackground    (const void* comp, JsonWriter& w);
 bool deserializeUICurvedBackground   (const JsonNode& node, void* comp);
 void serializeUIText                (const void* comp, JsonWriter& w);
 bool deserializeUIText               (const JsonNode& node, void* comp);
+void serializeUIButton              (const void* comp, JsonWriter& w);
+bool deserializeUIButton             (const JsonNode& node, void* comp);
 void serializeTextLabel3D           (const void* comp, JsonWriter& w);
 bool deserializeTextLabel3D          (const JsonNode& node, void* comp);
 

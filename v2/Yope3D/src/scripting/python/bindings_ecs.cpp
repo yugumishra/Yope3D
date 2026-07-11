@@ -144,13 +144,38 @@ void bind_ecs(py::module_& m) {
         .def_readwrite("max_x", &ecs::UITransform::maxX)
         .def_readwrite("max_y", &ecs::UITransform::maxY)
         .def_readwrite("depth", &ecs::UITransform::depth)
-        .def_readwrite("visible", &ecs::UITransform::visible);
+        .def_readwrite("visible", &ecs::UITransform::visible)
+        // Anchor: 0=Free (legacy) 1=TopLeft 2=TopRight 3=BottomLeft 4=BottomRight 5=Center.
+        // SizeMode (only consulted when anchor != Free): 0=Fraction 1=Pixel.
+        .def_readwrite("anchor",       &ecs::UITransform::anchor)
+        .def_readwrite("size_mode",    &ecs::UITransform::sizeMode)
+        .def_readwrite("pixel_width",  &ecs::UITransform::pixelWidth)
+        .def_readwrite("pixel_height", &ecs::UITransform::pixelHeight)
+        .def_readwrite("offset_x_px",  &ecs::UITransform::offsetXPx)
+        .def_readwrite("offset_y_px",  &ecs::UITransform::offsetYPx)
+        // Own opacity multiplier; composes down an ecs::Parent chain (set_ui_parent).
+        .def_readwrite("opacity", &ecs::UITransform::opacity);
 
     py::class_<ecs::UIBackground>(m, "UIBackground")
         .def_readwrite("r", &ecs::UIBackground::r)
         .def_readwrite("g", &ecs::UIBackground::g)
         .def_readwrite("b", &ecs::UIBackground::b)
         .def_readwrite("a", &ecs::UIBackground::a);
+
+    py::class_<ecs::UITexturedBackground>(m, "UITexturedBackground")
+        .def_property("path",
+            [](const ecs::UITexturedBackground& t) { return std::string(t.path); },
+            [](ecs::UITexturedBackground& t, const std::string& s) {
+                std::strncpy(t.path, s.c_str(), sizeof(t.path) - 1);
+                t.path[sizeof(t.path) - 1] = '\0';
+                t.texture = nullptr;  // path changed: force a reload next frame
+            })
+        .def_property_readonly("has_texture",
+            [](const ecs::UITexturedBackground& t) { return t.texture != nullptr; })
+        .def_readwrite("tint_r", &ecs::UITexturedBackground::tintR)
+        .def_readwrite("tint_g", &ecs::UITexturedBackground::tintG)
+        .def_readwrite("tint_b", &ecs::UITexturedBackground::tintB)
+        .def_readwrite("tint_a", &ecs::UITexturedBackground::tintA);
 
     py::class_<ecs::UIText>(m, "UIText")
         .def_property("text",
@@ -170,7 +195,27 @@ void bind_ecs(py::module_& m) {
         .def_readwrite("b", &ecs::UIText::cb)
         .def_readwrite("a", &ecs::UIText::ca)
         .def_readwrite("display_px", &ecs::UIText::displayPx)
-        .def_readwrite("alignment",  &ecs::UIText::alignment);
+        .def_readwrite("alignment",  &ecs::UIText::alignment)
+        .def_readwrite("auto_size",  &ecs::UIText::autoSize);
+
+    py::class_<ecs::UIButton>(m, "UIButton")
+        .def_readwrite("normal_r", &ecs::UIButton::normalR)
+        .def_readwrite("normal_g", &ecs::UIButton::normalG)
+        .def_readwrite("normal_b", &ecs::UIButton::normalB)
+        .def_readwrite("normal_a", &ecs::UIButton::normalA)
+        .def_readwrite("hover_r", &ecs::UIButton::hoverR)
+        .def_readwrite("hover_g", &ecs::UIButton::hoverG)
+        .def_readwrite("hover_b", &ecs::UIButton::hoverB)
+        .def_readwrite("hover_a", &ecs::UIButton::hoverA)
+        .def_readwrite("pressed_r", &ecs::UIButton::pressedR)
+        .def_readwrite("pressed_g", &ecs::UIButton::pressedG)
+        .def_readwrite("pressed_b", &ecs::UIButton::pressedB)
+        .def_readwrite("pressed_a", &ecs::UIButton::pressedA)
+        .def_readwrite("disabled_r", &ecs::UIButton::disabledR)
+        .def_readwrite("disabled_g", &ecs::UIButton::disabledG)
+        .def_readwrite("disabled_b", &ecs::UIButton::disabledB)
+        .def_readwrite("disabled_a", &ecs::UIButton::disabledA)
+        .def_readwrite("enabled", &ecs::UIButton::enabled);
 
     py::class_<ecs::TextLabel3D>(m, "TextLabel3D")
         .def_property("text",

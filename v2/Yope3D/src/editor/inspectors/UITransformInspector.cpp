@@ -74,5 +74,51 @@ void drawUITransformComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
     }
 
     ImGui::Checkbox("Visible", &t->visible);
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("Anchor / Sizing");
+
+    static const char* kAnchorNames[] = {
+        "Free", "Top Left", "Top Right", "Bottom Left", "Bottom Right", "Center",
+        "Center Top", "Center Bottom", "Center Left", "Center Right"
+    };
+    int anchor = t->anchor;
+    if (ImGui::Combo("Anchor", &anchor, kAnchorNames, IM_ARRAYSIZE(kAnchorNames))) {
+        before = *t;
+        t->anchor = anchor;
+        ctx.history->execute(ctx, std::make_unique<SetComponentCommand<ecs::UITransform>>(
+            e, before, *t, "Edit UI Anchor"));
+    }
+
+    if (t->anchor != 0) {
+        static const char* kSizeModeNames[] = { "Fraction (Min/Max)", "Fixed Pixels" };
+        int sizeMode = t->sizeMode;
+        if (ImGui::Combo("Size Mode", &sizeMode, kSizeModeNames, IM_ARRAYSIZE(kSizeModeNames))) {
+            before = *t;
+            t->sizeMode = sizeMode;
+            ctx.history->execute(ctx, std::make_unique<SetComponentCommand<ecs::UITransform>>(
+                e, before, *t, "Edit UI Size Mode"));
+        }
+
+        if (t->sizeMode == 1) {
+            float px[2] = {t->pixelWidth, t->pixelHeight};
+            if (ImGui::DragFloat2("Pixel Size", px, 1.0f, 0.0f, 8192.0f, "%.0f")) {
+                t->pixelWidth = px[0]; t->pixelHeight = px[1];
+            }
+            if (ImGui::IsItemActivated()) before = *t;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                ctx.history->execute(ctx, std::make_unique<SetComponentCommand<ecs::UITransform>>(
+                    e, before, *t, "Edit UI Pixel Size"));
+        }
+
+        float offPx[2] = {t->offsetXPx, t->offsetYPx};
+        if (ImGui::DragFloat2("Offset (px)", offPx, 1.0f, -8192.0f, 8192.0f, "%.0f")) {
+            t->offsetXPx = offPx[0]; t->offsetYPx = offPx[1];
+        }
+        if (ImGui::IsItemActivated()) before = *t;
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            ctx.history->execute(ctx, std::make_unique<SetComponentCommand<ecs::UITransform>>(
+                e, before, *t, "Edit UI Anchor Offset"));
+    }
 }
 #endif

@@ -6,6 +6,7 @@
 #include "physics/PhysicsConstants.h"
 #include "math/Math.h"
 #include "ui/UIManager.h"
+#include "ui/UIInput.h"
 #include "ui/Background.h"
 #include "ui/TexturedBackground.h"
 #include "gpu/Buffer.h"   // BufferUploadBatch (async-load mesh upload batching)
@@ -484,6 +485,82 @@ void Engine::update() {
                                 static_cast<float>(window->getHeight()));
     }
 
+    // Route the pointer to ECS UI entities BEFORE scripts run this frame's
+    // update() — otherwise a script polling ui_consumed_click()/ui_hovered()/
+    // ui_hit_test() (or reacting to an on_ui_press/release callback fired
+    // below) would see LAST frame's routing result instead of this frame's,
+    // since script_update used to run first. That one-frame lag made a
+    // same-frame "did my click land on a UI button" check unreliable (e.g. a
+    // script polling ui_consumed_click() in update() right after clicking a
+    // button would still see False for that frame). Mirrors the collision-
+    // event drain below (resolve Script* under the structure lock, run the
+    // callback outside it).
+    {
+        YOPE_PROF_SCOPE("ui_input_route", "render");
+        // GLFW reports cursor position in screen points; getWidth()/getHeight()
+        // are framebuffer pixels (they can differ by the display's content
+        // scale on HiDPI/Retina screens) — convert before dividing so the
+        // fraction stays correct regardless of window size/DPI.
+        float scaleX, scaleY;
+        window->getContentScale(scaleX, scaleY);
+        float fx = (static_cast<float>(input->getCursorX()) * scaleX) / window->getWidth();
+        float fy = (static_cast<float>(input->getCursorY()) * scaleY) / window->getHeight();
+
+        constexpr int kNumMouseButtons = GLFW_MOUSE_BUTTON_LAST + 1;
+        bool pressedEdge[kNumMouseButtons];
+        bool releasedEdge[kNumMouseButtons];
+        for (int b = 0; b < kNumMouseButtons; ++b) {
+            pressedEdge[b]  = input->isMousePressed(b);
+            releasedEdge[b] = input->isMouseReleased(b);
+        }
+
+        auto uiEvents = world->updateUIInput(fx, fy,
+                                              static_cast<float>(window->getWidth()),
+                                              static_cast<float>(window->getHeight()),
+                                              pressedEdge, releasedEdge, kNumMouseButtons);
+        if (!uiEvents.empty()) {
+            auto& reg = world->getRegistry();
+            for (auto& ev : uiEvents) {
+                if (ev.type == UIInputEvent::Type::Click) continue; // Press+Release already dispatched
+                Script* inst = nullptr;
+                {
+                    auto lock = world->lockStructure();
+                    if (!reg.valid(ev.entity)) continue;
+                    if (auto* sc = reg.get<ecs::ScriptComponent>(ev.entity)) inst = sc->instance;
+                }
+                if (!inst) continue;
+                switch (ev.type) {
+                    case UIInputEvent::Type::Press:   inst->onUIPress  (scriptCtx_, ev.entity); break;
+                    case UIInputEvent::Type::Release: inst->onUIRelease(scriptCtx_, ev.entity); break;
+                    case UIInputEvent::Type::Enter:   inst->onUIEnter  (scriptCtx_, ev.entity); break;
+                    case UIInputEvent::Type::Leave:   inst->onUILeave  (scriptCtx_, ev.entity); break;
+                    case UIInputEvent::Type::Click:   break;
+                }
+            }
+        }
+
+        // Dispatch this frame's typed codepoints to whichever UI entity holds
+        // focus (set by the router above on press — see UIInputRouter::update).
+        const auto& typedChars = input->getTypedChars();
+        if (!typedChars.empty()) {
+            ecs::Entity focused = world->uiFocused();
+            if (focused != ecs::NullEntity) {
+                Script* inst = nullptr;
+                {
+                    auto lock = world->lockStructure();
+                    auto& reg = world->getRegistry();
+                    if (reg.valid(focused)) {
+                        if (auto* sc = reg.get<ecs::ScriptComponent>(focused)) inst = sc->instance;
+                    }
+                }
+                if (inst) {
+                    for (unsigned int cp : typedChars)
+                        inst->onTextInput(scriptCtx_, focused, cp);
+                }
+            }
+        }
+    }
+
     {
         YOPE_PROF_SCOPE("script_update", "render");
         // Apply any queued scene swap before scripts run this frame. In editor mode
@@ -542,17 +619,8 @@ void Engine::update() {
         }
     }
     { YOPE_PROF_SCOPE("ui_update",     "render"); uiManager->update(dt); }
-
-    // Dispatch UI click on LMB press edge (held→not tracked, only the falling edge).
-    bool lmbNow = input->isLMBDown();
-    if (lmbNow && !prevLMB_) {
-        double mx, my;
-        glfwGetCursorPos(window->getHandle(), &mx, &my);
-        float fx = static_cast<float>(mx) / window->getWidth();
-        float fy = static_cast<float>(my) / window->getHeight();
-        uiManager->handleClick(fx, fy, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS);
-    }
-    prevLMB_ = lmbNow;
+    world->resolvePendingUITextures();
+    world->updateTweens(dt);
 
     // Listener tracks camera (updated after script may have moved it).
     Listener::setPosition(camera->getPosition());

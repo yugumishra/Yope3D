@@ -34,6 +34,13 @@ public:
     float getAspectRatio() const { return static_cast<float>(width) / static_cast<float>(height); }
     GLFWwindow* getHandle() const { return window; }
 
+    // GLFW reports cursor position in screen coordinates (points), while
+    // width/height above track framebuffer pixels — on a HiDPI/Retina display
+    // these differ by this scale factor. Multiply cursor coords by this
+    // before dividing by getWidth()/getHeight() to get a correct [0,1]
+    // fraction; see Engine::update's UI input routing.
+    void getContentScale(float& sx, float& sy) const { glfwGetWindowContentScale(window, &sx, &sy); }
+
     bool isPaused() const { return paused; }
     void pause();
     void unpause();
@@ -73,4 +80,5 @@ private:
     static void mouseButtonCallback      (GLFWwindow* w, int button, int action, int mods);
     static void cursorPosCallback        (GLFWwindow* w, double xPos, double yPos);
     static void scrollCallback           (GLFWwindow* w, double xOffset, double yOffset);
+    static void charCallback             (GLFWwindow* w, unsigned int codepoint);
 };

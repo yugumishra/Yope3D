@@ -23,6 +23,7 @@ enum class EntityKind {
     UITexturedBackground,  // UITransform + UITexturedBackground
     UICurvedBackground,    // UITransform + UICurvedBackground
     UIText,                // UITransform + UIText
+    UIButton,              // UITransform + UIButton
     TextLabel3D,           // Transform + TextLabel3D (world-space MSDF text)
 };
 

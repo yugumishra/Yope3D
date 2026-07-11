@@ -1167,6 +1167,11 @@ ecs::Entity World::addUITexturedBackground(math::Vec2 min, math::Vec2 max,
     ecs::UITexturedBackground bg{};
     if (texPath) std::strncpy(bg.path, texPath, sizeof(bg.path) - 1);
     bg.tintR = tint.x; bg.tintG = tint.y; bg.tintB = tint.z; bg.tintA = tint.w;
+    // Resolve immediately when possible (script-created entities) — scene load
+    // still rebinds from `path` separately (SceneSerializer), and a later path
+    // edit via the Python UITexturedBackground.path setter nulls texture and
+    // relies on resolvePendingUITextures() to pick it back up next frame.
+    if (assets_ && bg.path[0]) bg.texture = assets_->loadTexture(bg.path);
     registry_.add<ecs::UITexturedBackground>(e, bg);
     finalizeEntity(e, "UI Textured BG");
     return e;
@@ -1217,6 +1222,114 @@ ecs::Entity World::addUIText(const char* fontPath, const char* text,
     if (text)     std::strncpy(ut.text, text, sizeof(ut.text) - 1);
     registry_.add<ecs::UIText>(e, ut);
     finalizeEntity(e, "UI Text");
+    return e;
+}
+
+// ---- UI input routing ----
+
+std::vector<UIInputEvent> World::updateUIInput(float cx, float cy, float screenW, float screenH,
+                                                const bool* pressedEdge, const bool* releasedEdge,
+                                                int numButtons) {
+    uiScreenW_ = screenW;
+    uiScreenH_ = screenH;
+    std::vector<UIInputEvent> events;
+    uiInput_.update(registry_, cx, cy, screenW, screenH, pressedEdge, releasedEdge, numButtons, events);
+    return events;
+}
+
+ecs::Entity World::uiHitTest(float cx, float cy) {
+    return UIInputRouter::hitTest(registry_, cx, cy, uiScreenW_, uiScreenH_);
+}
+
+void World::setUIParent(ecs::Entity child, ecs::Entity parent) {
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(child)) return;
+    if (parent != ecs::NullEntity) {
+        if (!registry_.valid(parent) || parent == child) return;
+        if (hierarchy::isDescendantOf(registry_, parent, child)) return; // would cycle
+    }
+    if (parent == ecs::NullEntity) {
+        if (registry_.has<ecs::Parent>(child)) registry_.remove<ecs::Parent>(child);
+    } else if (auto* p = registry_.get<ecs::Parent>(child)) {
+        p->parent = parent;
+    } else {
+        registry_.add<ecs::Parent>(child, ecs::Parent{parent});
+    }
+}
+
+void World::setUIGroupVisible(ecs::Entity root, bool visible) {
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(root)) return;
+    std::vector<ecs::Entity> subtree;
+    hierarchy::collectSubtree(registry_, root, subtree);
+    for (ecs::Entity e : subtree)
+        if (auto* tf = registry_.get<ecs::UITransform>(e)) tf->visible = visible;
+}
+
+void World::setUIGroupOpacity(ecs::Entity root, float opacity) {
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(root)) return;
+    std::vector<ecs::Entity> subtree;
+    hierarchy::collectSubtree(registry_, root, subtree);
+    for (ecs::Entity e : subtree)
+        if (auto* tf = registry_.get<ecs::UITransform>(e)) tf->opacity = opacity;
+}
+
+void World::tweenUIOpacity(ecs::Entity root, float target, float durationSeconds, int ease) {
+    std::lock_guard lk(structureMtx_);
+    auto* tf = registry_.get<ecs::UITransform>(root);
+    if (!tf) return;
+    float duration = std::max(durationSeconds, 0.0001f);
+    for (auto& tw : uiTweens_) {
+        if (tw.entity == root) {
+            tw = {root, tf->opacity, target, duration, 0.0f, static_cast<ui::Ease>(ease)};
+            return;
+        }
+    }
+    uiTweens_.push_back({root, tf->opacity, target, duration, 0.0f, static_cast<ui::Ease>(ease)});
+}
+
+void World::updateTweens(float dt) {
+    if (uiTweens_.empty()) return;
+    std::lock_guard lk(structureMtx_);
+    for (auto it = uiTweens_.begin(); it != uiTweens_.end(); ) {
+        it->elapsed += dt;
+        float t = std::min(it->elapsed / it->duration, 1.0f);
+        if (auto* tf = registry_.get<ecs::UITransform>(it->entity))
+            tf->opacity = it->from + (it->to - it->from) * ui::applyEase(it->ease, t);
+        if (t >= 1.0f) it = uiTweens_.erase(it);
+        else ++it;
+    }
+}
+
+void World::resolvePendingUITextures() {
+    if (!assets_) return;
+    for (auto [e, tbg] : registry_.view<ecs::UITexturedBackground>()) {
+        if (!tbg.texture && tbg.path[0]) tbg.texture = assets_->loadTexture(tbg.path);
+    }
+}
+
+ecs::Entity World::addUIButton(math::Vec2 min, math::Vec2 max, math::Vec4 normalColor, int depth) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    ecs::UITransform uiTf{};
+    uiTf.minX = min.x; uiTf.minY = min.y;
+    uiTf.maxX = max.x; uiTf.maxY = max.y;
+    uiTf.depth = depth;
+    registry_.add<ecs::UITransform>(e, uiTf);
+
+    auto adjust = [](float c, float d) { return std::clamp(c + d, 0.0f, 1.0f); };
+    ecs::UIButton btn{};
+    btn.normalR = normalColor.x; btn.normalG = normalColor.y;
+    btn.normalB = normalColor.z; btn.normalA = normalColor.w;
+    btn.hoverR = adjust(normalColor.x, 0.12f); btn.hoverG = adjust(normalColor.y, 0.12f);
+    btn.hoverB = adjust(normalColor.z, 0.12f); btn.hoverA = normalColor.w;
+    btn.pressedR = adjust(normalColor.x, -0.12f); btn.pressedG = adjust(normalColor.y, -0.12f);
+    btn.pressedB = adjust(normalColor.z, -0.12f); btn.pressedA = normalColor.w;
+    btn.disabledR = normalColor.x; btn.disabledG = normalColor.y;
+    btn.disabledB = normalColor.z; btn.disabledA = normalColor.w * 0.5f;
+    registry_.add<ecs::UIButton>(e, btn);
+    finalizeEntity(e, "UI Button");
     return e;
 }
 

@@ -34,6 +34,20 @@ public:
     virtual void onCollisionEnter(ScriptContext& /*ctx*/, ecs::Entity /*self*/, ecs::Entity /*other*/) {}
     virtual void onCollisionExit (ScriptContext& /*ctx*/, ecs::Entity /*self*/, ecs::Entity /*other*/) {}
 
+    // UI pointer callbacks. `self` is the UI entity (must carry a UITransform +
+    // this ScriptComponent). Dispatched on the main thread from World's
+    // per-frame UI input router (see World::updateUIInput); default no-ops.
+    virtual void onUIPress  (ScriptContext& /*ctx*/, ecs::Entity /*self*/) {}
+    virtual void onUIRelease(ScriptContext& /*ctx*/, ecs::Entity /*self*/) {}
+    virtual void onUIEnter  (ScriptContext& /*ctx*/, ecs::Entity /*self*/) {}
+    virtual void onUILeave  (ScriptContext& /*ctx*/, ecs::Entity /*self*/) {}
+
+    // Typed-text callback: fires once per UTF-32 codepoint typed while `self`
+    // holds UI focus (see World::setUIFocus / uiFocused). Carries actual typed
+    // characters (shift/layout/IME applied), unlike raw key events.
+    virtual void onTextInput(ScriptContext& /*ctx*/, ecs::Entity /*self*/,
+                             unsigned int /*codepoint*/) {}
+
     // Opaque handle to the underlying scripting-runtime instance (a PyObject* for
     // PythonScript, as void*). Used by yope3d.get_behavior to hand one behavior the
     // live instance of another. nullptr for native scripts.

@@ -189,11 +189,28 @@ struct EditorPickable   {};   // editor: render in ID buffer pass (Phase D)
 // Entities with UITransform are screen-space; they have no 3D Transform.
 
 // Layout bounds + display properties shared by every UI element.
+// anchor==0 (Free) is the legacy behavior: minX/minY/maxX/maxY are the [0,1]
+// screen-fraction rect verbatim. Any other anchor (see ui::Anchor in
+// UILayout.h) repositions relative to a screen corner/edge/center; sizeMode==1
+// (Pixel) additionally sizes pixelWidth/pixelHeight in real screen pixels
+// instead of a stretch-prone fraction. offsetXPx/offsetYPx push the rect
+// inward from whichever edge(s) it's anchored to. Ignored when anchor==Free.
 struct UITransform {
     float minX    = 0.0f, minY    = 0.0f;
     float maxX    = 1.0f, maxY    = 1.0f;
     int   depth   = 0;
     bool  visible = true;
+
+    int   anchor      = 0;
+    int   sizeMode    = 0;
+    float pixelWidth  = 0.0f, pixelHeight = 0.0f;
+    float offsetXPx   = 0.0f, offsetYPx   = 0.0f;
+
+    // Own opacity multiplier, composed down an ecs::Parent chain by
+    // ui::resolveUIRectWorld (UIHierarchy.h) — fading a parent fades every
+    // descendant. Unlike `visible`, opacity 0 does not block hit-testing
+    // (matches common UI-framework convention: fade vs. disable are separate).
+    float opacity = 1.0f;
 };
 
 // Solid-color rectangle. Pair with UITransform.
@@ -215,6 +232,21 @@ struct UICurvedBackground {
     float curvature = 0.5f;
 };
 
+// Interactive button. Pairs with UITransform. Renders as a solid-color rect
+// whose color is chosen from the four states below based on World's UI input
+// router (hover/press) and `enabled` — the component itself carries no click
+// logic. Attach a ScriptComponent to the same entity to receive
+// on_ui_press/on_ui_release/on_ui_enter/on_ui_leave (Script.h) from the router.
+struct UIButton {
+    float normalR = 0.20f, normalG = 0.20f, normalB = 0.20f, normalA = 1.0f;
+    float hoverR = 0.30f, hoverG = 0.30f, hoverB = 0.30f, hoverA = 1.0f;
+    float pressedR = 0.12f, pressedG = 0.12f, pressedB = 0.12f, pressedA = 1.0f;
+    float disabledR = 0.15f, disabledG = 0.15f, disabledB = 0.15f, disabledA = 0.5f;
+    // false: renders in the disabled state and is skipped by hit-testing
+    // (clicks pass through to whatever's behind it).
+    bool  enabled = true;
+};
+
 // Text label. fontPath selects a TextAtlas; text is the rendered string.
 // displayPx: glyph height in pixels, 0 = native atlas size.
 // alignment: 0 = left/DEFAULT, 1 = CENTERED.
@@ -224,6 +256,17 @@ struct UIText {
     float cr = 1.0f, cg = 1.0f, cb = 1.0f, ca = 1.0f;
     int   displayPx = 0;
     int   alignment = 0;
+
+    // When true, Renderer::buildECSUIGeometry snaps this entity's UITransform
+    // to the natural (unwrapped) size of `text` at `displayPx` — anchor==Free
+    // grows/shrinks maxX/maxY from the current minX/minY; any other anchor
+    // sets sizeMode=Pixel + pixelWidth/pixelHeight instead, keeping the
+    // authored anchor/offset. Recomputed only when `text` differs from
+    // `autoSizedText` (a cache, not user-facing) — so a manual resize in the
+    // editor sticks until the text content itself changes, instead of being
+    // fought every frame.
+    bool  autoSize      = false;
+    char  autoSizedText[1024] = {};
 };
 
 // ---- 3D world-space text ----

@@ -76,4 +76,9 @@ private:
     // Bounds snapshot at drag start for delta computation.
     float           uiDragMinX_    = 0.f, uiDragMinY_ = 0.f;
     float           uiDragMaxX_    = 0.f, uiDragMaxY_ = 0.f;
+    // Immediate parent's resolved world rect at drag start (identity if root) —
+    // mouse-delta (world/screen space) is divided by this to get the LOCAL
+    // fraction delta actually written to minX/minY/maxX/maxY.
+    math::Vec2      dragParentMin_  {0.f, 0.f};
+    math::Vec2      dragParentSize_ {1.f, 1.f};
 };

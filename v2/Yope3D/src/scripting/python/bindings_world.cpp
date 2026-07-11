@@ -204,10 +204,41 @@ void bind_world(py::module_& m) {
              py::arg("min"), py::arg("max"), py::arg("color"), py::arg("depth") = 0)
         .def("add_ui_curved_background", &World::addUICurvedBackground,
              py::arg("min"), py::arg("max"), py::arg("color"), py::arg("curvature") = 0.5f, py::arg("depth") = 0)
+        .def("add_ui_textured_background",
+             [](World& w, math::Vec2 min, math::Vec2 max, math::Vec4 tint,
+                const std::string& texPath, int depth) {
+                 return w.addUITexturedBackground(min, max, tint, texPath.c_str(), depth);
+             }, py::arg("min"), py::arg("max"), py::arg("tint"), py::arg("path"), py::arg("depth") = 0)
         .def("add_ui_text", &World::addUIText,
              py::arg("font"), py::arg("text"), py::arg("min"), py::arg("max"), py::arg("depth") = 0)
+        .def("add_ui_button", &World::addUIButton,
+             py::arg("min"), py::arg("max"), py::arg("normal_color"), py::arg("depth") = 0)
         .def("add_text_label_3d", &World::addTextLabel3D,
              py::arg("font"), py::arg("text"), py::arg("pos"))
+        // ---- UI input (polled) ----
+        // Complements the on_ui_press/release/enter/leave Script callbacks: use
+        // these when a global/menu-driver script wants to check pointer state
+        // without every UI element carrying its own ScriptComponent.
+        .def("ui_hit_test", [](World& w, float x, float y) -> py::object {
+                 ecs::Entity e = w.uiHitTest(x, y);
+                 return (e == ecs::NullEntity) ? py::none() : py::cast(e);
+             }, py::arg("x"), py::arg("y"))
+        .def("ui_hovered", [](World& w) -> py::object {
+                 ecs::Entity e = w.uiHovered();
+                 return (e == ecs::NullEntity) ? py::none() : py::cast(e);
+             })
+        .def("ui_consumed_click", &World::uiConsumedClick)
+        .def("set_ui_focus", &World::setUIFocus, py::arg("entity"))
+        .def("get_ui_focus", [](World& w) -> py::object {
+                 ecs::Entity e = w.uiFocused();
+                 return (e == ecs::NullEntity) ? py::none() : py::cast(e);
+             })
+        // ---- UI hierarchy / panel grouping ----
+        .def("set_ui_parent", &World::setUIParent, py::arg("child"), py::arg("parent"))
+        .def("set_ui_group_visible", &World::setUIGroupVisible, py::arg("root"), py::arg("visible"))
+        .def("set_ui_group_opacity", &World::setUIGroupOpacity, py::arg("root"), py::arg("opacity"))
+        .def("tween_ui_opacity", &World::tweenUIOpacity,
+             py::arg("root"), py::arg("target"), py::arg("duration"), py::arg("ease") = 0)
         // ---- Springs / misc ----
         .def("remove_spring_between", &World::removeSpringBetween, py::arg("a"), py::arg("b"))
         // ---- Scene shadow caster (single caster; radio behavior) ----
@@ -299,7 +330,13 @@ void bind_world(py::module_& m) {
         .def("get_mouse_delta", [](const Input& inp) {
             auto d = inp.getMouseDelta();
             return std::make_pair(d.x, d.y);
-        });
+        })
+        .def("get_cursor_pos", [](const Input& inp) {
+            return std::make_pair(inp.getCursorX(), inp.getCursorY());
+        })
+        // Codepoints typed this frame (shift/layout/IME applied — unlike raw key
+        // events). Manual alternative to the on_text_input Script callback.
+        .def("get_typed_chars", &Input::getTypedChars);
 
     // AudioSystem
     py::class_<AudioSystem>(m, "AudioSystem")
@@ -361,11 +398,21 @@ void bind_world(py::module_& m) {
     m.attr("KEY_LEFT_SHIFT")   = GLFW_KEY_LEFT_SHIFT;
     m.attr("KEY_LEFT_CONTROL") = GLFW_KEY_LEFT_CONTROL;
     m.attr("KEY_V")            = GLFW_KEY_V;
+    m.attr("KEY_BACKSPACE")    = GLFW_KEY_BACKSPACE;
 
     // Mouse button constants (for is_mouse_pressed / is_mouse_released)
     m.attr("MOUSE_LEFT")   = GLFW_MOUSE_BUTTON_LEFT;
     m.attr("MOUSE_RIGHT")  = GLFW_MOUSE_BUTTON_RIGHT;
     m.attr("MOUSE_MIDDLE") = GLFW_MOUSE_BUTTON_MIDDLE;
+
+    // Easing curves for World.tween_ui_opacity's `ease` argument.
+    m.attr("EASE_LINEAR")       = static_cast<int>(ui::Ease::Linear);
+    m.attr("EASE_QUAD_IN")      = static_cast<int>(ui::Ease::QuadIn);
+    m.attr("EASE_QUAD_OUT")     = static_cast<int>(ui::Ease::QuadOut);
+    m.attr("EASE_QUAD_IN_OUT")  = static_cast<int>(ui::Ease::QuadInOut);
+    m.attr("EASE_CUBIC_IN")     = static_cast<int>(ui::Ease::CubicIn);
+    m.attr("EASE_CUBIC_OUT")    = static_cast<int>(ui::Ease::CubicOut);
+    m.attr("EASE_CUBIC_IN_OUT") = static_cast<int>(ui::Ease::CubicInOut);
 
     // One-shot audio convenience: load + create + play in a single call.
     // Returns the Source (reuse it to stop/reposition) or None if audio isn't bound.
