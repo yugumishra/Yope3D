@@ -114,6 +114,39 @@ void SceneManager::instantiateAndInitAllScripts(ScriptContext& ctx) {
     instantiateAll(world_.getRegistry(), ctx, /*runInit=*/true);
 }
 
+bool SceneManager::instantiateScript(ecs::Entity e, ScriptContext& ctx) {
+    Script* raw = nullptr;
+    {
+        auto lock = world_.lockStructure();   // physics may be mid-advance()
+        auto& reg = world_.getRegistry();
+        if (!reg.valid(e)) return false;
+        auto* sc = reg.get<ecs::ScriptComponent>(e);
+        if (!sc || sc->instance != nullptr || sc->scriptClass[0] == '\0') return false;
+
+        auto inst = ScriptFactory::create(sc->scriptClass);
+        if (!inst) {
+            std::fprintf(stderr, "SceneManager: unknown script class '%s' on entity %u\n",
+                         sc->scriptClass, e.id);
+            return false;
+        }
+        raw = inst.release();
+        sc->instance = raw;
+
+        if (sc->paramsBlob[0]) {
+            try {
+                JsonNode params = parseJson(sc->paramsBlob);
+                raw->deserializeParams(params);
+            } catch (const std::exception& ex) {
+                std::fprintf(stderr, "SceneManager: paramsBlob parse failed for '%s' on entity %u: %s\n",
+                             sc->scriptClass, e.id, ex.what());
+            }
+        }
+    }
+    // init() runs unlocked -- it may re-enter World methods that lock internally.
+    raw->init(ctx, e);
+    return true;
+}
+
 void SceneManager::onAsyncLoadComplete(ScriptContext& ctx, const std::string& scenePath,
                                        bool initScripts) {
     if (initScripts) instantiateAll(world_.getRegistry(), ctx, /*runInit=*/true);

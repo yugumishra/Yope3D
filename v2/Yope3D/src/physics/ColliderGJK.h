@@ -28,7 +28,7 @@ namespace ColliderDiscrete {
     // supportWithWitness). Needed to recover an actual contact point once GJK
     // converges — GJKSimplex alone only has CSO-space points.
     struct GJKSimplexDistance {
-        math::Vec3 points[4]; // CSO points (A ⊖ B)
+        math::Vec3 points[4]; // CSO points (A +- B)
         math::Vec3 onA[4];    // witness point on shape A for each CSO point
         math::Vec3 onB[4];    // witness point on shape B for each CSO point
         int n = 0;

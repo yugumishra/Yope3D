@@ -605,7 +605,7 @@ makeSupportFn(ecs::Entity ea, ecs::Entity eb, ecs::Registry& reg) {
     ShapeVariant vb = makeShapeVariant(eb, reg);
     return [va, vb](math::Vec3 dir) -> math::Vec3 {
         return std::visit([&dir](const auto& a, const auto& b) {
-            return support(a, b, dir);
+            return supportSingle(a, dir) - supportSingle(b, -dir);
         }, va, vb);
     };
 }

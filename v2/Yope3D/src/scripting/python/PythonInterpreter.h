@@ -25,6 +25,13 @@ public:
     // Call once the ScriptContext is fully wired (all pointers non-null).
     void bindContext(ScriptContext& ctx);
 
+    // The ScriptContext passed to the most recent bindContext() call — Engine
+    // owns the actual struct (scriptCtx_) and outlives the interpreter, so this
+    // raw pointer stays valid for the process lifetime once bound. Lets bindings
+    // (e.g. attach_script in bindings_ecs.cpp) call Script::init() without a
+    // second, hand-reconstructed ScriptContext. Null until bindContext() runs.
+    static ScriptContext* boundContext() { return s_ctx_; }
+
     // Execute a Python string. Exceptions are caught and logged to Console.
     // Returns false if an exception occurred.
     bool execString(const std::string& code);
@@ -41,5 +48,6 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
     bool initialized_ = false;
+    static ScriptContext* s_ctx_;
 };
 #endif // YOPE_PYTHON

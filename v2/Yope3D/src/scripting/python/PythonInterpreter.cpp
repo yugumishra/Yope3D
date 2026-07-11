@@ -89,8 +89,11 @@ void PythonInterpreter::init(const std::string& scriptsDir, const std::string& p
     Console::log("[Python] interpreter started", LogSeverity::Info);
 }
 
+ScriptContext* PythonInterpreter::s_ctx_ = nullptr;
+
 void PythonInterpreter::bindContext(ScriptContext& ctx) {
     if (!initialized_) return;
+    s_ctx_ = &ctx;
     auto m = py::module_::import("yope3d");
     m.attr("world")         = py::cast(ctx.world,        py::return_value_policy::reference);
     m.attr("camera")        = py::cast(ctx.camera,       py::return_value_policy::reference);

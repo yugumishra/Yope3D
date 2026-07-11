@@ -44,6 +44,10 @@ void CreateEntityCommand::redo(EditorContext& ctx) {
             created_ = w.addStaticAABB(pos, ext);
             attachColored(created_, &w, Primitives::rect({1, 1, 1}), ext, 0.50f, 0.50f, 0.55f);
             break;
+        case EntityKind::TriggerBox:
+            created_ = w.addTriggerBox(pos, ext);
+            attachColored(created_, &w, Primitives::rect({1, 1, 1}), ext, 1.0f, 0.85f, 0.15f);
+            break;
         case EntityKind::Capsule:
             // Baked mesh (actual dims) + scale={1,1,1}: caps are always correct.
             // Resize events rebuild the mesh on commit; scale stays identity.

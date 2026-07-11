@@ -43,6 +43,10 @@ public:
     ecs::Entity addOBB       (math::Vec3 extent, float mass, math::Vec3 pos = {});
     ecs::Entity addAABB      (math::Vec3 extent, float mass, math::Vec3 pos = {});
     ecs::Entity addStaticAABB(math::Vec3 pos, math::Vec3 extent);
+    // Trigger volumes: static, tangible, isTrigger=true — stay in broadphase/narrowphase
+    // for enter/exit events but are never solved (no physical push-back).
+    ecs::Entity addTriggerBox   (math::Vec3 pos, math::Vec3 extent);
+    ecs::Entity addTriggerSphere(math::Vec3 pos, float radius);
     ecs::Entity addOBBFromMesh(const LoadedMesh& mesh, float mass);
     // GJK-only primitives (axis +Y; dims baked into mesh, Transform.scale stays {1,1,1})
     ecs::Entity addCapsule          (float radius, float halfHeight, float mass, math::Vec3 pos = {});
@@ -385,7 +389,8 @@ private:
     physics::BroadphaseSAP                               sap_;
     std::vector<ecs::Entity>                             advanceEntities_;    // reused each tick
     std::vector<std::pair<ecs::Entity, ecs::Entity>>     sapPairs_;
-    std::vector<physics::ColliderDiscrete::ActiveContact> advanceContacts_;   // reused each tick
+    std::vector<physics::ColliderDiscrete::ActiveContact> advanceContacts_;   // reused each tick; solver-bound
+    std::vector<physics::ColliderDiscrete::ActiveContact> triggerContacts_;   // reused each tick; events only, never solved
     physics::EntityContactCache                          contactCache_;
     physics::IslandDetector                              islandDetector_;
     std::unique_ptr<ThreadPool>                          threadPool_;

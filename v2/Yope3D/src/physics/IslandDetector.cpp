@@ -168,9 +168,13 @@ void IslandDetector::build(
                 if (!seen[c.a.id]) { seen[c.a.id] = 1; isl.entities.push_back(c.a); }
                 if (!seen[c.b.id]) { seen[c.b.id] = 1; isl.entities.push_back(c.b); }
                 for (int i = 0; i < c.manifold.numContacts; ++i) {
-                    auto it = globalCache.find({c.a, c.b, i});
+                    // Key must match solveIsland's exactly — the old {a, b, i}
+                    // snapshot never carried compound sub-shape entries
+                    // (shapeKey > 0), so those contacts silently lost warm-start.
+                    EntityContactKey key{c.a, c.b, c.shapeKey, c.manifold.featureIds[i]};
+                    auto it = globalCache.find(key);
                     if (it != globalCache.end())
-                        isl.localCache[{c.a, c.b, i}] = it->second;
+                        isl.localCache[key] = it->second;
                 }
             }
             // Reset only the slots this island marked. Entities are unique

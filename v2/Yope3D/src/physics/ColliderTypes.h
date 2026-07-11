@@ -14,6 +14,11 @@ namespace ColliderDiscrete {
         float      penetration  = 0.0f;
         float      depths[4]    = {};
         math::Vec3 contactPoints[4];
+        // Stable per-point feature id (which vertex / clip-plane pair produced
+        // the point) — the warm-start cache key. Must be deterministic while
+        // the same features stay in contact; array order is NOT (points are
+        // depth-sorted and FP noise reorders them frame-to-frame).
+        int        featureIds[4] = {};
         int        numContacts  = 0;
     };
 
@@ -23,9 +28,8 @@ namespace ColliderDiscrete {
         ecs::Entity b;
         // Disambiguates the contact-cache key when one entity is a compound
         // collider: a single (a,b) pair then produces one manifold per colliding
-        // sub-shape. The cache index is shapeKey*4 + pointIndex, so distinct
-        // sub-shapes never alias. 0 for ordinary single-shape pairs (identical
-        // keys to the pre-compound scheme).
+        // sub-shape. The cache key is (a, b, shapeKey, featureId), so distinct
+        // sub-shapes never alias. 0 for ordinary single-shape pairs.
         int             shapeKey = 0;
         ContactManifold manifold;
         math::Vec3      T1, T2;

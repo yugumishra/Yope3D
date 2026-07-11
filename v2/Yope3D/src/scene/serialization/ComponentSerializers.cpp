@@ -45,6 +45,7 @@ void serializeHull(const void* comp, JsonWriter& w) {
     w.writeFloat("restitution",    h->restitution);
     w.writeBool ("gravity",        h->gravity);
     w.writeBool ("tangible",       h->tangible);
+    w.writeBool ("isTrigger",      h->isTrigger);
     w.writeFloat3("velocity", h->velocity.x, h->velocity.y, h->velocity.z);
 }
 
@@ -57,6 +58,7 @@ bool deserializeHull(const JsonNode& n, void* comp) {
     if (n.contains("restitution"))    h->restitution    = n["restitution"].asFloat();
     if (n.contains("gravity"))        h->gravity        = n["gravity"].asBool();
     if (n.contains("tangible"))       h->tangible       = n["tangible"].asBool();
+    if (n.contains("isTrigger"))      h->isTrigger      = n["isTrigger"].asBool();
     if (n.contains("velocity")) {
         auto& arr = n["velocity"].asArray();
         if (arr.size() >= 3) { h->velocity.x = arr[0].asFloat(); h->velocity.y = arr[1].asFloat(); h->velocity.z = arr[2].asFloat(); }

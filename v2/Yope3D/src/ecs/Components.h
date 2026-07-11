@@ -29,6 +29,7 @@ struct Hull {
     bool       gravity        = true;
     bool       tangible       = true;
     bool       sleepingEnabled = true;
+    bool       isTrigger      = false;
 
     // Phase D fields: solve accumulators + cached tensors (populated by factory methods / publishSnapshot)
     math::Vec3 pseudoVel          {};

@@ -130,7 +130,7 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
         math::Vec3 n = c.manifold.normal;
         for (int i = 0; i < c.manifold.numContacts; i++) {
             if (c.W[i] == 0.0f) continue;
-            auto it = cache.find({c.a, c.b, c.shapeKey * 4 + i});
+            auto it = cache.find({c.a, c.b, c.shapeKey, c.manifold.featureIds[i]});
             if (it == cache.end()) continue;
 
             c.lambda[i]   = it->second.normal * 0.999f;
@@ -218,7 +218,7 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
     for (auto& c : contacts) {
         for (int i = 0; i < c.manifold.numContacts; i++) {
             if (c.W[i] == 0.0f) continue;
-            cache[{c.a, c.b, c.shapeKey * 4 + i}] = {c.lambda[i], c.lambdaT1[i], c.lambdaT2[i]};
+            cache[{c.a, c.b, c.shapeKey, c.manifold.featureIds[i]}] = {c.lambda[i], c.lambdaT1[i], c.lambdaT2[i]};
         }
     }
 

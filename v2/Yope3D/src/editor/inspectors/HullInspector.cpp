@@ -98,6 +98,13 @@ void drawHullComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
         ctx.history->execute(ctx, std::make_unique<SetComponentCommand<ecs::Hull>>(e, beforeEdit, *h, "Toggle Tangible"));
     }
 
+    bool isTrigger = h->isTrigger;
+    if (ImGui::Checkbox("Trigger", &isTrigger)) {
+        beforeEdit = *h;
+        h->isTrigger = isTrigger;
+        ctx.history->execute(ctx, std::make_unique<SetComponentCommand<ecs::Hull>>(e, beforeEdit, *h, "Toggle Trigger"));
+    }
+
     float vel[3] = { h->velocity.x, h->velocity.y, h->velocity.z };
     ImGui::DragFloat3("Velocity", vel, 0.05f);
     if (ImGui::IsItemActivated()) beforeEdit = *h;

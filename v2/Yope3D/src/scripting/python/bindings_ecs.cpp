@@ -10,6 +10,9 @@
 #include "audio/Source.h"   // complete type for AudioSource.source binding
 #include "scripting/Script.h"  // Script::pyInstanceHandle for get_behavior
 #include "scripting/python/PyComponentTable.h"
+#include "scripting/python/PythonInterpreter.h"  // boundContext() for attach_script
+#include "scripting/ScriptContext.h"
+#include "scene/SceneManager.h"
 
 namespace py = pybind11;
 
@@ -45,6 +48,7 @@ void bind_ecs(py::module_& m) {
         .def_readwrite("restitution",     &ecs::Hull::restitution)
         .def_readwrite("gravity",         &ecs::Hull::gravity)
         .def_readwrite("tangible",        &ecs::Hull::tangible)
+        .def_readwrite("is_trigger",      &ecs::Hull::isTrigger)
         .def_readwrite("collision_layer", &ecs::Hull::collisionLayer)
         .def_readwrite("collision_mask",  &ecs::Hull::collisionMask);
 
@@ -411,5 +415,49 @@ void bind_ecs(py::module_& m) {
         if (!h) return py::none();
         return py::reinterpret_borrow<py::object>(reinterpret_cast<PyObject*>(h));
     }, py::arg("entity"));
+
+    // attach_script — create + immediately instantiate a Python behavior on an
+    // entity at runtime (not just at scene load). Unlike scene-authored
+    // ScriptComponents, which SceneManager instantiates once during load/Play,
+    // this lets a script spawn N entities and give each one live behavior right
+    // away -- init() runs before this call returns, and update()/
+    // on_collision_enter/exit dispatch normally from the next frame on.
+    //
+    // module/class_name select the Python behavior (scripts/behaviors/<module>.py,
+    // same as a scene file's paramsBlob "module"/"class" keys). params is merged
+    // into the dict the new instance's init() receives.
+    //
+    // Returns False (no-op) if the entity is invalid or already carries a live
+    // script instance -- attach_script does not replace/reset an existing one.
+    m.def("attach_script",
+        [](ecs::Entity e, const std::string& module_, const std::string& className,
+           py::dict params) -> bool {
+            auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
+            auto* sceneManager = py::module_::import("yope3d").attr("scene_manager").cast<SceneManager*>();
+            auto* ctx = PythonInterpreter::boundContext();
+            if (!ctx) return false;
+
+            py::dict blob = params.attr("copy")().cast<py::dict>();  // don't mutate caller's dict
+            blob["module"] = module_;
+            blob["class"]  = className;
+            std::string blobStr = py::module_::import("json").attr("dumps")(blob).cast<std::string>();
+            if (blobStr.size() >= sizeof(ecs::ScriptComponent::paramsBlob))
+                throw std::runtime_error("attach_script: params too large for paramsBlob (2048 bytes)");
+
+            {
+                auto lock = world->lockStructure();
+                auto& reg = world->getRegistry();
+                if (!reg.valid(e)) return false;
+                auto* sc = reg.get<ecs::ScriptComponent>(e);
+                if (sc && sc->instance) return false;   // already scripted -- no-op
+                if (!sc) sc = &reg.add<ecs::ScriptComponent>(e);
+                std::strncpy(sc->scriptClass, "PythonScript", sizeof(sc->scriptClass) - 1);
+                sc->scriptClass[sizeof(sc->scriptClass) - 1] = '\0';
+                std::strncpy(sc->paramsBlob, blobStr.c_str(), sizeof(sc->paramsBlob) - 1);
+                sc->paramsBlob[sizeof(sc->paramsBlob) - 1] = '\0';
+            }
+            return sceneManager->instantiateScript(e, *ctx);
+        }, py::arg("entity"), py::arg("module"), py::arg("class_name"),
+           py::arg("params") = py::dict());
 }
 #endif // YOPE_PYTHON

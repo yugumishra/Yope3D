@@ -109,17 +109,21 @@ bool analyticalAABBAABB(const AABBGeom& a, const AABBGeom& b, ContactManifold& m
 
     if (ovX <= 0.0f || ovY <= 0.0f || ovZ <= 0.0f) return false;
 
-    int axis;
+    int  axis;
+    bool posDir;
     if (ovX <= ovY && ovX <= ovZ) {
-        m.normal      = {posA.x < posB.x ? 1.0f : -1.0f, 0.0f, 0.0f};
+        posDir        = posA.x < posB.x;
+        m.normal      = {posDir ? 1.0f : -1.0f, 0.0f, 0.0f};
         m.penetration = ovX;
         axis = 0;
     } else if (ovY <= ovX && ovY <= ovZ) {
-        m.normal      = {0.0f, posA.y < posB.y ? 1.0f : -1.0f, 0.0f};
+        posDir        = posA.y < posB.y;
+        m.normal      = {0.0f, posDir ? 1.0f : -1.0f, 0.0f};
         m.penetration = ovY;
         axis = 1;
     } else {
-        m.normal      = {0.0f, 0.0f, posA.z < posB.z ? 1.0f : -1.0f};
+        posDir        = posA.z < posB.z;
+        m.normal      = {0.0f, 0.0f, posDir ? 1.0f : -1.0f};
         m.penetration = ovZ;
         axis = 2;
     }
@@ -157,6 +161,9 @@ bool analyticalAABBAABB(const AABBGeom& a, const AABBGeom& b, ContactManifold& m
             p.x = comp[0]; p.y = comp[1]; p.z = comp[2];
             m.contactPoints[n] = p;
             m.depths[n]        = m.penetration;
+            // Lattice corner + separating axis/direction: stable while the
+            // contact configuration holds, invalidated when the axis changes.
+            m.featureIds[n]    = ((axis * 2 + (posDir ? 1 : 0)) << 2) | (iu * 2 + iv);
             n++;
         }
     }
@@ -217,6 +224,176 @@ bool analyticalSphereOBB(const SphereGeom& sphere, const OBBGeom& obb, ContactMa
 }
 
 // ============================================================================
+// Box–box face manifolds — reference-face clipping (Box2D/ODE style).
+//
+// For a face-axis SAT result the contact patch is the incident face clipped
+// against the reference face's side planes: most patch corners are clip
+// intersection points that are corners of *neither* box (a box straddling two
+// supports, a box wider than its support, ...). The old corner-containment
+// candidate collection produced 2-point line manifolds there (no resistance
+// to rocking about that line), and at resting penetration depths could find
+// zero contained corners and collapse to a single center-point contact.
+// ============================================================================
+
+namespace {
+
+struct ClipVert { math::Vec3 p; int id; };
+
+// Sutherland–Hodgman clip of convex polygon `in` (n verts) against the
+// half-space dot(pn, x) <= pd. Returns the new vert count written to `out`.
+// Intersection verts get a deterministic id derived from (edge start, plane)
+// so warm-start features stay stable frame-to-frame.
+int clipAgainstPlane(const ClipVert* in, int n, const math::Vec3& pn, float pd,
+                     int planeId, ClipVert* out) {
+    int m = 0;
+    for (int i = 0; i < n; ++i) {
+        const ClipVert& cur = in[i];
+        const ClipVert& nxt = in[(i + 1) % n];
+        float dCur = pn.dot(cur.p) - pd;
+        float dNxt = pn.dot(nxt.p) - pd;
+        if (dCur <= 0.0f) out[m++] = cur;
+        if ((dCur <= 0.0f) != (dNxt <= 0.0f)) {
+            float t = dCur / (dCur - dNxt);
+            out[m++] = {cur.p + (nxt.p - cur.p) * t, (cur.id * 4 + planeId + 4) & 0xFF};
+        }
+    }
+    return m;
+}
+
+// Fills m.contactPoints/depths/featureIds/numContacts for a face-axis SAT
+// result. `ref` owns the reference face (its axis refAxisIdx was the SAT best
+// axis); `inc` supplies the incident face (the one most anti-parallel to the
+// reference normal). `normalAB` is the manifold normal (a -> b convention);
+// refIsA fixes the reference normal's sign and disambiguates feature ids when
+// the SAT owner changes. m.normal/m.penetration must already be set.
+void buildFaceManifold(const OBBGeom& ref, int refAxisIdx, const OBBGeom& inc,
+                       const math::Vec3& normalAB, bool refIsA, ContactManifold& m)
+{
+    const math::Vec3 refN = refIsA ? normalAB : -normalAB;   // points ref -> inc
+    auto refAxes = ref.getOBBAxes();
+    auto incAxes = inc.getOBBAxes();
+    const float refExt[3] = {ref.extent.x, ref.extent.y, ref.extent.z};
+    const float incExt[3] = {inc.extent.x, inc.extent.y, inc.extent.z};
+
+    int   incIdx  = 0;
+    float incSign = 1.0f;
+    float minDot  = 1e30f;
+    for (int i = 0; i < 3; ++i) {
+        float d = incAxes[i].dot(refN);
+        if ( d < minDot) { minDot =  d; incIdx = i; incSign =  1.0f; }
+        if (-d < minDot) { minDot = -d; incIdx = i; incSign = -1.0f; }
+    }
+    const int        iu = (incIdx + 1) % 3, iv = (incIdx + 2) % 3;
+    const math::Vec3 incCenter = inc.pos + incAxes[incIdx] * (incSign * incExt[incIdx]);
+    const math::Vec3 U = incAxes[iu] * incExt[iu];
+    const math::Vec3 V = incAxes[iv] * incExt[iv];
+
+    ClipVert bufA[12], bufB[12];
+    bufA[0] = {incCenter + U + V, 0};
+    bufA[1] = {incCenter + U - V, 1};
+    bufA[2] = {incCenter - U - V, 2};
+    bufA[3] = {incCenter - U + V, 3};
+    int n = 4;
+
+    // Clip against the reference face's 4 side planes (result ends in bufA).
+    int planeId = 0;
+    for (int k = 0; k < 3; ++k) {
+        if (k == refAxisIdx) continue;
+        float d = ref.pos.dot(refAxes[k]);
+        n = clipAgainstPlane(bufA, n,  refAxes[k],  d + refExt[k], planeId++, bufB);
+        n = clipAgainstPlane(bufB, n, -refAxes[k], -d + refExt[k], planeId++, bufA);
+    }
+
+    const float faceD = refN.dot(ref.pos) + refExt[refAxisIdx];
+    // Feature ids carry the reference-face identity so an owner/axis change
+    // invalidates the cache entry instead of aliasing a different patch.
+    const int ownerBits = ((refIsA ? 0 : 3) + refAxisIdx + 1) << 8;
+
+    struct Cand { math::Vec3 pt; float depth; int id; };
+    Cand cands[12];
+    int  nc = 0;
+    // Keep points at or slightly above the reference face: barely-separated
+    // clip points can only push (lambda >= 0), and they keep the patch a full
+    // quad when resting penetration hovers around the contact slop.
+    for (int i = 0; i < n; ++i) {
+        float depth = faceD - refN.dot(bufA[i].p);
+        if (depth < -SPLIT_SLOP) continue;
+        cands[nc++] = {bufA[i].p, depth, bufA[i].id};
+    }
+
+    if (nc == 0) {
+        // Degenerate: fall back to the deepest clipped vertex, or the center
+        // midpoint if the side planes ate the whole polygon.
+        if (n > 0) {
+            int best = 0;
+            for (int i = 1; i < n; ++i)
+                if (refN.dot(bufA[i].p) < refN.dot(bufA[best].p)) best = i;
+            m.contactPoints[0] = bufA[best].p;
+            m.featureIds[0]    = ownerBits | bufA[best].id;
+        } else {
+            m.contactPoints[0] = (ref.pos + inc.pos) * 0.5f;
+            m.featureIds[0]    = ownerBits | 0xFF;
+        }
+        m.depths[0]   = m.penetration;
+        m.numContacts = 1;
+        return;
+    }
+
+    if (nc <= 4) {
+        for (int i = 0; i < nc; ++i) {
+            m.contactPoints[i] = cands[i].pt;
+            m.depths[i]        = cands[i].depth;
+            m.featureIds[i]    = ownerBits | cands[i].id;
+        }
+        m.numContacts = nc;
+        return;
+    }
+
+    // >4 candidates: reduce preserving patch *area*, not depth — keeping the
+    // 4 deepest can collapse the patch toward a line and lose tipping
+    // resistance. Deepest point, farthest from it, then both signed-area
+    // extremes about that chord.
+    int i0 = 0;
+    for (int i = 1; i < nc; ++i)
+        if (cands[i].depth > cands[i0].depth) i0 = i;
+
+    int i1 = 0; float bestDistSq = -1.0f;
+    for (int i = 0; i < nc; ++i) {
+        if (i == i0) continue;
+        math::Vec3 d = cands[i].pt - cands[i0].pt;
+        float dsq = d.dot(d);
+        if (dsq > bestDistSq) { bestDistSq = dsq; i1 = i; }
+    }
+
+    const math::Vec3 e01 = cands[i1].pt - cands[i0].pt;
+    int i2 = -1, i3 = -1; float aMax = -1e30f, aMin = 1e30f;
+    for (int i = 0; i < nc; ++i) {
+        if (i == i0 || i == i1) continue;
+        float area = refN.dot(e01.cross(cands[i].pt - cands[i0].pt));
+        if (area > aMax) { aMax = area; i2 = i; }
+        if (area < aMin) { aMin = area; i3 = i; }
+    }
+    if (i3 == i2) {   // remaining points collinear with the chord
+        for (int i = 0; i < nc; ++i)
+            if (i != i0 && i != i1 && i != i2) { i3 = i; break; }
+    }
+
+    const int sel[4] = {i0, i1, i2, i3};
+    for (int i = 0; i < 4; ++i) {
+        m.contactPoints[i] = cands[sel[i]].pt;
+        m.depths[i]        = cands[sel[i]].depth;
+        m.featureIds[i]    = ownerBits | cands[sel[i]].id;
+    }
+    m.numContacts = 4;
+}
+
+// Feature id for the single-point edge-edge manifold: axisIdx identifies the
+// crossed edge-direction pair; the high bit keeps it disjoint from face ids.
+inline int edgeFeatureId(int axisIdx) { return 0x1000 | axisIdx; }
+
+} // namespace
+
+// ============================================================================
 // AABB — OBB   15-axis SAT   (normal convention: from AABB (a) toward OBB (b))
 // ============================================================================
 
@@ -227,7 +404,6 @@ bool analyticalAABBOBB(const AABBGeom& a, const OBBGeom& b, ContactManifold& m) 
     math::Vec3 diff  = bPos - aPos;
 
     const math::Vec3 worldAxes[3] = {{1,0,0},{0,1,0},{0,0,1}};
-    float            extArr[3]    = {aExt.x, aExt.y, aExt.z};
 
     float      minOverlap = 1e30f;
     math::Vec3 bestAxis;
@@ -244,7 +420,11 @@ bool analyticalAABBOBB(const AABBGeom& a, const OBBGeom& b, ContactManifold& m) 
         float centerDist = std::abs(diff.dot(n));
         float overlap    = projA + projB - centerDist;
         if (overlap < 0.0f) return false;
-        if (overlap < minOverlap) {
+        // On near-ties keep the current best-axis category (a faces are tested
+        // before b faces before edges): FP noise flipping the manifold owner
+        // frame-to-frame re-picks the patch and invalidates warm-start features.
+        float threshold = (type > axisType) ? minOverlap * 0.98f - 1e-4f : minOverlap;
+        if (overlap < threshold) {
             minOverlap = overlap;
             bestAxis   = n;
             axisType   = type;
@@ -263,74 +443,14 @@ bool analyticalAABBOBB(const AABBGeom& a, const OBBGeom& b, ContactManifold& m) 
     m.normal      = normal;
     m.penetration = minOverlap;
 
-    struct Cand { math::Vec3 pt; float depth; };
-
     if (axisType == 0) {
-        float faceD   = aPos.dot(normal) + extArr[axisIdx];
-        int   sa0     = (axisIdx + 1) % 3;
-        int   sa1     = (axisIdx + 2) % 3;
-        auto  corners = b.worldSpaceCorners();
-
-        Cand cands[8]; int numCands = 0;
-        for (auto& c : corners) {
-            float depth = faceD - c.dot(normal);
-            if (depth <= 0.0f) continue;
-            float d0 = std::abs(c.dot(worldAxes[sa0]) - aPos.dot(worldAxes[sa0]));
-            float d1 = std::abs(c.dot(worldAxes[sa1]) - aPos.dot(worldAxes[sa1]));
-            if (d0 > extArr[sa0] || d1 > extArr[sa1]) continue;
-            cands[numCands++] = {c, depth};
-        }
-        if (numCands == 0) {
-            m.contactPoints[0] = (aPos + bPos) * 0.5f;
-            m.depths[0]        = m.penetration;
-            m.numContacts = 1;
-        } else {
-            for (int i = 1; i < numCands; i++) {
-                Cand key = cands[i]; int j = i - 1;
-                while (j >= 0 && cands[j].depth < key.depth) { cands[j+1] = cands[j]; j--; }
-                cands[j+1] = key;
-            }
-            int k = std::min(numCands, 4);
-            for (int i = 0; i < k; i++) {
-                m.contactPoints[i] = cands[i].pt;
-                m.depths[i]        = cands[i].depth;
-            }
-            m.numContacts = k;
-        }
+        // AABB face is the reference: treat it as an identity-rotation OBB and
+        // clip the OBB's incident face against it.
+        buildFaceManifold(OBBGeom{aPos, aExt, math::Mat3{}}, axisIdx, b,
+                          normal, /*refIsA=*/true, m);
     } else if (axisType == 1) {
-        math::Mat3 Rt       = b.getRotTransform().transpose();
-        float      bExtArr[3] = {bExt.x, bExt.y, bExt.z};
-
-        Cand cands[8]; int numCands = 0;
-        for (int i = 0; i < 8; i++) {
-            float sx = (i & 1) ? -1.0f : 1.0f;
-            float sy = (i & 2) ? -1.0f : 1.0f;
-            float sz = (i & 4) ? -1.0f : 1.0f;
-            math::Vec3 corner = aPos + math::Vec3{sx*aExt.x, sy*aExt.y, sz*aExt.z};
-            if (!b.inside(corner)) continue;
-            math::Vec3 local    = Rt * (corner - bPos);
-            float      localArr[3] = {local.x, local.y, local.z};
-            float      depth    = bExtArr[axisIdx] - std::abs(localArr[axisIdx]);
-            if (depth <= 0.0f) continue;
-            cands[numCands++] = {corner, depth};
-        }
-        if (numCands == 0) {
-            m.contactPoints[0] = (aPos + bPos) * 0.5f;
-            m.depths[0]        = m.penetration;
-            m.numContacts = 1;
-        } else {
-            for (int i = 1; i < numCands; i++) {
-                Cand key = cands[i]; int j = i - 1;
-                while (j >= 0 && cands[j].depth < key.depth) { cands[j+1] = cands[j]; j--; }
-                cands[j+1] = key;
-            }
-            int k = std::min(numCands, 4);
-            for (int i = 0; i < k; i++) {
-                m.contactPoints[i] = cands[i].pt;
-                m.depths[i]        = cands[i].depth;
-            }
-            m.numContacts = k;
-        }
+        buildFaceManifold(b, axisIdx, OBBGeom{aPos, aExt, math::Mat3{}},
+                          normal, /*refIsA=*/false, m);
     } else {
         // edge-edge: world axis ai on AABB crossed with OBB axis bi
         int   ai       = axisIdx / 3;
@@ -373,6 +493,7 @@ bool analyticalAABBOBB(const AABBGeom& a, const OBBGeom& b, ContactManifold& m) 
 
         m.contactPoints[0] = (edgeCenterA + segA * tA + edgeCenterB + segB * tB) * 0.5f;
         m.depths[0]        = m.penetration;
+        m.featureIds[0]    = edgeFeatureId(axisIdx);
         m.numContacts      = 1;
     }
     return true;
@@ -403,7 +524,11 @@ bool analyticalOBBOBB(const OBBGeom& a, const OBBGeom& b, ContactManifold& m) {
         float centerDist = std::abs(diff.dot(n));
         float overlap    = projA + projB - centerDist;
         if (overlap < 0.0f) return false;
-        if (overlap < minOverlap) {
+        // On near-ties keep the current best-axis category (a faces are tested
+        // before b faces before edges): FP noise flipping the manifold owner
+        // frame-to-frame re-picks the patch and invalidates warm-start features.
+        float threshold = (type > axisType) ? minOverlap * 0.98f - 1e-4f : minOverlap;
+        if (overlap < threshold) {
             minOverlap = overlap;
             bestAxis   = n;
             axisType   = type;
@@ -422,70 +547,10 @@ bool analyticalOBBOBB(const OBBGeom& a, const OBBGeom& b, ContactManifold& m) {
     m.normal      = normal;
     m.penetration = minOverlap;
 
-    struct Cand { math::Vec3 pt; float depth; };
-
     if (axisType == 0) {
-        math::Mat3 RtA    = a.getRotTransform().transpose();
-        float      aEArr[3] = {aExt.x, aExt.y, aExt.z};
-        auto       bCorners = b.worldSpaceCorners();
-
-        Cand cands[8]; int numCands = 0;
-        for (auto& c : bCorners) {
-            if (!a.inside(c)) continue;
-            math::Vec3 local    = RtA * (c - aPos);
-            float      lArr[3]  = {local.x, local.y, local.z};
-            float      depth    = aEArr[axisIdx] - std::abs(lArr[axisIdx]);
-            if (depth <= 0.0f) continue;
-            cands[numCands++] = {c, depth};
-        }
-        if (numCands == 0) {
-            m.contactPoints[0] = (aPos + bPos) * 0.5f;
-            m.depths[0]        = m.penetration;
-            m.numContacts = 1;
-        } else {
-            for (int i = 1; i < numCands; i++) {
-                Cand key = cands[i]; int j = i - 1;
-                while (j >= 0 && cands[j].depth < key.depth) { cands[j+1] = cands[j]; j--; }
-                cands[j+1] = key;
-            }
-            int k = std::min(numCands, 4);
-            for (int i = 0; i < k; i++) {
-                m.contactPoints[i] = cands[i].pt;
-                m.depths[i]        = cands[i].depth;
-            }
-            m.numContacts = k;
-        }
+        buildFaceManifold(a, axisIdx, b, normal, /*refIsA=*/true, m);
     } else if (axisType == 1) {
-        math::Mat3 RtB    = b.getRotTransform().transpose();
-        float      bEArr[3] = {bExt.x, bExt.y, bExt.z};
-        auto       aCorners = a.worldSpaceCorners();
-
-        Cand cands[8]; int numCands = 0;
-        for (auto& c : aCorners) {
-            if (!b.inside(c)) continue;
-            math::Vec3 local    = RtB * (c - bPos);
-            float      lArr[3]  = {local.x, local.y, local.z};
-            float      depth    = bEArr[axisIdx] - std::abs(lArr[axisIdx]);
-            if (depth <= 0.0f) continue;
-            cands[numCands++] = {c, depth};
-        }
-        if (numCands == 0) {
-            m.contactPoints[0] = (aPos + bPos) * 0.5f;
-            m.depths[0]        = m.penetration;
-            m.numContacts = 1;
-        } else {
-            for (int i = 1; i < numCands; i++) {
-                Cand key = cands[i]; int j = i - 1;
-                while (j >= 0 && cands[j].depth < key.depth) { cands[j+1] = cands[j]; j--; }
-                cands[j+1] = key;
-            }
-            int k = std::min(numCands, 4);
-            for (int i = 0; i < k; i++) {
-                m.contactPoints[i] = cands[i].pt;
-                m.depths[i]        = cands[i].depth;
-            }
-            m.numContacts = k;
-        }
+        buildFaceManifold(b, axisIdx, a, normal, /*refIsA=*/false, m);
     } else {
         // edge-edge: OBB axis ai on A crossed with OBB axis bi on B
         int   ai       = axisIdx / 3;
@@ -527,6 +592,7 @@ bool analyticalOBBOBB(const OBBGeom& a, const OBBGeom& b, ContactManifold& m) {
 
         m.contactPoints[0] = (edgeCenterA + segA * tA + edgeCenterB + segB * tB) * 0.5f;
         m.depths[0]        = m.penetration;
+        m.featureIds[0]    = edgeFeatureId(axisIdx);
         m.numContacts      = 1;
     }
     return true;
