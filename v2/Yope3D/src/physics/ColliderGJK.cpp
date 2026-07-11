@@ -466,6 +466,465 @@ bool updateSimplex(GJKSimplex& simplex, math::Vec3& direction) {
     return false;
 }
 
+/*
+
+//both the simplex and the search direction need to be updated so pass those both in by reference
+bool updateSimplex(GJKSimplex& simplex, math::Vec3& direction) {
+    //note: points are described in reverse addition order
+    //further down the alphabet means older
+    //so b got added before a, after c
+    switch(simplex.n) {
+        case 2: {
+            //we have 2 points, oldest one in b.
+            //we need to determine which region the origin is in
+            //since a was in the direction of the origin from 0, this simplifies hte check
+            //we only need to compare whether the ray ab is in the direction of the origin or not
+
+            //"in the direction of the origin" <==> ab * (ao <==> -a) >0
+            math::Vec3 ao = -simplex.points[1];
+            math::Vec3 ab = simplex.points[0] - simplex.points[1];
+
+            if(ab.dot(ao) > 0) {
+                //origin contained witihn the 2 planes defined by a and b
+                //simplex already has a & b so only thing left is dircetion computation
+                //here use triple cross product (ab x ao x ab) to get a vector that is:
+                // 1 perpendicular to ab (we don't want to search in a redundant direction, ab already covered)
+                // 2 in the plane of ab and ao
+                math::Vec3 aCrossb = ab.cross(ao);
+                if(aCrossb.dot(aCrossb) < GJK_EPS) {
+
+                    //we have colinear points
+                    //check if the origin is inbetween
+                    if(simplex.points[0].dot(simplex.points[1]) <= 0) {
+                        //origin in between
+                        return true;
+                    }else {
+                        //origin past a (update simplex to only have a)
+                        simplex.points[0] = simplex.points[1]; //zeroing simplex.points[1] not necessary as any pushes will ovewrite it
+                        simplex.n = 1;
+                        // (just n needs to be updated to reflect the true length)
+
+                        //direction is just ao
+                        direction = ao;
+                        return false;
+                    }
+                }
+                direction = (aCrossb).cross(ab);
+                return false;
+            }else {
+                //origin past a (update simplex to only have a)
+                simplex.points[0] = simplex.points[1]; //zeroing simplex.points[1] not necessary as any pushes will ovewrite it
+                simplex.n = 1;
+                // (just n needs to be updated to reflect the true length)
+
+                //direction is just ao
+                direction = ao;
+                return false;
+            }
+        }
+        case 3: {
+            //first compute triangle normal as ab cross ac
+            math::Vec3 ao = -simplex.points[2];
+            math::Vec3 ab = simplex.points[1] - simplex.points[2];
+            math::Vec3 ac = simplex.points[0] - simplex.points[2];
+
+            math::Vec3 triangleNormal = ab.cross(ac);
+
+            //ab line already tested, so it has to be past there
+            //so we test one of the other edges, abc x ac or ab x abc
+
+            math::Vec3 edge1 = triangleNormal.cross(ac);
+
+            if(edge1.dot(ao) > 0) {
+                //past the edge of the triangle, need to determine if its past a or not
+                if(ac.dot(ao) > 0) {
+                    //it is, simplex is ac
+                    simplex.points[1] = simplex.points[2]; //zeroing simplex.points[2] not necessary as any pushes will ovewrite it
+                    simplex.n = 2;
+
+                    //search direction is the same as the line case for 2 points (ac x ao x ac)
+                    direction = (ac.cross(ao)).cross(ac);
+                    return false;
+                }else {
+                    //behind ac, must test if behind b as well (some weird triangles can cause this)
+                    if(ab.dot(ao) > 0) {
+                        //within the region bound by a and b (simplex is a and b)
+
+                        simplex.points[0] = simplex.points[1];
+                        simplex.points[1] = simplex.points[2];
+                        simplex.n--; //zeroing simplex.points[2] not necessary as any pushes will ovewrite it
+
+                        //do usual line calculation
+                        direction = (ab.cross(ao)).cross(ab);
+                        return false;
+                    }else {
+                        //behind a for sure (tested both edges)
+                        //simplex is simply a now
+                        simplex.points[0] = simplex.points[2];
+                        simplex.n = 1; //zeroing simplex.points[1/2] not necessary as any pushes will overwrite it
+
+                        direction = ao;
+                        return false;
+                    }
+                }
+            }else {
+                math::Vec3 edge2 = ab.cross(triangleNormal);
+                //now test to see if beyond the other edge
+                if(edge2.dot(ao) > 0) {
+                    //we are indeed beyond the other edge, now test beyond/behind ab (same case as else above)
+                    if(ab.dot(ao) > 0) {
+                        //within the region bound by a and b (simplex is a and b)
+
+                        simplex.points[0] = simplex.points[1];
+                        simplex.points[1] = simplex.points[2];
+                        simplex.n--; //zeroing simplex.points[2] not necessary as any pushes will ovewrite it
+
+                        //do usual line calculation
+                        direction = (ab.cross(ao)).cross(ab);
+                        return false;
+                    }else {
+                        //behind a for sure (tested both edges)
+                        //simplex is simply a now
+                        simplex.points[0] = simplex.points[2];
+                        simplex.n = 1; //zeroing simplex.points[1/2] not necessary as any pushes will overwrite it
+
+                        direction = ao;
+                        return false;
+                    }
+                }else {
+                    //within both edges, origin must be above or below triangle
+                    //test via triangle normal now
+                    if(triangleNormal.dot(ao) > 0) {
+                        //above the triangle, winding is correct
+                        //update direction with new search direction
+                        direction = triangleNormal;
+                        return false;
+                    }else {
+                        //reverse winding (swap b and c)
+                        math::Vec3 temp = simplex.points[0];
+                        simplex.points[0] = simplex.points[1];
+                        simplex.points[1] = temp;
+
+                        //flip the direction since the origin is below
+                        direction = -triangleNormal;
+                        return false;
+                    }
+                }
+            }
+            break;
+        }
+        case 4: {
+            //treat this as a series of triangle tests
+            //in general, a tetrahedron divides 3d space into 15 regions (one interior, 4 faces, 6 edges, 4 points)
+            //however, results can be reused since we know the triangle build order and the tests that were used to find the points
+            //ex: testing the triangle normal of dcb is redundant since that is how point a got added
+
+            //always compare with ao so compute here
+            math::Vec3 ao = -simplex.points[3];
+
+            //the one with the least apriori info is triangle abc so start with that test
+            math::Vec3 ab = simplex.points[2] - simplex.points[3];
+            math::Vec3 ac = simplex.points[1] - simplex.points[3];
+
+            //find by crossing (note we always want normals to point into the tetrahedron
+            // so we cross in the order that produces the vector towards the missing vertex
+            // ex: (acb -> ac x ab poitns towards d)))
+            //this means ABOVE a plane (in this tetrahedral case) means into the interior and vice versa
+            math::Vec3 abcNormal = ac.cross(ab);
+
+            if(abcNormal.dot(ao) > 0) {
+                //inside/above the abc plane
+
+                //now test abd plane (plane with 2nd least info)
+                math::Vec3 ad = simplex.points[0] - simplex.points[3];
+
+                //follow inward normal convention
+                math::Vec3 abdNormal = ab.cross(ad);
+
+                if(abdNormal.dot(ao) > 0) {
+                    //inside/above abd plane
+
+                    //now test against acd plane (plane with the most info)
+                    math::Vec3 acdNormal = ad.cross(ac);
+                    if(acdNormal.dot(ao) > 0) {
+                        //within all 3 planes woo hoo
+                        return false;
+                    }else {
+                        //outside this plane, check both edges
+                        math::Vec3 edge1 = acdNormal.cross(ac);
+                        if(edge1.dot(ao) > 0) {
+                            //beyond this edge, check if behind a in the dir of c
+                            if(ac.dot(ao) > 0) {
+                                //c check redundant so
+                                //in between a and c
+                                simplex.points[0] = simplex.points[1];
+                                simplex.points[1] = simplex.points[3];
+                                simplex.n = 2;
+
+                                //do line simplex dir calc
+                                direction = (ac.cross(ao)).cross(ac);
+                                return false;
+                            }else {
+                                //behind a in the dir of c, now check if behind a in the dir of d
+                                if(ad.dot(ao) > 0) {
+                                    //d check redundant so
+                                    //in between a and d
+                                    simplex.points[1] = simplex.points[3];
+                                    simplex.n = 2;
+
+                                    //do line simplex dir calc
+                                    direction = (ad.cross(ao)).cross(ad);
+                                    return false;
+                                }else {
+                                    //behind a in both dirs, so only point is a
+                                    simplex.points[0] = simplex.points[3];
+                                    simplex.n = 1;
+
+                                    direction = ao;
+                                    return false;
+                                }
+                            }
+                        }else {
+                            //within this edge, now chec kif beyond the other edge
+                            math::Vec3 edge2 = ad.cross(acdNormal);
+                            if(edge2.dot(ao) > 0) {
+                                //beyond this edge too, check if behind a in the dir of d
+                                //behind a in the dir of c, now check if behind a in the dir of d
+                                if(ad.dot(ao) > 0) {
+                                    //d check redundant so
+                                    //in between a and d
+                                    simplex.points[1] = simplex.points[3];
+                                    simplex.n = 2;
+
+                                    //do line simplex dir calc
+                                    direction = (ad.cross(ao)).cross(ad);
+                                    return false;
+                                }else {
+                                    //behind a in both dirs, so only point is a
+                                    simplex.points[0] = simplex.points[3];
+                                    simplex.n = 1;
+
+                                    direction = ao;
+                                    return false;
+                                }
+                            }else {
+                                //within both edges and we checked the plane already so outside
+                                //reverse c and d
+                                math::Vec3 temp = simplex.points[0];
+                                simplex.points[0] = simplex.points[1];
+                                simplex.points[1] = temp;
+                                simplex.points[2] = simplex.points[3]; //put a in third place
+                                simplex.n = 3;
+
+                                //dir is -acd
+                                direction = -acdNormal;
+                                return false;
+                            }
+                        }
+                    }
+                }else {
+                    //below/outside of abd plane
+
+                    //test first against an edge
+                    math::Vec3 edge1 = ab.cross(abdNormal);
+
+                    if(edge1.dot(ao) > 0) {
+                        //past this edge
+                        //check ab to see if its behind a in the dir of b
+                        if(ab.dot(ao) > 0) {
+                            //also check b since we have NEVER checked behind the third point ever in the building of the simplex
+                            //same sign optimization (flip check sign to avoid computing negative of vector)
+                            if(simplex.points[2].dot(ao) < 0) {
+                                //closest 2 points are ab
+                                simplex.points[0] = simplex.points[2];
+                                simplex.points[1] = simplex.points[3];
+                                simplex.n = 2;
+
+                                //do same direction calc
+                                direction = (ab.cross(ao)).cross(ab);
+                                return false;
+                            }else {
+                                //closest point is b only
+                                simplex.points[0] = simplex.points[2];
+                                simplex.n = 1;
+
+                                //direction is simply towards the origin
+                                direction = -simplex.points[0];
+                                return false;
+                            }
+                        }else {
+                            //behind a in the direction of b, now check if behind in the direction of d
+                            if(ad.dot(ao) > 0) {
+                                //d check already done (literally the first step in buliding the simplex)
+                                //so only 2 points are a and d
+                                simplex.points[1] = simplex.points[3];
+                                simplex.n = 2;
+
+                                //same line simplex direction computation
+                                direction = (ad.cross(ao)).cross(ad);
+                                return false;
+                            }else {
+                                //checked behind both edges, only point is a
+                                simplex.points[0] = simplex.points[3];
+                                simplex.n = 1;
+
+                                //just go toward the origin
+                                direction = ao;
+                                return false;
+                            }
+                        }
+                    }else {
+                        //within this edge, check the other edge
+                        math::Vec3 edge2 = abdNormal.cross(ad);
+
+                        if(edge2.dot(ao) > 0) {
+                            //beyond this edge as well, check if within ad (d check not needed)
+                            //behind a in the direction of b, now check in the direction of d
+                            if(ad.dot(ao) > 0) {
+                                //d check already done (literally the first step in buliding the simplex)
+                                //so only 2 points are a and d
+                                simplex.points[1] = simplex.points[3];
+                                simplex.n = 2;
+
+                                //same line simplex direction computation
+                                direction = (ad.cross(ao)).cross(ad);
+                                return false;
+                            }else {
+                                //checked behind both edges, only point is a
+                                simplex.points[0] = simplex.points[3];
+                                simplex.n = 1;
+
+                                //just go toward the origin
+                                direction = ao;
+                                return false;
+                            }
+                        }else {
+                            //within this edge as well, and we tested against the plane already so it must be pointing outward
+                            //reverse orientation
+                            simplex.points[1] = simplex.points[2]; //b goes to c's spot
+                            simplex.points[2] = simplex.points[3]; //a stays a
+                            simplex.n = 3;
+
+                            //direction is -abd
+                            direction = -abdNormal;
+                            return false;
+                        }
+                    }
+                }
+            }else {
+                //below/outside abc plane
+                //due to the lack of tests on the third point (b), some more tests need to be added post c and b (those voronoi regions haven't been tested)
+
+                //first test against edge (good thing we already computed for acb normal)
+                math::Vec3 edge1 = ac.cross(abcNormal);
+                if(edge1.dot(ao) > 0) {
+                    //past this edge
+                    //test if within ac or not
+                    //note: do NOT need to check past c because that test is redudant from past tests/simplex building algo
+                    if(ac.dot(ao) > 0) {
+                        //within the edge, simplex is ac only
+                        simplex.points[0] = simplex.points[1];
+                        simplex.points[1] = simplex.points[3];
+                        simplex.n = 2; //zeroing not necessary, just set n = 2 (overwrites)
+
+                        //direction is same as line case for simplex
+                        direction = ac.cross(ao).cross(ac);
+                        return false;
+                    }else {
+                        //check ab to see if its behind a in the dir of b
+                        if(ab.dot(ao) > 0) {
+                            //also check b since we have NEVER checked behind the third point ever in the building of the simplex
+                            //same sign optimization (flip check sign to avoid computing negative of number)
+                            if(simplex.points[2].dot(ao) < 0) {
+                                //closest 2 points are ab
+                                simplex.points[0] = simplex.points[2];
+                                simplex.points[1] = simplex.points[3];
+                                simplex.n = 2;
+
+                                //do same direction calc
+                                direction = (ab.cross(ao)).cross(ab);
+                                return false;
+                            }else {
+                                //closest point is b only
+                                simplex.points[0] = simplex.points[2];
+                                simplex.n = 1;
+
+                                //direction is simply towards the origin
+                                direction = -simplex.points[0];
+                                return false;
+                            }
+                        }else {
+                            //its behind a on both ab and ac directions, so a only
+                            simplex.points[0] = simplex.points[3];
+                            simplex.n = 1;
+
+                            //direction is simply towards the origin
+                            direction = -simplex.points[0];
+
+                            return false;
+                        }
+                    }
+                }else {
+                    //within the edge
+                    //test the other edge to see if within the triangle
+                    math::Vec3 edge2 = abcNormal.cross(ab);
+
+                    if(edge2.dot(ao) > 0) {
+                        //beyond this edge, do the same ab checks
+                        //check ab to see if its behind a in the dir of b
+                        if(ab.dot(ao) > 0) {
+                            //also check b since we have NEVER checked behind the third point ever in the building of the simplex
+                            //same sign optimization (flip check sign to avoid computing negative of number)
+                            if(simplex.points[2].dot(ao) < 0) {
+                                //closest 2 points are ab
+                                simplex.points[0] = simplex.points[2];
+                                simplex.points[1] = simplex.points[3];
+                                simplex.n = 2;
+
+                                //do same direction calc
+                                direction = (ab.cross(ao)).cross(ab);
+                                return false;
+                            }else {
+                                //closest point is b only
+                                simplex.points[0] = simplex.points[2];
+                                simplex.n = 1;
+
+                                //direction is simply towards the origin
+                                direction = -simplex.points[0];
+                                return false;
+                            }
+                        }else {
+                            //its behind a on both ab and ac directions, so a only
+                            simplex.points[0] = simplex.points[3];
+                            simplex.n = 1;
+
+                            //direction is simply towards the origin
+                            direction = -simplex.points[0];
+                            return false;
+                        }
+                    }else {
+                        //within both edges, and the very first check we did was plane normal
+                        //we are outside/below the plane
+                        //so winding is incorrect
+                        simplex.points[0] = simplex.points[2]; //b becomes oldest
+                        //c remains in place (swap functions this way)
+                        simplex.points[2] = simplex.points[3]; //a becomes the newest
+                        simplex.n = 3;
+
+                        //direciton is the negative (since we need to look the other way
+                        direction = -abcNormal;
+                        return false;
+                    }
+                }
+            }
+            break;
+        }
+    }
+
+    return false;
+}
+*/
+
 // ============================================================================
 // GJK distance mode — closest-point helpers.
 // gjkDistance/updateSimplexDistance (declared in ColliderGJK.h) are the two

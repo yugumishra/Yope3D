@@ -32,6 +32,15 @@ public:
     }
     void setVisible(bool v) { visible_ = v; }
 
+    // Natural (unwrapped) size of `text` at `displayPx` reference pixels, in
+    // ACTUAL on-screen pixels for the given screenW/screenH — the same
+    // refScale/metrics math buildMesh uses to place glyphs, just without a
+    // bounding box to wrap against (breaks only on explicit '\n'). Used by
+    // UIText.autoSize (Renderer::buildECSUIGeometry) to size a box to fit its
+    // text instead of the caller guessing width/height by hand.
+    static void measureNatural(TextAtlas* atlas, const std::string& text, int displayPx,
+                               float screenW, float screenH, float& outWidthPx, float& outHeightPx);
+
 private:
     Background* parent_    = nullptr;
     TextAtlas*  atlas_     = nullptr;

@@ -48,6 +48,7 @@ struct ComponentSnapshot {
     bool hasUITexturedBackground = false;  ecs::UITexturedBackground uiTexturedBackground;
     bool hasUICurvedBackground   = false;  ecs::UICurvedBackground   uiCurvedBackground;
     bool hasUIText               = false;  ecs::UIText               uiText;
+    bool hasUIButton             = false;  ecs::UIButton             uiButton;
 
     // 3D world-space text (Transform-anchored, not UI).
     bool hasTextLabel3D          = false;  ecs::TextLabel3D          textLabel3D;

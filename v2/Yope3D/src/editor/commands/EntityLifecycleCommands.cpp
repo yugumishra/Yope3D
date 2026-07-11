@@ -123,6 +123,11 @@ void CreateEntityCommand::redo(EditorContext& ctx) {
             created_ = w.addUIText(nullptr, "Text", {0.1f, 0.1f}, {0.9f, 0.9f}, 0);
             break;
         }
+        case EntityKind::UIButton: {
+            created_ = w.addUIButton({0.1f, 0.1f}, {0.9f, 0.9f},
+                                      {0.2f, 0.2f, 0.2f, 1.f}, 0);
+            break;
+        }
         case EntityKind::TextLabel3D: {
             created_ = w.addTextLabel3D("fonts/monaco.ttf", "Text", pos);
             break;

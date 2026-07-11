@@ -23,6 +23,8 @@
 #include "../physics/CollisionLayers.h"
 #include "../physics/DebugShapes.h"
 #include "../rendering/DebugLine.h"
+#include "../ui/UIInput.h"
+#include "../ui/Tween.h"
 
 class GpuDevice;
 class ThreadPool;
@@ -186,8 +188,63 @@ public:
                                         math::Vec4 color, float curvature = 0.5f, int depth = 0);
     ecs::Entity addUIText              (const char* fontPath, const char* text,
                                         math::Vec2 min, math::Vec2 max, int depth = 0);
+    // Interactive button: UITransform + UIButton. `normalColor` seeds all four
+    // visual states (hover/pressed brighten/darken it, disabled halves alpha);
+    // fine-tune individual states afterward via reg_get(e, "UIButton").
+    ecs::Entity addUIButton            (math::Vec2 min, math::Vec2 max,
+                                        math::Vec4 normalColor, int depth = 0);
     // 3D world-space text: Transform (anchor) + ecs::TextLabel3D.
     ecs::Entity addTextLabel3D         (const char* fontPath, const char* text, math::Vec3 pos);
+
+    // ---- UI input routing (screen-space pointer -> ECS UI entities) ----
+    // Called once per frame by Engine after cursor pos + per-button edge flags
+    // are known. Returns this frame's hover/press/release/click events; Engine
+    // dispatches them to each target entity's ScriptComponent instance (same
+    // pattern as drainCollisionEvents).
+    std::vector<UIInputEvent> updateUIInput(float cx, float cy, float screenW, float screenH,
+                                             const bool* pressedEdge, const bool* releasedEdge,
+                                             int numButtons);
+    // Re-runs the topmost hit-test only, no state change — polled API for scripts.
+    ecs::Entity uiHitTest(float cx, float cy);
+    // Resolve any UITexturedBackground whose `texture` is still null (freshly
+    // created, or its `path` was just edited from Python) from `path` via the
+    // wired AssetManager. Cheap no-op once every entry is resolved. Call once
+    // per frame from the main thread (Engine::update).
+    void resolvePendingUITextures();
+    bool        uiConsumedClick() const { return uiInput_.consumedClick(); }
+    ecs::Entity uiHovered()       const { return uiInput_.hovered(); }
+    ecs::Entity uiPressed()       const { return uiInput_.pressed(); }
+    ecs::Entity uiFocused()       const { return uiInput_.focused(); }
+    void        setUIFocus(ecs::Entity e) { uiInput_.setFocus(e); }
+
+    // ---- UI hierarchy / panel grouping ----
+    // Groups a set of UI entities so moving/hiding/fading the root affects the
+    // whole subtree (see ui::resolveUIRectWorld). Reuses ecs::Parent (already
+    // the 3D transform-hierarchy link) — a child's own UITransform becomes a
+    // [0,1] rect local to the parent's resolved rect rather than the screen.
+    // No-ops on a cycle (parent already a descendant of child) or an invalid
+    // entity. Pass NullEntity as parent to un-parent (root again).
+    void setUIParent(ecs::Entity child, ecs::Entity parent);
+    // Sets `visible` on root and every UI descendant (one-shot bulk write —
+    // visibility also composes live via the Parent chain, so this is a
+    // convenience for "toggle a whole menu" rather than required for correctness).
+    void setUIGroupVisible(ecs::Entity root, bool visible);
+    // Sets `opacity` on root and every UI descendant (one-shot bulk write;
+    // opacity composes live too — prefer animating just the root's own
+    // opacity for a fade unless you specifically want to flatten the group).
+    void setUIGroupOpacity(ecs::Entity root, float opacity);
+
+    // ---- UI tweening ----
+    // Animates `root`'s own UITransform::opacity from its current value to
+    // `target` over `durationSeconds` (composes down to descendants live via
+    // the Parent chain — see resolveUIRectWorld). Re-targeting an entity with
+    // an in-flight tween replaces it, starting from the current opacity.
+    // `ease` is a ui::Ease value (see yope3d.EASE_* constants). No-op on an
+    // invalid entity or one with no UITransform.
+    void tweenUIOpacity(ecs::Entity root, float target, float durationSeconds, int ease = 0);
+    // Advances all active tweens by dt. Called once per frame from the main
+    // thread (Engine::update) — UITransform is main-thread-only state.
+    void updateTweens(float dt);
 
     // Wire the AudioSystem so removeEntity can deallocate orphaned OpenAL sources.
     void setAudioSystem(class AudioSystem* a) { audio_ = a; }
@@ -399,6 +456,17 @@ private:
     std::vector<ecs::Entity>                             debugEntities_;
     std::unordered_map<uint32_t, math::Vec3>            debugColorOverrides_;  // entity.id -> overlay color
     std::vector<DebugLineVertex>                        debugLines_;           // GJK CSO / simplex viz
+
+    UIInputRouter uiInput_;
+    float uiScreenW_ = 0.0f, uiScreenH_ = 0.0f;  // cached from the last updateUIInput() call
+
+    struct UIOpacityTween {
+        ecs::Entity entity;
+        float from, to;
+        float duration, elapsed;
+        ui::Ease ease;
+    };
+    std::vector<UIOpacityTween> uiTweens_;
 
     // Called at the end of every public factory method.
     // Always adds ecs::Name; adds EditorSelectable/EditorPickable only in editor builds.

@@ -122,6 +122,46 @@ void PythonScript::onCollisionExit(ScriptContext& ctx, ecs::Entity self, ecs::En
                  py::make_tuple(yope3d.attr("world"), py::cast(self), py::cast(other)));
 }
 
+void PythonScript::onUIPress(ScriptContext& ctx, ecs::Entity self) {
+    if (!pyObj_) return;
+    (void)ctx;
+    auto yope3d = py::module_::import("yope3d");
+    callPyMethod(pyObj_->instance, "on_ui_press",
+                 py::make_tuple(yope3d.attr("world"), py::cast(self)));
+}
+
+void PythonScript::onUIRelease(ScriptContext& ctx, ecs::Entity self) {
+    if (!pyObj_) return;
+    (void)ctx;
+    auto yope3d = py::module_::import("yope3d");
+    callPyMethod(pyObj_->instance, "on_ui_release",
+                 py::make_tuple(yope3d.attr("world"), py::cast(self)));
+}
+
+void PythonScript::onUIEnter(ScriptContext& ctx, ecs::Entity self) {
+    if (!pyObj_) return;
+    (void)ctx;
+    auto yope3d = py::module_::import("yope3d");
+    callPyMethod(pyObj_->instance, "on_ui_enter",
+                 py::make_tuple(yope3d.attr("world"), py::cast(self)));
+}
+
+void PythonScript::onUILeave(ScriptContext& ctx, ecs::Entity self) {
+    if (!pyObj_) return;
+    (void)ctx;
+    auto yope3d = py::module_::import("yope3d");
+    callPyMethod(pyObj_->instance, "on_ui_leave",
+                 py::make_tuple(yope3d.attr("world"), py::cast(self)));
+}
+
+void PythonScript::onTextInput(ScriptContext& ctx, ecs::Entity self, unsigned int codepoint) {
+    if (!pyObj_) return;
+    (void)ctx;
+    auto yope3d = py::module_::import("yope3d");
+    callPyMethod(pyObj_->instance, "on_text_input",
+                 py::make_tuple(yope3d.attr("world"), py::cast(self), codepoint));
+}
+
 void* PythonScript::pyInstanceHandle() {
     if (!pyObj_ || !pyObj_->instance || pyObj_->instance.is_none()) return nullptr;
     return pyObj_->instance.ptr();   // borrowed PyObject* — caller must not steal the ref

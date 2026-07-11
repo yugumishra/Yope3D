@@ -55,6 +55,7 @@ static std::vector<CompSerEntry> buildSerTable() {
         { ecs::typeId<ecs::UITexturedBackground>(),  "UITexturedBackground",  compser::serializeUITexturedBackground,  compser::deserializeUITexturedBackground  },
         { ecs::typeId<ecs::UICurvedBackground>(),    "UICurvedBackground",    compser::serializeUICurvedBackground,    compser::deserializeUICurvedBackground    },
         { ecs::typeId<ecs::UIText>(),                "UIText",                compser::serializeUIText,                compser::deserializeUIText                },
+        { ecs::typeId<ecs::UIButton>(),              "UIButton",              compser::serializeUIButton,              compser::deserializeUIButton              },
         { ecs::typeId<ecs::TextLabel3D>(),           "TextLabel3D",           compser::serializeTextLabel3D,           compser::deserializeTextLabel3D           },
     };
 }
@@ -289,6 +290,10 @@ ParsedScene parseScene(const char* path) {
         if (entNode.contains("UIText")) {
             snap.hasUIText = true;
             compser::deserializeUIText(entNode["UIText"], &snap.uiText);
+        }
+        if (entNode.contains("UIButton")) {
+            snap.hasUIButton = true;
+            compser::deserializeUIButton(entNode["UIButton"], &snap.uiButton);
         }
         if (entNode.contains("TextLabel3D")) {
             snap.hasTextLabel3D = true;

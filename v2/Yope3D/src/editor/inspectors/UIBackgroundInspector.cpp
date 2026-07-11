@@ -131,6 +131,19 @@ void drawUITextComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
     ImGui::DragInt("Display Px##uit", &ut->displayPx, 1, 0, 256);
     const char* alignNames[] = {"Left", "Centered"};
     ImGui::Combo("Alignment##uit", &ut->alignment, alignNames, 2);
+
+    bool autoSize = ut->autoSize;
+    if (ImGui::Checkbox("Auto Size##uit", &autoSize)) {
+        ecs::UIText b = *ut;
+        ut->autoSize = autoSize;
+        // Force a recompute on the next render — otherwise turning this on
+        // waits for the text to actually change before it does anything.
+        if (autoSize) ut->autoSizedText[0] = '\0';
+        ctx.history->execute(ctx, std::make_unique<SetComponentCommand<ecs::UIText>>(
+            e, b, *ut, "Toggle UI Text Auto Size"));
+    }
+    if (ut->autoSize)
+        ImGui::TextDisabled("Sized to fit text — resize by editing the text or font size.");
 }
 
 void drawTextLabel3DComponent(void* comp, EditorContext& ctx, ecs::Entity e) {

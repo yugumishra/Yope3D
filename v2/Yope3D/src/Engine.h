@@ -91,8 +91,6 @@ struct Engine {
     int   fpsFrames  = 0;
     int   displayFps = 0;
 
-    bool prevLMB_ = false;
-
     RenderMode renderMode_ = RenderMode::RASTER;
 
     ~Engine();

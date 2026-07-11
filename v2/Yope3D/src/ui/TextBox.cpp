@@ -3,6 +3,34 @@
 #include <algorithm>
 #include <vector>
 
+void TextBox::measureNatural(TextAtlas* atlas, const std::string& text, int displayPx,
+                             float screenW, float screenH, float& outWidthPx, float& outHeightPx) {
+    outWidthPx = 0.0f;
+    outHeightPx = 0.0f;
+    if (!atlas || text.empty() || screenW <= 0.0f || screenH <= 0.0f) return;
+
+    // Same reference-resolution scale factor buildMesh uses, so the measured
+    // size matches what actually gets drawn at this screen size.
+    float refScale = std::min(screenW / kReferenceWidth, screenH / kReferenceHeight);
+    float basePx   = (displayPx > 0) ? static_cast<float>(displayPx)
+                                     : static_cast<float>(kDefaultDisplayPx);
+    float targetPx = basePx * refScale;
+    float lineH    = atlas->lineHeight() * targetPx;
+
+    float totalW = 0.0f, rowW = 0.0f;
+    int   lines  = 1;
+    for (char c : text) {
+        if (c == '\n') { totalW = std::max(totalW, rowW); rowW = 0.0f; ++lines; continue; }
+        const GlyphInfo* g = atlas->glyph(c);
+        if (!g) continue;
+        rowW += g->advance * targetPx;
+    }
+    totalW = std::max(totalW, rowW);
+
+    outWidthPx  = totalW + kPaddingPx * refScale * 2.0f;
+    outHeightPx = static_cast<float>(lines) * lineH + kPaddingPx * refScale * 2.0f;
+}
+
 TextBox::TextBox(Background* parent, TextAtlas* atlas, const std::string& text,
                  int depth, int displayPx, Alignment align)
     : parent_(parent), atlas_(atlas), text_(text),

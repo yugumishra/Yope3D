@@ -371,6 +371,13 @@ void serializeUITransform(const void* comp, JsonWriter& w) {
     w.writeFloat("maxY",    t->maxY);
     w.writeInt  ("depth",   t->depth);
     w.writeBool ("visible", t->visible);
+    w.writeInt  ("anchor",      t->anchor);
+    w.writeInt  ("sizeMode",    t->sizeMode);
+    w.writeFloat("pixelWidth",  t->pixelWidth);
+    w.writeFloat("pixelHeight", t->pixelHeight);
+    w.writeFloat("offsetXPx",   t->offsetXPx);
+    w.writeFloat("offsetYPx",   t->offsetYPx);
+    w.writeFloat("opacity",     t->opacity);
 }
 
 bool deserializeUITransform(const JsonNode& n, void* comp) {
@@ -381,6 +388,13 @@ bool deserializeUITransform(const JsonNode& n, void* comp) {
     if (n.contains("maxY"))    t->maxY    = n["maxY"].asFloat();
     if (n.contains("depth"))   t->depth   = n["depth"].asInt();
     if (n.contains("visible")) t->visible = n["visible"].asBool();
+    if (n.contains("anchor"))      t->anchor      = n["anchor"].asInt();
+    if (n.contains("sizeMode"))    t->sizeMode    = n["sizeMode"].asInt();
+    if (n.contains("pixelWidth"))  t->pixelWidth  = n["pixelWidth"].asFloat();
+    if (n.contains("pixelHeight")) t->pixelHeight = n["pixelHeight"].asFloat();
+    if (n.contains("offsetXPx"))   t->offsetXPx   = n["offsetXPx"].asFloat();
+    if (n.contains("offsetYPx"))   t->offsetYPx   = n["offsetYPx"].asFloat();
+    if (n.contains("opacity"))     t->opacity     = n["opacity"].asFloat();
     return true;
 }
 
@@ -456,6 +470,7 @@ void serializeUIText(const void* comp, JsonWriter& w) {
     w.writeFloat4("color",       ut->cr, ut->cg, ut->cb, ut->ca);
     w.writeInt   ("displayPx",   ut->displayPx);
     w.writeInt   ("alignment",   ut->alignment);
+    w.writeBool  ("autoSize",    ut->autoSize);
 }
 
 bool deserializeUIText(const JsonNode& n, void* comp) {
@@ -473,6 +488,38 @@ bool deserializeUIText(const JsonNode& n, void* comp) {
     }
     if (n.contains("displayPx")) ut->displayPx = n["displayPx"].asInt();
     if (n.contains("alignment")) ut->alignment  = n["alignment"].asInt();
+    if (n.contains("autoSize"))  ut->autoSize   = n["autoSize"].asBool();
+    // autoSizedText is a runtime cache, not persisted — left empty so the box
+    // gets (re)fit against the current atlas/text on the next render after load.
+    return true;
+}
+
+// ---- UIButton ----
+
+void serializeUIButton(const void* comp, JsonWriter& w) {
+    auto* b = static_cast<const ecs::UIButton*>(comp);
+    w.writeFloat4("normalColor",   b->normalR,   b->normalG,   b->normalB,   b->normalA);
+    w.writeFloat4("hoverColor",    b->hoverR,    b->hoverG,    b->hoverB,    b->hoverA);
+    w.writeFloat4("pressedColor",  b->pressedR,  b->pressedG,  b->pressedB,  b->pressedA);
+    w.writeFloat4("disabledColor", b->disabledR, b->disabledG, b->disabledB, b->disabledA);
+    w.writeBool  ("enabled", b->enabled);
+}
+
+bool deserializeUIButton(const JsonNode& n, void* comp) {
+    auto* b = static_cast<ecs::UIButton*>(comp);
+    auto readColor = [&](const char* key, float& r, float& g, float& bl, float& a) {
+        if (!n.contains(key)) return;
+        auto& arr = n[key].asArray();
+        if (arr.size() >= 4) {
+            r = arr[0].asFloat(); g = arr[1].asFloat();
+            bl = arr[2].asFloat(); a = arr[3].asFloat();
+        }
+    };
+    readColor("normalColor",   b->normalR,   b->normalG,   b->normalB,   b->normalA);
+    readColor("hoverColor",    b->hoverR,    b->hoverG,    b->hoverB,    b->hoverA);
+    readColor("pressedColor",  b->pressedR,  b->pressedG,  b->pressedB,  b->pressedA);
+    readColor("disabledColor", b->disabledR, b->disabledG, b->disabledB, b->disabledA);
+    if (n.contains("enabled")) b->enabled = n["enabled"].asBool();
     return true;
 }
 

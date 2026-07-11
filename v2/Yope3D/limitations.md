@@ -110,6 +110,24 @@ as "animated" to players. Without clips, every motion is bespoke Python math in
 
 ## 2. In-game UI is display-only
 
+> **Status: input routing + widget/hierarchy layer shipped (2026-07-11).** The
+> "minimal path" below (all 4 steps) plus a native `UIButton` widget and a
+> tween/easing utility are implemented: `src/ui/UIInput.{h,cpp}` routes the
+> pointer to `view<UITransform>()` with hover/press/release/click events,
+> delivered both as `Script` callbacks (`on_ui_press/release/enter/leave`,
+> `on_text_input`) and polled (`World.ui_hit_test/ui_hovered/ui_consumed_click`);
+> `src/platform/Input` gained a typed-char queue + cursor accessor for text
+> input; `World.add_ui_textured_background` is now bound to Python;
+> `UITransform` gained `anchor`/`size_mode`/`pixel_*`/`offset_*_px` fields
+> (`src/ui/UILayout.h`) fixing aspect-ratio distortion for pinned HUD elements;
+> `World.set_ui_parent`/`set_ui_group_visible`/`set_ui_group_opacity` group UI
+> entities via the existing `ecs::Parent` link (`src/ui/UIHierarchy.h`);
+> `ecs::UIButton` is a full-lifecycle native widget with hover/press/disabled
+> visual states; `World.tween_ui_opacity` + `yope3d.EASE_*` (`src/ui/Tween.h`)
+> animate fades. Still open: rich text, 9-slice/sprite-atlas, scroll views,
+> clipping/masking, right/vertical text alignment, a visual 2D editor layout
+> mode. See the sections below for the original audit this resolved.
+
 Yope3D's UI is two parallel systems — a C++ `Label` system (`src/ui/`) that has a
 minimal click path but is unreachable from games, and the ECS UI system
 (`UITransform` + backgrounds/text) that games actually use but which is **pure

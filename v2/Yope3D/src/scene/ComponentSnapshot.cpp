@@ -83,6 +83,10 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
                 uiText.fontPath[0] ? uiText.fontPath : nullptr,
                 uiText.text[0]     ? uiText.text     : nullptr,
                 mn, mx, uiTransform.depth);
+        } else if (hasUIButton) {
+            e = world.addUIButton(mn, mx,
+                {uiButton.normalR, uiButton.normalG, uiButton.normalB, uiButton.normalA},
+                uiTransform.depth);
         } else {
             // UITransform alone: minimal UI entity (no visual component yet)
             ecs::Registry& reg2 = world.getRegistry();
@@ -107,6 +111,9 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
             }
             if (hasUIText) {
                 if (auto* t = reg.get<ecs::UIText>(e)) *t = uiText;
+            }
+            if (hasUIButton) {
+                if (auto* t = reg.get<ecs::UIButton>(e)) *t = uiButton;
             }
         }
     }
@@ -318,6 +325,10 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
         if (!reg.has<ecs::UIText>(e)) reg.add<ecs::UIText>(e, uiText);
         else if (auto* t = reg.get<ecs::UIText>(e)) *t = uiText;
     }
+    if (hasUIButton) {
+        if (!reg.has<ecs::UIButton>(e)) reg.add<ecs::UIButton>(e, uiButton);
+        else if (auto* t = reg.get<ecs::UIButton>(e)) *t = uiButton;
+    }
     if (hasTextLabel3D) {
         if (!reg.has<ecs::TextLabel3D>(e)) reg.add<ecs::TextLabel3D>(e, textLabel3D);
         else if (auto* t = reg.get<ecs::TextLabel3D>(e)) *t = textLabel3D;
@@ -394,6 +405,7 @@ ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world
     }
     if (auto* t = reg.get<ecs::UICurvedBackground>(e))   { s.hasUICurvedBackground = true;   s.uiCurvedBackground = *t; }
     if (auto* t = reg.get<ecs::UIText>(e))               { s.hasUIText = true;               s.uiText = *t; }
+    if (auto* t = reg.get<ecs::UIButton>(e))             { s.hasUIButton = true;             s.uiButton = *t; }
     if (auto* t = reg.get<ecs::TextLabel3D>(e))          { s.hasTextLabel3D = true;          s.textLabel3D = *t; }
 
     return s;

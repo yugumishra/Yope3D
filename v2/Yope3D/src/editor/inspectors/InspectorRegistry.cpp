@@ -28,6 +28,7 @@ void drawUIBackgroundComponent           (void*, EditorContext&, ecs::Entity);
 void drawUITexturedBackgroundComponent   (void*, EditorContext&, ecs::Entity);
 void drawUICurvedBackgroundComponent     (void*, EditorContext&, ecs::Entity);
 void drawUITextComponent                 (void*, EditorContext&, ecs::Entity);
+void drawUIButtonComponent               (void*, EditorContext&, ecs::Entity);
 void drawTextLabel3DComponent            (void*, EditorContext&, ecs::Entity);
 
 std::vector<ComponentDrawer> g_drawers;
@@ -55,6 +56,7 @@ void registerAllInspectors() {
         { ecs::typeId<ecs::UITexturedBackground>(),  drawUITexturedBackgroundComponent  },
         { ecs::typeId<ecs::UICurvedBackground>(),    drawUICurvedBackgroundComponent    },
         { ecs::typeId<ecs::UIText>(),                drawUITextComponent                },
+        { ecs::typeId<ecs::UIButton>(),              drawUIButtonComponent              },
         { ecs::typeId<ecs::TextLabel3D>(),           drawTextLabel3DComponent           },
     };
 }

@@ -109,6 +109,12 @@ A behavior is a class in ``scripts/behaviors/*.py`` with a class-level
         def on_unload(self, world: World, entity: Entity) -> None: ...
         def on_collision_enter(self, world: World, entity: Entity, other: Entity) -> None: ...
         def on_collision_exit(self, world: World, entity: Entity, other: Entity) -> None: ...
+        # UI pointer callbacks — entity must carry a UITransform + this ScriptComponent.
+        def on_ui_press(self, world: World, entity: Entity) -> None: ...
+        def on_ui_release(self, world: World, entity: Entity) -> None: ...
+        def on_ui_enter(self, world: World, entity: Entity) -> None: ...
+        def on_ui_leave(self, world: World, entity: Entity) -> None: ...
+        def on_text_input(self, world: World, entity: Entity, codepoint: int) -> None: ...
 
 - ``init`` runs once when play mode starts. ``params`` holds the
   inspector-edited values (fall back to ``PARAMS`` defaults via
@@ -121,6 +127,19 @@ A behavior is a class in ``scripts/behaviors/*.py`` with a class-level
   entity needs a collider to receive these (a behavior on a mesh-only entity
   never collides). Note: an entity that gains a ScriptComponent while already
   in contact won't get an enter until separation + recontact.
+- ``on_ui_press`` / ``on_ui_release`` fire on the mouse-button press/release edge
+  while the cursor is over this entity's UITransform rect (topmost by depth
+  wins). ``on_ui_enter`` / ``on_ui_leave`` fire when the cursor starts/stops
+  hovering the rect. Dispatched once per frame from ``World``'s UI input
+  router — same main-thread-only guarantee as the collision callbacks. For
+  menu-driver scripts that don't want a ScriptComponent per widget, poll
+  ``world.ui_hit_test(x, y)``, ``world.ui_hovered()``, and
+  ``world.ui_consumed_click()`` instead.
+- ``on_text_input`` fires once per typed UTF-32 codepoint while this entity
+  holds UI focus (``world.get_ui_focus() is entity``) — focus moves to
+  whatever UI entity was last pressed, or clears on a press that misses all
+  UI. Requires a visible cursor (``window.set_cursor_locked(False)``) since
+  GLFW only emits char events then.
 - One ScriptComponent per entity. For a real game, split logic across entities
   (e.g. CharacterController on the player capsule, gameplay behaviors on the
   objects) and reach across with ``yope3d.get_behavior(other)``.
@@ -631,6 +650,34 @@ class UITransform:
     depth: int
     """Sort order; higher draws on top."""
     visible: bool
+    anchor: int
+    """0=Free (legacy: min/max used verbatim) 1=TopLeft 2=TopRight 3=BottomLeft
+    4=BottomRight 5=Center 6=CenterTop 7=CenterBottom 8=CenterLeft
+    9=CenterRight. Any non-Free value repositions the rect relative to that
+    screen corner/edge/center — fixes a HUD element that should hug a corner
+    (or edge midpoint) at constant size instead of drifting with min/max
+    fractions.
+    """
+    size_mode: int
+    """Only consulted when ``anchor != 0``. 0=Fraction (size = max-min, still
+    aspect-stretchy) 1=Pixel (size = pixel_width/pixel_height in real screen
+    pixels — the fix for aspect-ratio distortion, e.g. a square icon that
+    should stay square regardless of window aspect).
+    """
+    pixel_width: float
+    pixel_height: float
+    """Used when ``size_mode == 1``."""
+    offset_x_px: float
+    offset_y_px: float
+    """Pixel offset from the anchor point, pushing inward from the anchored
+    edge(s). Used whenever ``anchor != 0``.
+    """
+    opacity: float
+    """Own opacity multiplier in ``[0, 1]``. Composes down an ``ecs::Parent``
+    chain (see ``World.set_ui_parent``) — fading a parent fades every
+    descendant. Unlike ``visible``, ``opacity == 0`` does not block clicks;
+    it's purely a render-time fade.
+    """
 
 class UIBackground:
     """Solid-color rectangle (pairs with ``UITransform``). RGBA in ``[0, 1]``."""
@@ -639,6 +686,24 @@ class UIBackground:
     g: float
     b: float
     a: float
+
+class UITexturedBackground:
+    """Texture-modulated rectangle (pairs with ``UITransform``).
+
+    Setting ``path`` clears ``has_texture`` until the engine resolves it from
+    disk on a later frame (immediately for ``World.add_ui_textured_background``,
+    within a frame otherwise) — check ``has_texture`` before relying on it
+    having rendered.
+    """
+
+    path: str
+    """Asset-relative image path. Reassigning triggers a reload."""
+    has_texture: bool
+    """True once ``path`` has resolved to a loaded GPU texture."""
+    tint_r: float
+    tint_g: float
+    tint_b: float
+    tint_a: float
 
 class UIText:
     """Screen-space text label.
@@ -658,6 +723,46 @@ class UIText:
     """Glyph height in reference pixels (``0`` = native atlas size)."""
     alignment: TextAlign
     """Horizontal alignment (see ``TextAlign``): 0=left, 1=centered."""
+    auto_size: bool
+    """When ``True``, the renderer snaps this entity's ``UITransform`` to the
+    natural (unwrapped) size of ``text`` at ``display_px`` — no more manually
+    guessing a width/height that fits. anchor==Free grows/shrinks max_x/max_y
+    from the current min_x/min_y; any other anchor sets size_mode=Pixel and
+    pixel_width/pixel_height instead, keeping the authored anchor/offset.
+    Only recomputed when ``text`` actually changes (internally cached), so a
+    manual resize in the editor sticks until the text content itself changes
+    — it won't fight you every frame.
+    """
+
+class UIButton:
+    """Interactive button (pairs with ``UITransform``).
+
+    Renders as a solid rect that swaps between four color states based on
+    ``World``'s UI input router (hover/press) and ``enabled`` — the component
+    itself carries no click logic. Attach a ``ScriptComponent`` to the same
+    entity for ``on_ui_press``/``on_ui_release``/``on_ui_enter``/``on_ui_leave``.
+    """
+
+    normal_r: float
+    normal_g: float
+    normal_b: float
+    normal_a: float
+    hover_r: float
+    hover_g: float
+    hover_b: float
+    hover_a: float
+    pressed_r: float
+    pressed_g: float
+    pressed_b: float
+    pressed_a: float
+    disabled_r: float
+    disabled_g: float
+    disabled_b: float
+    disabled_a: float
+    enabled: bool
+    """``False`` renders the disabled state and excludes the button from
+    hit-testing — clicks pass through to whatever's behind it.
+    """
 
 class TextLabel3D:
     """World-space MSDF text anchored to a Transform."""
@@ -745,7 +850,9 @@ ComponentName = Literal[
     "ScriptComponent",
     "UITransform",
     "UIBackground",
+    "UITexturedBackground",
     "UIText",
+    "UIButton",
     "TextLabel3D",
     "AudioSource",
     "Sleeping",
@@ -1264,6 +1371,23 @@ class World:
         Returns:
             The new UI entity.
         """
+    def add_ui_textured_background(
+        self, min: Vec2, max: Vec2, tint: Vec4, path: str, depth: int = 0
+    ) -> Entity:
+        """Add a texture-modulated HUD rectangle.
+
+        Args:
+            min: Top-left corner in ``[0, 1]`` screen percent.
+            max: Bottom-right corner in ``[0, 1]`` screen percent.
+            tint: RGBA multiplier in ``[0, 1]`` (``(1,1,1,1)`` = untinted).
+            path: Asset-relative image path.
+            depth: Sort order; higher draws on top.
+
+        Returns:
+            The new UI entity. The texture resolves synchronously before this
+            call returns (``reg_get(e, "UITexturedBackground").has_texture``
+            is already ``True`` on a valid path).
+        """
     def add_ui_text(
         self, font: str, text: str, min: Vec2, max: Vec2, depth: int = 0
     ) -> Entity:
@@ -1279,6 +1403,24 @@ class World:
         Returns:
             The new UI entity. Mutate later with ``yope3d.set_text(e, "...")`` or
             ``reg_get(e, "UIText").text``.
+        """
+    def add_ui_button(
+        self, min: Vec2, max: Vec2, normal_color: Vec4, depth: int = 0
+    ) -> Entity:
+        """Add an interactive button (``UITransform`` + ``UIButton``).
+
+        Args:
+            min: Top-left corner in ``[0, 1]`` screen percent.
+            max: Bottom-right corner in ``[0, 1]`` screen percent.
+            normal_color: RGBA in ``[0, 1]`` for the resting state; hover and
+                pressed are derived by brightening/darkening it, disabled
+                halves its alpha. Fine-tune individual states afterward via
+                ``reg_get(e, "UIButton")``.
+            depth: Sort order; higher draws on top.
+
+        Returns:
+            The new UI entity. Attach a ``ScriptComponent`` to receive
+            ``on_ui_press``/``on_ui_release``/``on_ui_enter``/``on_ui_leave``.
         """
     def add_model(self, path: str) -> list[Entity]:
         """Load a model and spawn it into the scene.
@@ -1307,6 +1449,73 @@ class World:
 
         Returns:
             The new entity.
+        """
+    def ui_hit_test(self, x: float, y: float) -> Entity | None:
+        """Topmost visible UI entity under (x, y) in ``[0, 1]`` screen percent, or None.
+
+        Re-runs the same point-in-rect + depth-priority test the per-frame
+        input router uses — safe to call with an arbitrary point (e.g. a
+        gamepad cursor position), not just the live mouse cursor.
+        """
+    def ui_hovered(self) -> Entity | None:
+        """UI entity the mouse cursor is currently hovering, or None.
+
+        Reflects the router's state as of the start of this frame — the same
+        entity that would receive ``on_ui_enter``/``on_ui_leave`` callbacks.
+        """
+    def ui_consumed_click(self) -> bool:
+        """True if this frame's mouse-button press landed on a UI entity.
+
+        Check this before running gameplay click logic (e.g. shoot-on-click)
+        so clicking a menu button doesn't also fire world interactions.
+        """
+    def set_ui_focus(self, entity: Entity) -> None:
+        """Give ``entity`` UI focus programmatically.
+
+        Focus also moves automatically on press: onto whichever UI entity was
+        pressed, or away from any entity on a press that misses all UI.
+        """
+    def get_ui_focus(self) -> Entity | None:
+        """The UI entity currently holding focus, or None."""
+    def set_ui_parent(self, child: Entity, parent: Entity) -> None:
+        """Group ``child`` under ``parent`` for move/hide/fade-as-a-unit.
+
+        Reuses the same ``ecs::Parent`` link 3D transform hierarchy uses.
+        ``child``'s own ``UITransform`` becomes a ``[0, 1]`` rect local to
+        ``parent``'s resolved rect (not the screen): move, hide (``visible``),
+        or fade (``opacity``) the parent and the whole subtree follows.
+        No-ops on a cycle (``parent`` already a descendant of ``child``) or an
+        invalid entity. Pass ``NullEntity`` to un-parent.
+
+        Note:
+            Non-``Free`` anchors on a parented child anchor to the screen, not
+            the parent — anchoring is for root-level HUD pinning; nested
+            children should stay in the default Free/fraction mode.
+        """
+    def set_ui_group_visible(self, root: Entity, visible: bool) -> None:
+        """Set ``visible`` on ``root`` and every UI descendant (one-shot bulk write).
+
+        Visibility also composes live through the parent chain, so this is a
+        convenience for "toggle a whole menu" rather than required for
+        correctness — hiding just the root already hides its children.
+        """
+    def set_ui_group_opacity(self, root: Entity, opacity: float) -> None:
+        """Set ``opacity`` on ``root`` and every UI descendant (one-shot bulk write).
+
+        Opacity composes live too — for a simple fade, prefer animating just
+        ``root``'s own ``opacity`` (e.g. via a tween) unless you specifically
+        want to flatten every descendant to the same value.
+        """
+    def tween_ui_opacity(
+        self, root: Entity, target: float, duration: float, ease: int = EASE_LINEAR
+    ) -> None:
+        """Animate ``root``'s own opacity to ``target`` over ``duration`` seconds.
+
+        Composes down to every UI descendant of ``root`` (see
+        ``set_ui_parent``) — one call fades a whole panel. Re-targeting an
+        entity with an in-flight tween replaces it, starting from the current
+        opacity (safe to call every frame with a changing target, e.g. driven
+        by a hover state). ``ease`` is one of the ``yope3d.EASE_*`` constants.
         """
 
     # ------------------------------------------------------------------ #
@@ -1472,6 +1681,21 @@ class Input:
         """Return vertical scroll (wheel) accumulated since last frame."""
     def get_mouse_delta(self) -> tuple[float, float]:
         """Return mouse movement ``(dx, dy)`` in pixels since last frame."""
+    def get_cursor_pos(self) -> tuple[float, float]:
+        """Return the cursor position ``(x, y)`` in pixels (top-left origin).
+
+        Same value ``Window.get_cursor_pos`` reads via GLFW directly, exposed
+        here too since it's what UI hit-testing (``World.ui_hit_test``) uses
+        internally each frame.
+        """
+    def get_typed_chars(self) -> list[int]:
+        """Return UTF-32 codepoints typed since last frame, in order.
+
+        Requires the cursor to be unlocked (``window.set_cursor_locked(False)``)
+        — GLFW only emits character events then. Prefer the
+        ``on_text_input`` Script callback for a focus-aware text field; use
+        this directly for manual/global text capture.
+        """
 
 class SoundBuffer:
     """Opaque decoded-audio buffer handle returned by ``AudioSystem.load_sound``."""
@@ -1644,7 +1868,11 @@ def reg_get(e: Entity, name: Literal["UITransform"]) -> UITransform | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["UIBackground"]) -> UIBackground | None: ...
 @overload
+def reg_get(e: Entity, name: Literal["UITexturedBackground"]) -> UITexturedBackground | None: ...
+@overload
 def reg_get(e: Entity, name: Literal["UIText"]) -> UIText | None: ...
+@overload
+def reg_get(e: Entity, name: Literal["UIButton"]) -> UIButton | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["TextLabel3D"]) -> TextLabel3D | None: ...
 @overload
@@ -1988,6 +2216,7 @@ KEY_DOWN: Final[int]
 KEY_SPACE: Final[int]
 KEY_ESCAPE: Final[int]
 KEY_ENTER: Final[int]
+KEY_BACKSPACE: Final[int]
 KEY_LEFT_SHIFT: Final[int]
 KEY_LEFT_CONTROL: Final[int]
 
@@ -1998,3 +2227,15 @@ KEY_LEFT_CONTROL: Final[int]
 MOUSE_LEFT: Final[int]
 MOUSE_RIGHT: Final[int]
 MOUSE_MIDDLE: Final[int]
+
+# ==============================================================================
+# Easing constants (for World.tween_ui_opacity's `ease` argument)
+# ==============================================================================
+
+EASE_LINEAR: Final[int]
+EASE_QUAD_IN: Final[int]
+EASE_QUAD_OUT: Final[int]
+EASE_QUAD_IN_OUT: Final[int]
+EASE_CUBIC_IN: Final[int]
+EASE_CUBIC_OUT: Final[int]
+EASE_CUBIC_IN_OUT: Final[int]
