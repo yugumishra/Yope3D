@@ -373,6 +373,64 @@ TEST_CASE("Compound narrowphase: sphere over a gap generates no contact", "[comp
 }
 
 // ============================================================================
+// Trigger volumes (Hull.isTrigger) — narrowphase-level behavior
+//
+// The solver-skip / event-routing itself lives in World::advance() (not part of
+// this headless target, which has no GpuDevice), so these tests cover what is
+// testable at this level: isTrigger is orthogonal to tangible and does not
+// suppress ColliderDiscrete::detect() the way tangible=false does.
+// ============================================================================
+
+static ecs::Entity makeStaticAABBEntity(ecs::Registry& reg, math::Vec3 pos, math::Vec3 ext,
+                                         bool isTrigger) {
+    ecs::Entity e = reg.create();
+    reg.add<Transform>(e, Transform{pos, {0,0,0,1}, {1,1,1}});
+    ecs::Hull hc;
+    hc.mass        = 0.0f;
+    hc.inverseMass = 0.0f;
+    hc.gravity     = false;
+    hc.isTrigger   = isTrigger;
+    reg.add<ecs::Hull>(e, hc);
+    reg.add<ecs::AABBForm>(e, {ext});
+    reg.add<ecs::Fixed>(e);
+    return e;
+}
+
+TEST_CASE("Trigger AABB still generates narrowphase contacts", "[trigger][narrowphase]") {
+    ecs::Registry reg;
+    ecs::Entity triggerE = makeStaticAABBEntity(reg, {0,0,0}, {1,1,1}, /*isTrigger=*/true);
+    ecs::Entity sphereE  = makeSphereEntity(reg, {0,0,0}, 0.5f);  // fully inside the box
+
+    std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
+    physics::ColliderDiscrete::detect(triggerE, sphereE, reg, contacts);
+
+    // isTrigger must not be conflated with tangible=false: overlap detection
+    // (what World::advance() will route into triggerContacts_) still fires.
+    REQUIRE(!contacts.empty());
+    CHECK(contacts.front().a == triggerE);
+    CHECK(contacts.front().b == sphereE);
+}
+
+TEST_CASE("Trigger AABB with no overlap generates no contact", "[trigger][narrowphase]") {
+    ecs::Registry reg;
+    ecs::Entity triggerE = makeStaticAABBEntity(reg, {0,0,0}, {1,1,1}, /*isTrigger=*/true);
+    ecs::Entity sphereE  = makeSphereEntity(reg, {10,0,0}, 0.5f);  // far away
+
+    std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
+    physics::ColliderDiscrete::detect(triggerE, sphereE, reg, contacts);
+    CHECK(contacts.empty());
+}
+
+TEST_CASE("isTrigger defaults false and is independent of tangible", "[trigger][hull]") {
+    ecs::Hull hc;
+    CHECK_FALSE(hc.isTrigger);
+    CHECK(hc.tangible);  // default tangible=true is unaffected by adding isTrigger
+
+    hc.isTrigger = true;
+    CHECK(hc.tangible);  // setting isTrigger must not implicitly flip tangible
+}
+
+// ============================================================================
 // Compound baker shape inference (physics::classifyAsSphere / meshVolume)
 // ============================================================================
 
@@ -596,4 +654,243 @@ TEST_CASE("Compound-vs-compound narrowphase: far-apart single-sphere compounds d
     std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
     physics::ColliderDiscrete::detect(a, b, reg, contacts);
     CHECK(contacts.empty());
+}
+
+// ============================================================================
+// Box–box face manifolds — reference-face clipping
+//
+// For face contact the patch corners are mostly clip intersection points that
+// are corners of neither box. The old corner-containment collection gave a
+// 2-point line manifold for a box straddling a support (no rocking resistance)
+// and collapsed to a single center point at shallow resting penetrations.
+// ============================================================================
+
+namespace CD = physics::ColliderDiscrete;
+
+static void patchSpread(const CD::ContactManifold& m, Vec3& lo, Vec3& hi) {
+    lo = { 1e30f,  1e30f,  1e30f};
+    hi = {-1e30f, -1e30f, -1e30f};
+    for (int i = 0; i < m.numContacts; ++i) {
+        const Vec3& p = m.contactPoints[i];
+        lo.x = std::min(lo.x, p.x); lo.y = std::min(lo.y, p.y); lo.z = std::min(lo.z, p.z);
+        hi.x = std::max(hi.x, p.x); hi.y = std::max(hi.y, p.y); hi.z = std::max(hi.z, p.z);
+    }
+}
+
+TEST_CASE("OBB-OBB face manifold: box overhanging its support gets a full quad patch", "[narrowphase][manifold][obb]") {
+    // Support (0.5)^3 at origin; a wide slab rests on top, overhanging on both
+    // sides in x, penetrating 0.01. None of the slab's bottom corners lie
+    // inside the support, so corner containment found zero candidates here.
+    CD::OBBGeom support{{0.0f, 0.0f, 0.0f}, {0.5f, 0.5f, 0.5f}, Mat3{}};
+    CD::OBBGeom slab   {{0.0f, 0.74f, 0.0f}, {1.5f, 0.25f, 0.5f}, Mat3{}};
+
+    CD::ContactManifold m;
+    REQUIRE(CD::analyticalOBBOBB(support, slab, m));
+    CHECK_THAT(m.penetration, WithinAbs(0.01f, 1e-4f));
+    CHECK(m.normal.y > 0.9f);
+    REQUIRE(m.numContacts == 4);
+
+    // The patch must be the support's full top face (clip intersections), not
+    // a line or a single midpoint.
+    Vec3 lo, hi;
+    patchSpread(m, lo, hi);
+    CHECK_THAT(hi.x - lo.x, WithinAbs(1.0f, 1e-3f));
+    CHECK_THAT(hi.z - lo.z, WithinAbs(1.0f, 1e-3f));
+    for (int i = 0; i < 4; ++i)
+        CHECK_THAT(m.depths[i], WithinAbs(0.01f, 1e-3f));
+}
+
+TEST_CASE("OBB-OBB face manifold: shallow resting penetration keeps 4 points", "[narrowphase][manifold][obb]") {
+    // Penetration well below the old corner-containment threshold — the exact
+    // resting state at 240 Hz that used to collapse to one center contact.
+    CD::OBBGeom support{{0.0f, 0.0f, 0.0f}, {0.5f, 0.5f, 0.5f}, Mat3{}};
+    CD::OBBGeom box    {{0.1f, 0.9999f, 0.05f}, {0.5f, 0.5f, 0.5f}, Mat3{}};
+
+    CD::ContactManifold m;
+    REQUIRE(CD::analyticalOBBOBB(support, box, m));
+    CHECK(m.normal.y > 0.9f);
+    CHECK(m.numContacts == 4);
+}
+
+TEST_CASE("OBB-OBB face manifold: feature ids are distinct and stable under jitter", "[narrowphase][manifold][warmstart]") {
+    CD::OBBGeom support{{0.0f, 0.0f, 0.0f}, {0.5f, 0.5f, 0.5f}, Mat3{}};
+    CD::OBBGeom slab   {{0.3f, 0.74f, 0.1f}, {1.5f, 0.25f, 0.5f}, Mat3{}};
+
+    CD::ContactManifold m0;
+    REQUIRE(CD::analyticalOBBOBB(support, slab, m0));
+    REQUIRE(m0.numContacts >= 2);
+
+    // Distinct within one manifold (each point warm-starts its own lambda).
+    for (int i = 0; i < m0.numContacts; ++i)
+        for (int j = i + 1; j < m0.numContacts; ++j)
+            CHECK(m0.featureIds[i] != m0.featureIds[j]);
+
+    // Stable across an FP-noise-sized wiggle: the same feature set must come
+    // back regardless of array order (array order is depth-sorted noise).
+    CD::OBBGeom slabJ = slab;
+    slabJ.pos.y += 1e-6f;
+    slabJ.pos.x += 1e-6f;
+    CD::ContactManifold m1;
+    REQUIRE(CD::analyticalOBBOBB(support, slabJ, m1));
+    REQUIRE(m1.numContacts == m0.numContacts);
+    for (int i = 0; i < m0.numContacts; ++i) {
+        bool found = false;
+        for (int j = 0; j < m1.numContacts; ++j)
+            if (m1.featureIds[j] == m0.featureIds[i]) found = true;
+        CHECK(found);
+    }
+}
+
+TEST_CASE("AABB-OBB face manifold: 45-degree-rotated box on a large ground keeps its 4 corners", "[narrowphase][manifold][aabbobb]") {
+    CD::AABBGeom ground{{0.0f, -0.5f, 0.0f}, {10.0f, 0.5f, 10.0f}};
+    CD::OBBGeom  box{{0.0f, 0.495f, 0.0f}, {0.5f, 0.5f, 0.5f},
+                     Mat3::rotation(Vec3{0.0f, 0.785398f, 0.0f})};
+
+    CD::ContactManifold m;
+    REQUIRE(CD::analyticalAABBOBB(ground, box, m));
+    CHECK(m.normal.y > 0.9f);
+    REQUIRE(m.numContacts == 4);
+    // All four bottom corners of the rotated box survive the clip (the ground
+    // face is much larger), giving a square patch of diagonal 2*sqrt(0.5).
+    Vec3 lo, hi;
+    patchSpread(m, lo, hi);
+    CHECK_THAT(hi.x - lo.x, WithinAbs(1.41421f, 1e-3f));
+    CHECK_THAT(hi.z - lo.z, WithinAbs(1.41421f, 1e-3f));
+}
+
+TEST_CASE("AABB-AABB manifold carries stable per-corner feature ids", "[narrowphase][manifold][warmstart]") {
+    CD::AABBGeom ground{{0.0f, -0.5f, 0.0f}, {10.0f, 0.5f, 10.0f}};
+    CD::AABBGeom box   {{0.0f, 0.49f, 0.0f}, {0.5f, 0.5f, 0.5f}};
+
+    CD::ContactManifold m;
+    REQUIRE(CD::analyticalAABBAABB(ground, box, m));
+    REQUIRE(m.numContacts == 4);
+    for (int i = 0; i < 4; ++i)
+        for (int j = i + 1; j < 4; ++j)
+            CHECK(m.featureIds[i] != m.featureIds[j]);
+}
+
+// ============================================================================
+// End-to-end resting stability: OBB pyramid at 240 Hz
+//
+// Mirrors World::advance's per-step order (detect -> solve -> integrate with
+// gravity/damping/split-impulse) minus broadphase/islands/sleep, which don't
+// affect a 7-body scene. Regression for the pyramid-collapse failure mode:
+// corner-containment manifolds + index-keyed warm start ratcheted micro-jitter
+// into sliding and topple within a couple of simulated seconds.
+// ============================================================================
+
+static ecs::Entity makePyramidBox(ecs::Registry& reg, Vec3 pos, Vec3 ext) {
+    ecs::Entity e = reg.create();
+    reg.add<Transform>(e, Transform{pos, {0,0,0,1}, {1,1,1}});
+    ecs::Hull hc;
+    hc.mass        = 1.0f;
+    hc.inverseMass = 1.0f;
+    // Box inertia from half-extents: I_x = (1/3) m (ey^2 + ez^2), etc.
+    hc.inverseInertia = Mat3::scale({
+        3.0f / (hc.mass * (ext.y*ext.y + ext.z*ext.z)),
+        3.0f / (hc.mass * (ext.x*ext.x + ext.z*ext.z)),
+        3.0f / (hc.mass * (ext.x*ext.x + ext.y*ext.y))});
+    reg.add<ecs::Hull>(e, hc);
+    reg.add<ecs::OBBForm>(e, {ext});
+    return e;
+}
+
+TEST_CASE("OBB pyramid rests stably for 8 simulated seconds at 240 Hz", "[narrowphase][solver][stability]") {
+    ecs::Registry reg;
+    std::vector<ecs::Entity> ents;
+
+    // Static ground (AABB) — exercises the AABB-OBB clipped path.
+    {
+        ecs::Entity g = reg.create();
+        reg.add<Transform>(g, Transform{{0,-0.5f,0}, {0,0,0,1}, {1,1,1}});
+        ecs::Hull hc;
+        hc.mass = 0.0f; hc.inverseMass = 0.0f;
+        hc.inverseInertia = Mat3::zero();
+        reg.add<ecs::Hull>(g, hc);
+        reg.add<ecs::AABBForm>(g, {{20.0f, 0.5f, 20.0f}});
+        reg.add<ecs::Fixed>(g);
+        ents.push_back(g);
+    }
+
+    // 3-2-1 pyramid of unit boxes (half-extent 0.5), each upper box straddling
+    // two supports — the manifold shape that used to degrade to 2-point lines.
+    const Vec3 ext{0.5f, 0.5f, 0.5f};
+    std::vector<Vec3> starts;
+    auto spawn = [&](float x, float y) {
+        starts.push_back({x, y, 0.0f});
+        ents.push_back(makePyramidBox(reg, starts.back(), ext));
+    };
+    spawn(-1.05f, 0.5f); spawn(0.0f, 0.5f); spawn(1.05f, 0.5f);
+    spawn(-0.525f, 1.5f); spawn(0.525f, 1.5f);
+    spawn(0.0f, 2.5f);
+
+    physics::EntityContactCache cache;
+    const float dt = physics::PHYSICS_DT;
+    const Vec3  gravity{0.0f, physics::GRAVITY_Y, 0.0f};
+
+    auto normalizeQuat = [](math::Quat q) {
+        float len = std::sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w);
+        if (len > 1e-7f) { q.x/=len; q.y/=len; q.z/=len; q.w/=len; }
+        return q;
+    };
+
+    for (int step = 0; step < 1920; ++step) {
+        // World-space inverse inertia (entity_list_build equivalent).
+        for (ecs::Entity e : ents) {
+            auto* hc = reg.get<ecs::Hull>(e);
+            auto* tf = reg.get<Transform>(e);
+            if (reg.has<ecs::Fixed>(e)) { hc->inertiaTensorWorld = Mat3::zero(); continue; }
+            Mat3 R = Mat3::rotation(tf->rotation);
+            hc->inertiaTensorWorld = R * hc->inverseInertia * R.transpose();
+        }
+
+        // Narrowphase over all pairs (7 bodies — broadphase unnecessary).
+        std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
+        for (size_t i = 0; i < ents.size(); ++i)
+            for (size_t j = i + 1; j < ents.size(); ++j)
+                physics::ColliderDiscrete::detect(ents[i], ents[j], reg, contacts);
+
+        physics::ColliderDiscrete::solveIsland(contacts, dt, reg, cache);
+
+        // Integration (mirrors World::advance).
+        for (ecs::Entity e : ents) {
+            if (reg.has<ecs::Fixed>(e)) continue;
+            auto* hc = reg.get<ecs::Hull>(e);
+            auto* tf = reg.get<Transform>(e);
+
+            hc->velocity += gravity * dt;
+            float linDecay = 1.0f - hc->linearDamping  * dt;
+            float angDecay = 1.0f - hc->angularDamping * dt;
+            if (linDecay > 0.0f) hc->velocity = hc->velocity * linDecay;
+            if (angDecay > 0.0f) hc->omega    = hc->omega    * angDecay;
+
+            tf->position += hc->velocity * dt;
+            float omegaLen = std::sqrt(hc->omega.dot(hc->omega));
+            if (omegaLen > 1e-7f) {
+                math::Quat dq = math::Quat::fromAxisAngle(hc->omega * (1.0f / omegaLen), omegaLen * dt);
+                tf->rotation = normalizeQuat(dq * tf->rotation);
+            }
+
+            tf->position += hc->pseudoVel * dt;
+            float pOmLen = std::sqrt(hc->pseudoOmega.dot(hc->pseudoOmega));
+            if (pOmLen > 2.0f) hc->pseudoOmega = hc->pseudoOmega * (2.0f / pOmLen);
+            if (pOmLen > 1e-7f) {
+                math::Quat dq = math::Quat::fromAxisAngle(hc->pseudoOmega * (1.0f / pOmLen), std::min(pOmLen, 2.0f) * dt);
+                tf->rotation = normalizeQuat(dq * tf->rotation);
+            }
+            hc->pseudoVel = {}; hc->pseudoOmega = {};
+        }
+    }
+
+    // Every box stays where it was placed (small settle allowance) and upright.
+    for (size_t i = 0; i < starts.size(); ++i) {
+        auto* tf = reg.get<Transform>(ents[i + 1]);   // ents[0] is the ground
+        Vec3 d = tf->position - starts[i];
+        INFO("box " << i << " drift (" << d.x << ", " << d.y << ", " << d.z << ")");
+        CHECK(std::abs(d.x) < 0.1f);
+        CHECK(std::abs(d.y) < 0.1f);
+        CHECK(std::abs(d.z) < 0.1f);
+        CHECK(std::abs(tf->rotation.w) > 0.99f);   // no toppling
+    }
 }

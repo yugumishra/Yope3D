@@ -114,6 +114,7 @@ int World::getThreadCount() const {
 }
 
 int World::getHullCount() {
+    std::lock_guard lk(structureMtx_);
     int count = 0;
     for (auto [e, hc] : registry_.view<ecs::Hull>())
         ++count;
@@ -187,6 +188,40 @@ ecs::Entity World::addStaticAABB(math::Vec3 pos, math::Vec3 extent) {
     registry_.add<ecs::AABBForm>(e, {extent});
     registry_.add<ecs::Fixed>(e);
     finalizeEntity(e, "StaticAABB");
+    return e;
+}
+
+ecs::Entity World::addTriggerBox(math::Vec3 pos, math::Vec3 extent) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {1.0f, 1.0f, 1.0f}});
+    ecs::Hull hc;
+    hc.mass           = 0.0f;
+    hc.inverseMass    = 0.0f;
+    hc.inverseInertia = math::Mat3::zero();
+    hc.gravity        = false;
+    hc.isTrigger      = true;
+    registry_.add<ecs::Hull>(e, hc);
+    registry_.add<ecs::AABBForm>(e, {extent});
+    registry_.add<ecs::Fixed>(e);
+    finalizeEntity(e, "TriggerBox");
+    return e;
+}
+
+ecs::Entity World::addTriggerSphere(math::Vec3 pos, float radius) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {1.0f, 1.0f, 1.0f}});
+    ecs::Hull hc;
+    hc.mass           = 0.0f;
+    hc.inverseMass    = 0.0f;
+    hc.inverseInertia = math::Mat3::zero();
+    hc.gravity        = false;
+    hc.isTrigger      = true;
+    registry_.add<ecs::Hull>(e, hc);
+    registry_.add<ecs::SphereForm>(e, {radius});
+    registry_.add<ecs::Fixed>(e);
+    finalizeEntity(e, "TriggerSphere");
     return e;
 }
 
@@ -731,6 +766,13 @@ RenderMesh* World::attachMesh(ecs::Entity e, const LoadedMesh& mesh) {
 // ---- Entity/mesh accessors ----
 
 RenderMesh* World::getMesh(ecs::Entity e) {
+    // Scripts call this from collision-event callbacks, which run outside
+    // Engine's structure lock (see Engine.cpp dispatch). registry_.get() races
+    // the physics thread's archetype migrations (e.g. a Sleeping-tag swap can
+    // relocate another entity's MeshRenderer row mid-lookup) without this lock.
+    // The returned RenderMesh* itself stays valid after unlocking -- it's a
+    // heap-stable meshPool_ entry, not registry-owned memory.
+    std::lock_guard lk(structureMtx_);
     auto* mr = registry_.get<ecs::MeshRenderer>(e);
     return mr ? mr->mesh : nullptr;
 }
@@ -1004,14 +1046,20 @@ static uint64_t pairKey(ecs::Entity a, ecs::Entity b) {
 
 void World::detectCollisionEvents() {
     // Build this tick's contact-pair set, but only for pairs where at least one side
-    // carries a behavior — keeps the diff/queue tiny and meaningful.
+    // carries a behavior — keeps the diff/queue tiny and meaningful. Trigger pairs
+    // (triggerContacts_) are unioned in here too — they never reach the solver, but
+    // they still need enter/exit events.
     std::unordered_map<uint64_t, std::pair<ecs::Entity, ecs::Entity>> current;
-    current.reserve(advanceContacts_.size());
-    for (const auto& c : advanceContacts_) {
-        if (!registry_.has<ecs::ScriptComponent>(c.a) &&
-            !registry_.has<ecs::ScriptComponent>(c.b)) continue;
-        current.emplace(pairKey(c.a, c.b), std::make_pair(c.a, c.b));
-    }
+    current.reserve(advanceContacts_.size() + triggerContacts_.size());
+    auto collect = [&](const std::vector<physics::ColliderDiscrete::ActiveContact>& contacts) {
+        for (const auto& c : contacts) {
+            if (!registry_.has<ecs::ScriptComponent>(c.a) &&
+                !registry_.has<ecs::ScriptComponent>(c.b)) continue;
+            current.emplace(pairKey(c.a, c.b), std::make_pair(c.a, c.b));
+        }
+    };
+    collect(advanceContacts_);
+    collect(triggerContacts_);
 
     std::vector<CollisionEvent> evs;
     for (const auto& [k, ab] : current)
@@ -1041,6 +1089,7 @@ std::vector<World::CollisionEvent> World::drainCollisionEvents() {
 // ---- Lights ----
 
 ecs::Entity World::addLight(const Light& light) {
+    std::lock_guard lk(structureMtx_);
     ecs::LightSource ls;
     const char* lightName = "Light";
     std::visit([&](const auto& l) {
@@ -1174,6 +1223,7 @@ ecs::Entity World::addUIText(const char* fontPath, const char* text,
 // ---- Shadow caster ----
 
 void World::setShadowCaster(ecs::Entity e) {
+    std::lock_guard lk(structureMtx_);
     for (auto [ent, ls] : registry_.view<ecs::LightSource>()) {
         ls.castsShadow = (ent == e);
     }
@@ -1181,6 +1231,7 @@ void World::setShadowCaster(ecs::Entity e) {
 }
 
 ecs::Entity World::getShadowCaster() {
+    std::lock_guard lk(structureMtx_);
     if (shadowCaster_ != ecs::NullEntity && registry_.has<ecs::LightSource>(shadowCaster_) &&
         registry_.get<ecs::LightSource>(shadowCaster_)->castsShadow) {
         return shadowCaster_;
@@ -1334,23 +1385,38 @@ void World::advance(float dt) {
         YOPE_PROF_SCOPE("narrowphase_detect", "physics");
         physics::ColliderDiscrete::resetNarrowphaseTiming();
         advanceContacts_.clear();
+        triggerContacts_.clear();
         for (auto& [ea, eb] : sapPairs_) {
             bool aFixed = registry_.has<ecs::Fixed>(ea);
             bool bFixed = registry_.has<ecs::Fixed>(eb);
-            bool aSleep = registry_.has<ecs::Sleeping>(ea);
-            bool bSleep = registry_.has<ecs::Sleeping>(eb);
             if (aFixed && bFixed) continue;
-            if (aSleep && bSleep) continue;
-            if (aSleep && bFixed) continue;
-            if (aFixed && bSleep) continue;
-            physics::ColliderDiscrete::detect(ea, eb, registry_, advanceContacts_);
+
+            // Trigger pairs skip the solver entirely, so they must stay live even
+            // when a side is Sleeping — otherwise a body that falls asleep while
+            // resting inside a trigger would drop out of detection and fire a
+            // spurious exit event (see Hull.is_trigger docs).
+            auto* ha = registry_.get<ecs::Hull>(ea);
+            auto* hb = registry_.get<ecs::Hull>(eb);
+            bool isTriggerPair = (ha && ha->isTrigger) || (hb && hb->isTrigger);
+
+            if (!isTriggerPair) {
+                bool aSleep = registry_.has<ecs::Sleeping>(ea);
+                bool bSleep = registry_.has<ecs::Sleeping>(eb);
+                if (aSleep && bSleep) continue;
+                if (aSleep && bFixed) continue;
+                if (aFixed && bSleep) continue;
+            }
+
+            physics::ColliderDiscrete::detect(ea, eb, registry_,
+                isTriggerPair ? triggerContacts_ : advanceContacts_);
         }
         physics::ColliderDiscrete::emitNarrowphaseProfile();
     }
     YOPE_PROF_SET_CONTACT_COUNT(advanceContacts_.size());
 
     // 2b. Collision enter/exit events (only when a behavior is listening). Uses the
-    // freshly-built advanceContacts_ — runs even when empty so separations fire exits.
+    // freshly-built advanceContacts_ + triggerContacts_ — runs even when empty so
+    // separations fire exits.
     if (collisionEventsEnabled_.load(std::memory_order_relaxed))
         detectCollisionEvents();
 
@@ -1729,6 +1795,7 @@ void World::restoreFromPlay() {
     advanceEntities_.clear();
     sapPairs_.clear();
     advanceContacts_.clear();
+    triggerContacts_.clear();
     contactCache_.clear();
 
     // Rebuild meshToEntity_ from the restored registry (covers any removeEntity calls during play).
@@ -1770,6 +1837,7 @@ void World::restoreScriptSnapshot() {
     advanceEntities_.clear();
     sapPairs_.clear();
     advanceContacts_.clear();
+    triggerContacts_.clear();
     contactCache_.clear();
 
     meshToEntity_.clear();

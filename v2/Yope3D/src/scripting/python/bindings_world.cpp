@@ -34,6 +34,10 @@ void bind_world(py::module_& m) {
              py::arg("extent"), py::arg("mass"), py::arg("pos") = math::Vec3{})
         .def("add_static_aabb", &World::addStaticAABB,
              py::arg("pos"), py::arg("extent"))
+        .def("add_trigger_box", &World::addTriggerBox,
+             py::arg("pos"), py::arg("extent"))
+        .def("add_trigger_sphere", &World::addTriggerSphere,
+             py::arg("pos"), py::arg("radius"))
         .def("remove_entity",   &World::removeEntity)
         .def("reset_physics",   &World::resetPhysics)
         .def("get_hull_count",  &World::getHullCount)

@@ -191,6 +191,7 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
             h->gravity         = hull.gravity;
             h->tangible        = hull.tangible;
             h->sleepingEnabled = hull.sleepingEnabled;
+            h->isTrigger       = hull.isTrigger;
         }
     }
     if (hasFixed) {

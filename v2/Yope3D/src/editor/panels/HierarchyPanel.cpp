@@ -68,6 +68,13 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                     math::Vec3{0.5f, 0.5f, 0.5f}, 1.0f));
             ImGui::CloseCurrentPopup();
         }
+        if (ImGui::MenuItem("Trigger Box")) {
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::TriggerBox, math::Vec3{0.f, 2.f, 0.f},
+                    math::Vec3{0.5f, 0.5f, 0.5f}, 1.0f));
+            ImGui::CloseCurrentPopup();
+        }
         if (ImGui::MenuItem("Capsule")) {
             if (ctx.world && ctx.history)
                 ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(

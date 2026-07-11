@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <optional>
+#include "ecs/Entity.h"
 
 class World;
 class AudioSystem;
@@ -40,6 +41,18 @@ public:
     // Called by EditorApp on Play: instantiate Script* for every ScriptComponent
     // currently in the registry, deserialize params, then call init() on each.
     void instantiateAndInitAllScripts(ScriptContext& ctx);
+
+    // Instantiate + init() a single entity's ScriptComponent immediately, for
+    // scripts attached at runtime (see yope3d.attach_script) rather than at scene
+    // load. Unlike instantiateAndInitAllScripts (called only at load/Play
+    // boundaries with physics quiescent), this can run at any point during live
+    // gameplay, so it takes World's structure lock around the registry-touching
+    // portion — init() itself still runs unlocked, matching the convention used
+    // for update()/on_collision_enter/exit dispatch in Engine.cpp. Preconditions:
+    // entity must be valid and already carry a ScriptComponent with scriptClass
+    // set and instance == nullptr. Returns false (no-op) otherwise, or if
+    // scriptClass names an unregistered class.
+    bool instantiateScript(ecs::Entity e, ScriptContext& ctx);
 
     // Finalize an asynchronous (Engine-driven) startup-scene load: adopt the scene
     // path and, for runtime mode (initScripts=true), instantiate + init() every

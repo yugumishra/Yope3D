@@ -8,6 +8,8 @@ scripts/buildsystems/vcpkg.cmake
 #ignore claude specific stuff
 claude.md
 
+#ignore graphics time analysis (profiler output)
+graphics_pipeline_time_analysis
 
 #ignore logo animations (large files)
 v2/Yope3D/assets/logo/logo_part*.csv

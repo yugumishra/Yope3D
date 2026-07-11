@@ -191,6 +191,48 @@ Collision events + cross-behavior messaging::
         if hp is not None:
             hp.take_damage(10)
 
+Trigger volumes (overlap events, zero physical response)::
+
+    def init(self, world, entity, params):
+        # Retrofit the already-scripted `entity` into a trigger: attach a
+        # static collider, then flip is_trigger. on_collision_enter/exit only
+        # dispatches to entities holding a *live* script instance, and those
+        # are only created for entities scripted at scene load -- so the
+        # trigger you want events from must be (or replace) an existing
+        # scripted entity, not a fresh world.add_trigger_box(...) call.
+        if not yope3d.reg_has(entity, "Hull"):
+            world.attach_aabb_collider(entity, 0.0, yope3d.Vec3(1, 1, 1), True)
+        yope3d.reg_get(entity, "Hull").is_trigger = True
+        world.attach_box_mesh(entity, yope3d.Vec3(1, 1, 1), 1.0, 0.85, 0.15)
+
+        # A freestanding trigger built straight from the factory -- fully
+        # functional (nothing overlapping it is pushed), but since it carries
+        # no script of its own it won't independently log enter/exit.
+        world.add_trigger_sphere(yope3d.Vec3(3, 0, 0), 1.0)
+
+    def on_collision_enter(self, world, entity, other):
+        world.set_mesh_color(entity, 0.3, 1.0, 0.3)   # flash while occupied
+        print(f"entered trigger: {other}")
+
+    def on_collision_exit(self, world, entity, other):
+        world.set_mesh_color(entity, 1.0, 0.85, 0.15)  # back to idle tint
+        print(f"exited trigger: {other}")
+
+See ``scripts/behaviors/trigger_volume_demo.py`` for a runnable end-to-end
+version (static floor + dropped spheres passing through both trigger shapes).
+
+Spawning entities with their own independent behavior (enemy waves, pickups)::
+
+    def update(self, world, entity, dt):
+        self.spawned += 1
+        e = world.add_sphere(1.0, 0.4, self._next_spawn_pos())
+        world.attach_sphere_mesh(e, 0.4, 1.0, 0.3, 0.3)
+        yope3d.attach_script(e, "behaviors.enemy", "Enemy",
+                              {"hp": 30, "wave": self.spawned})
+
+See ``scripts/behaviors/attach_script_demo.py`` for a runnable end-to-end
+version (periodic spawns, each with an independently-counting instance).
+
 HUD readout + 3D world label::
 
     def init(self, world, entity, params):
@@ -468,6 +510,13 @@ class Hull:
     """Whether world gravity is applied to this body."""
     tangible: bool
     """If ``False`` the body is ignored by collision detection (still integrates)."""
+    is_trigger: bool
+    """If ``True`` this body still generates broadphase/narrowphase overlaps and
+    ``on_collision_enter``/``on_collision_exit`` events, but the PGS solver never
+    resolves its contacts (no physical push-back). Orthogonal to ``tangible`` —
+    do not set both. Overlapping sleeping bodies are kept awake-checked so a
+    trigger doesn't miss an exit event when the other body falls asleep inside it.
+    """
     collision_layer: int
     """Bitmask of layers this body belongs to (see ``yope3d.world.layers``)."""
     collision_mask: int
@@ -812,6 +861,34 @@ class World:
         Args:
             pos: World position.
             extent: Box half-extents.
+
+        Returns:
+            The new entity.
+        """
+    def add_trigger_box(self, pos: Vec3, extent: Vec3) -> Entity:
+        """Spawn a static trigger volume shaped as an axis-aligned box.
+
+        Equivalent to ``add_static_aabb`` but with ``Hull.is_trigger = True``:
+        it stays in broadphase/narrowphase and fires
+        ``on_collision_enter``/``on_collision_exit``, but the solver never
+        resolves its contacts — nothing overlapping it is pushed. Use for
+        checkpoints, pickups, damage zones, and door sensors.
+
+        Args:
+            pos: World position.
+            extent: Box half-extents.
+
+        Returns:
+            The new entity.
+        """
+    def add_trigger_sphere(self, pos: Vec3, radius: float) -> Entity:
+        """Spawn a static trigger volume shaped as a sphere.
+
+        See ``add_trigger_box`` — same semantics, spherical bounds.
+
+        Args:
+            pos: World position.
+            radius: Sphere radius.
 
         Returns:
             The new entity.
@@ -1663,6 +1740,45 @@ def get_behavior(entity: Entity) -> Any | None:
 
         Returns ``None`` if the entity has no script, or its script isn't a
         Python behavior.
+    """
+
+def attach_script(
+    entity: Entity, module: str, class_name: str, params: dict[str, Any] = ...
+) -> bool:
+    """Create and immediately instantiate a Python behavior on ``entity`` at runtime.
+
+    Scene-authored ``ScriptComponent``s are instantiated once, at scene load or
+    editor Play, by ``SceneManager`` -- an entity spawned mid-game
+    (``world.add_sphere``, ``world.add_trigger_box``, ...) never gets a live
+    instance on its own, so its ``on_collision_enter``/``on_collision_exit``/
+    ``update`` can't dispatch. ``attach_script`` closes that gap: give a
+    dynamically spawned entity its own script the moment it's created --
+    ``init()`` runs before this call returns; ``update()``/collision callbacks
+    dispatch normally starting the next frame. The classic use case is spawning
+    N things at runtime that each need independent behavior state (enemy waves,
+    pickups, procedural placement) without hand-authoring every instance in a
+    scene file::
+
+        def update(self, world, entity, dt):
+            e = world.add_sphere(1.0, 0.4, spawn_pos)
+            world.attach_sphere_mesh(e, 0.4, 1.0, 0.3, 0.3)
+            yope3d.attach_script(e, "behaviors.enemy", "Enemy", {"hp": 30})
+
+    Args:
+        entity: The (already-created) entity to attach the behavior to.
+        module: Python module path under ``scripts/behaviors/``, e.g.
+            ``"behaviors.enemy"`` -- same string a scene file's paramsBlob
+            ``"module"`` key would hold.
+        class_name: Class name within that module, e.g. ``"Enemy"``.
+        params: Merged into the dict the new instance's ``init()`` receives
+            (mirrors a scene file's paramsBlob keys beyond ``module``/``class``).
+            Serialized to JSON internally -- must fit in the 2048-byte
+            paramsBlob budget together with ``module``/``class``.
+
+    Returns:
+        ``True`` on success. ``False`` (no-op) if ``entity`` is invalid or
+        already carries a live script instance -- this does not replace or
+        reset an existing one.
     """
 
 # ==============================================================================

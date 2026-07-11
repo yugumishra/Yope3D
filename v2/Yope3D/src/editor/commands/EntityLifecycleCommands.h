@@ -11,6 +11,7 @@ enum class EntityKind {
     OBB,
     AABB,
     StaticAABB,
+    TriggerBox,            // static AABB, Hull.isTrigger=true — no solver response
     Capsule,               // GJK-only; axis +Y; dims baked into mesh
     Cylinder,              // GJK-only; axis +Y; dims baked into mesh
     PointLight,
