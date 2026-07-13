@@ -5,6 +5,9 @@
 #include "editor/commands/AddColliderCommand.h"
 #include "editor/commands/GenerateColliderCommand.h"
 #include "editor/commands/AddSpringConstraintCommand.h"
+#include "editor/commands/AddPointJointCommand.h"
+#include "editor/commands/AddHingeJointCommand.h"
+#include "editor/commands/AddConeTwistJointCommand.h"
 #include "ecs/Registry.h"
 #include "ecs/Components.h"
 #include <cstdio>
@@ -52,7 +55,11 @@ void InspectorPanel::draw(EditorContext& ctx) {
     bool hasMaterial  = ctx.registry->has<ecs::Material>(e);
 
     // Check if any component can still be added — always show the button.
-    bool anyAddable = !hasHull || (hasHull && !hasSpring) || !hasAudio || !hasLight || !hasScript
+    // "Add Joint..." stays available whenever hasHull is true regardless of
+    // hasPointJoint, since it now covers 3 joint types (Point/Hinge/Cone-Twist)
+    // via a dropdown, not just PointJointConstraint.
+    bool anyAddable = !hasHull || (hasHull && !hasSpring) || hasHull
+                      || !hasAudio || !hasLight || !hasScript
                       || (hasTransform && !hasText3D) || (hasMeshRend && !hasMaterial);
 
     if (ctx.history && ctx.world && anyAddable) {
@@ -63,7 +70,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
             ImGui::OpenPopup("##add_comp");
 
         // addCompMode: 0=root list, 1=physics body sub-UI, 2=spring sub-UI,
-        // 3=compound collider sub-UI
+        // 3=compound collider sub-UI, 4=point joint sub-UI
         static int addCompMode = 0;
 
         if (ImGui::BeginPopup("##add_comp")) {
@@ -89,6 +96,11 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     if (ImGui::Selectable("Spring Constraint...", false,
                                           ImGuiSelectableFlags_DontClosePopups))
                         addCompMode = 2;
+                }
+                if (hasHull) {
+                    if (ImGui::Selectable("Joint (Point / Hinge / Cone-Twist)...", false,
+                                          ImGuiSelectableFlags_DontClosePopups))
+                        addCompMode = 4;
                 }
                 if (!hasAudio) {
                     if (ImGui::Selectable("Audio Source")) {
@@ -320,6 +332,89 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 }
                 ImGui::SameLine();
                 if (ImGui::Button("Back##cc")) { addCompMode = 0; }
+            }
+
+            // ---------- Joint sub-UI (Point / Hinge / Cone-Twist) ----------
+            if (addCompMode == 4) {
+                ImGui::TextDisabled("Add Joint");
+                ImGui::Separator();
+
+                static int         jointType    = 0;   // 0=Point, 1=Hinge, 2=Cone-Twist
+                static ecs::Entity jointTarget  = ecs::NullEntity;
+                static math::Vec3  jointAxis    = {0.0f, 0.0f, 1.0f};
+                static bool        limitEnabled = false;
+                static float       lowerAngle   = -0.785398f, upperAngle = 0.785398f;
+                static float       swingLimit   = 0.785398f,  twistLimit = 0.785398f;
+
+                const char* jointTypeNames[] = { "Point (ball socket)", "Hinge (revolute)", "Cone-Twist (swing-twist)" };
+                ImGui::Combo("Joint Type", &jointType, jointTypeNames, 3);
+
+                char targetLabel[96];
+                if (jointTarget == ecs::NullEntity || !ctx.registry->valid(jointTarget))
+                    std::snprintf(targetLabel, sizeof(targetLabel), "(none)");
+                else if (auto* n = ctx.registry->get<ecs::Name>(jointTarget))
+                    std::snprintf(targetLabel, sizeof(targetLabel), "%s##%u", n->value, jointTarget.id);
+                else
+                    std::snprintf(targetLabel, sizeof(targetLabel), "Entity #%u", jointTarget.id);
+
+                if (ImGui::BeginCombo("Target", targetLabel)) {
+                    for (auto [other, _h] : ctx.registry->view<ecs::Hull>()) {
+                        if (other == e) continue;
+                        char rowLabel[96];
+                        if (auto* n = ctx.registry->get<ecs::Name>(other))
+                            std::snprintf(rowLabel, sizeof(rowLabel), "%s##%u", n->value, other.id);
+                        else
+                            std::snprintf(rowLabel, sizeof(rowLabel), "Entity #%u", other.id);
+                        if (ImGui::Selectable(rowLabel, jointTarget == other))
+                            jointTarget = other;
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::TextDisabled("Anchor defaults to the midpoint between the two\nentities' current positions — edit afterward if needed.");
+
+                if (jointType == 1) {
+                    ImGui::DragFloat3("Axis", &jointAxis.x, 0.01f);
+                    ImGui::Checkbox("Limit Enabled", &limitEnabled);
+                    if (limitEnabled) {
+                        ImGui::DragFloat("Lower Angle (rad)", &lowerAngle, 0.01f, -6.28f, 6.28f);
+                        ImGui::DragFloat("Upper Angle (rad)", &upperAngle, 0.01f, -6.28f, 6.28f);
+                    }
+                } else if (jointType == 2) {
+                    ImGui::DragFloat3("Twist Axis", &jointAxis.x, 0.01f);
+                    ImGui::DragFloat("Swing Limit (rad)", &swingLimit, 0.01f, 0.0f, 3.14f);
+                    ImGui::DragFloat("Twist Limit (rad)", &twistLimit, 0.01f, 0.0f, 3.14f);
+                }
+
+                ImGui::Spacing();
+                bool canAddJoint = ctx.registry->valid(jointTarget) && jointTarget != e;
+                if (!canAddJoint) ImGui::BeginDisabled();
+                if (ImGui::Button("Add Joint")) {
+                    math::Vec3 anchor{};
+                    auto* tfSrc = ctx.registry->get<Transform>(e);
+                    auto* tfDst = ctx.registry->get<Transform>(jointTarget);
+                    if (tfSrc && tfDst) anchor = (tfSrc->position + tfDst->position) * 0.5f;
+                    else if (tfSrc)     anchor = tfSrc->position;
+                    else if (tfDst)     anchor = tfDst->position;
+
+                    if (jointType == 0) {
+                        ctx.history->execute(ctx,
+                            std::make_unique<AddPointJointCommand>(e, jointTarget, anchor));
+                    } else if (jointType == 1) {
+                        ctx.history->execute(ctx,
+                            std::make_unique<AddHingeJointCommand>(e, jointTarget, anchor, jointAxis,
+                                                                   limitEnabled, lowerAngle, upperAngle));
+                    } else {
+                        ctx.history->execute(ctx,
+                            std::make_unique<AddConeTwistJointCommand>(e, jointTarget, anchor, jointAxis,
+                                                                       swingLimit, twistLimit));
+                    }
+                    jointTarget  = ecs::NullEntity;
+                    addCompMode  = 0;
+                    ImGui::CloseCurrentPopup();
+                }
+                if (!canAddJoint) ImGui::EndDisabled();
+                ImGui::SameLine();
+                if (ImGui::Button("Back##joint")) { addCompMode = 0; }
             }
 
             ImGui::EndPopup();

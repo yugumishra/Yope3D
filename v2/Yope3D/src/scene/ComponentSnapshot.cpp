@@ -294,6 +294,32 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
             world.addSpringPhysics(e, spring.target, spring.k, spring.restLength);
     }
 
+    if (hasPointJoint) {
+        if (!reg.has<ecs::PointJointConstraint>(e)) reg.add<ecs::PointJointConstraint>(e, pointJoint);
+        else if (auto* pj = reg.get<ecs::PointJointConstraint>(e)) *pj = pointJoint;
+        // Recreate physics joint if the target is still valid.
+        if (reg.valid(pointJoint.target))
+            world.addPointJointPhysics(e, pointJoint.target, pointJoint.localAnchorA, pointJoint.localAnchorB);
+    }
+
+    if (hasHingeJoint) {
+        if (!reg.has<ecs::HingeJointConstraint>(e)) reg.add<ecs::HingeJointConstraint>(e, hingeJoint);
+        else if (auto* hj = reg.get<ecs::HingeJointConstraint>(e)) *hj = hingeJoint;
+        if (reg.valid(hingeJoint.target))
+            world.addHingeJointPhysics(e, hingeJoint.target, hingeJoint.localAnchorA, hingeJoint.localAnchorB,
+                                       hingeJoint.localAxisA, hingeJoint.localAxisB,
+                                       hingeJoint.limitEnabled, hingeJoint.lowerAngle, hingeJoint.upperAngle);
+    }
+
+    if (hasConeTwistJoint) {
+        if (!reg.has<ecs::ConeTwistJointConstraint>(e)) reg.add<ecs::ConeTwistJointConstraint>(e, coneTwistJoint);
+        else if (auto* cj = reg.get<ecs::ConeTwistJointConstraint>(e)) *cj = coneTwistJoint;
+        if (reg.valid(coneTwistJoint.target))
+            world.addConeTwistJointPhysics(e, coneTwistJoint.target, coneTwistJoint.localAnchorA, coneTwistJoint.localAnchorB,
+                                           coneTwistJoint.localTwistAxisA, coneTwistJoint.localTwistAxisB,
+                                           coneTwistJoint.swingLimit, coneTwistJoint.twistLimit);
+    }
+
     // Parent handle is restored as-captured; subtree callers (delete-undo, paste)
     // remap it through their old→new id map afterward. A stale handle here is
     // harmless — worldTransform treats an invalid parent as "root".
@@ -378,6 +404,18 @@ ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world
     if (auto* sp = reg.get<ecs::SpringConstraint>(e)) {
         s.hasSpring = true;
         s.spring    = *sp;
+    }
+    if (auto* pj = reg.get<ecs::PointJointConstraint>(e)) {
+        s.hasPointJoint = true;
+        s.pointJoint    = *pj;
+    }
+    if (auto* hj = reg.get<ecs::HingeJointConstraint>(e)) {
+        s.hasHingeJoint = true;
+        s.hingeJoint    = *hj;
+    }
+    if (auto* cj = reg.get<ecs::ConeTwistJointConstraint>(e)) {
+        s.hasConeTwistJoint = true;
+        s.coneTwistJoint    = *cj;
     }
     if (auto* p = reg.get<ecs::Parent>(e)) {
         s.hasParent = true;

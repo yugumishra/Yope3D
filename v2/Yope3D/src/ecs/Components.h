@@ -149,6 +149,46 @@ struct SpringConstraint {
     float  restLength = 1.0f;
 };
 
+// ---- Point-to-point (ball socket) joint constraint ----
+// Thin ECS mirror of the live physics::PointToPointJoint (see physics/Joint.h)
+// — same role as SpringConstraint: visible/editable in the inspector and
+// serializable, while the actual solver object lives in World::joints_.
+// Local anchors are stored (not the world-space anchor point) so save/load
+// reconstructs the exact same joint geometry regardless of any Transform
+// drift between save and the editor's live view.
+struct PointJointConstraint {
+    Entity     target       = NullEntity;
+    math::Vec3 localAnchorA = {};   // body-local offset from this entity's COM
+    math::Vec3 localAnchorB = {};   // body-local offset from target's COM
+};
+
+// ---- Hinge (revolute) joint constraint ----
+// Mirrors physics::HingeJoint — point block + shared-axis angular lock +
+// optional angle limit (position-only, see Joint.h).
+struct HingeJointConstraint {
+    Entity     target       = NullEntity;
+    math::Vec3 localAnchorA = {};
+    math::Vec3 localAnchorB = {};
+    math::Vec3 localAxisA   = {0.0f, 0.0f, 1.0f};
+    math::Vec3 localAxisB   = {0.0f, 0.0f, 1.0f};
+    bool       limitEnabled = false;
+    float      lowerAngle   = 0.0f;
+    float      upperAngle   = 0.0f;
+};
+
+// ---- Cone-twist (swing-twist) joint constraint ----
+// Mirrors physics::ConeTwistJoint — point block + swing cone + twist limit
+// (both position-only, see Joint.h).
+struct ConeTwistJointConstraint {
+    Entity     target          = NullEntity;
+    math::Vec3 localAnchorA    = {};
+    math::Vec3 localAnchorB    = {};
+    math::Vec3 localTwistAxisA = {0.0f, 0.0f, 1.0f};
+    math::Vec3 localTwistAxisB = {0.0f, 0.0f, 1.0f};
+    float      swingLimit      = 0.785398f;
+    float      twistLimit      = 0.785398f;
+};
+
 // ---- Transform hierarchy ----
 // Links an entity's Transform as LOCAL to `parent`'s frame; composed to world
 // via world/TransformHierarchy.h. Absent / NullEntity parent => Transform is

@@ -68,6 +68,12 @@ struct ParsedScene {
         uint32_t fileId             = UINT32_MAX;
         bool     hasSpringTarget    = false;
         uint32_t springTargetFileId = UINT32_MAX;
+        bool     hasPointJointTarget    = false;
+        uint32_t pointJointTargetFileId = UINT32_MAX;
+        bool     hasHingeJointTarget    = false;
+        uint32_t hingeJointTargetFileId = UINT32_MAX;
+        bool     hasConeTwistJointTarget    = false;
+        uint32_t coneTwistJointTargetFileId = UINT32_MAX;
         bool     hasParentLink      = false;
         uint32_t parentFileId       = UINT32_MAX;
     };

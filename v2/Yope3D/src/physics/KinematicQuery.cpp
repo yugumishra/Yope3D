@@ -387,6 +387,24 @@ RayHit raycast(math::Vec3 origin, math::Vec3 dir, float maxDist,
         consider(t, e, nl > 1e-5f ? n * (1.f / nl) : math::Vec3{0,1,0});
     }
 
+    // --- Capsule ---
+    for (auto [e, tf, form] : reg.view<Transform, ecs::CapsuleForm>()) {
+        if (e == exclude || !isTangible(e, reg)) continue;
+        math::Mat3 rot = math::Mat3::rotation(tf.rotation);
+        math::Vec3 up{rot.m[3], rot.m[4], rot.m[5]};   // local +Y -> world (CapsuleGeom convention)
+        float t = Raycast::raycastCapsule(d, origin, tf.position, form.radius, form.halfHeight, up);
+        if (t < 0.f) continue;
+        math::Vec3 hitPt = origin + d * t;
+        // Approximate normal: outward from the nearest point on the capsule's
+        // central segment — exact for the cylindrical body, a fair approximation
+        // right at the cap-to-cylinder seam (true sphere normal only on the caps).
+        float py = std::max(-form.halfHeight, std::min(form.halfHeight, up.dot(hitPt - tf.position)));
+        math::Vec3 axisPt = tf.position + up * py;
+        math::Vec3 n = hitPt - axisPt;
+        float nl = n.length();
+        consider(t, e, nl > 1e-5f ? n * (1.f / nl) : math::Vec3{0,1,0});
+    }
+
     return best;
 }
 

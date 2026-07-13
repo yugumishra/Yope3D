@@ -1,6 +1,7 @@
 #pragma once
 #include "ColliderDiscrete.h"
 #include "ContactCache.h"
+#include "Joint.h"
 #include "../ecs/Entity.h"
 #include <vector>
 
@@ -8,9 +9,11 @@ namespace ecs { class Registry; }
 
 namespace physics {
 
-// ECS island: Entity-keyed contacts and entity list.
+// ECS island: Entity-keyed contacts, joints (pointers into World::joints_'s
+// stable storage — see Joint.h), and entity list.
 struct Island {
     std::vector<ColliderDiscrete::ActiveContact> contacts;
+    std::vector<Joint*>                          joints;
     std::vector<ecs::Entity>                     entities;
     EntityContactCache                           localCache;
 };
@@ -23,11 +26,18 @@ public:
     // from globalCache for warm-starting. Applies wake propagation via Registry.
     // springPairs: entity pairs from all active springs — ensures spring-connected
     // bodies are always merged into the same island even when not in contact.
+    // jointPairs/allJoints: entity pairs + object pointers for all active joints —
+    // like springPairs, ensures joint-connected bodies merge into one island even
+    // with zero geometric contact (e.g. a ragdoll hanging in the air), AND (unlike
+    // springs, which are solved globally outside islands) actually attaches each
+    // Joint* to the island that will solve it in solveIsland().
     void build(const std::vector<ColliderDiscrete::ActiveContact>& allContacts,
                const EntityContactCache& globalCache,
                std::vector<Island>& islands,
                ecs::Registry& reg,
-               const std::vector<std::pair<ecs::Entity, ecs::Entity>>& springPairs = {});
+               const std::vector<std::pair<ecs::Entity, ecs::Entity>>& springPairs = {},
+               const std::vector<std::pair<ecs::Entity, ecs::Entity>>& jointPairs = {},
+               const std::vector<Joint*>& allJoints = {});
 
     // After parallel solve, write each island's localCache back to globalCache.
     static void mergeCache(std::vector<Island>& islands, EntityContactCache& globalCache);

@@ -10,11 +10,13 @@
 #include "Transform.h"
 #include "../rendering/Light.h"
 #include "../ecs/Registry.h"
+#include "../ecs/Components.h"
 #include "../assets/ObjLoader.h"
 #include "../math/Vec2.h"
 #include "../math/Vec3.h"
 #include "../math/Vec4.h"
 #include "../physics/Spring.h"
+#include "../physics/Joint.h"
 #include "../physics/BroadphaseSAP.h"
 #include "../physics/IslandDetector.h"
 #include "../physics/PhysicsConstants.h"
@@ -157,9 +159,95 @@ public:
     // Used by AddSpringConstraintCommand::undo().
     void removeSpringBetween(ecs::Entity a, ecs::Entity b);
 
+    // ---- Joints ----
+    // Bilateral (push AND pull) constraint, solved inside the island-parallel
+    // PGS loop — unlike Spring, which is a soft one-shot force applied globally
+    // after the solve (see physics/Joint.h for why joints can't get away with
+    // that). anchorWorld is converted to each body's local-space offset at
+    // creation time; the caller (typically an editor command) computes it —
+    // by convention, the geometric midpoint of a's and b's current positions.
+    physics::Joint* addPointJoint(ecs::Entity a, ecs::Entity b, math::Vec3 anchorWorld);
+
+    // Low-level: create the physics::Joint object only (no ECS component), from
+    // already-local-space anchors. Used by the editor command system and scene
+    // serializer so the PointJointConstraint component that lives on entity A
+    // drives the physics without creating a 3rd entity (mirrors addSpringPhysics).
+    physics::Joint* addPointJointPhysics(ecs::Entity a, ecs::Entity b,
+                                         math::Vec3 localAnchorA, math::Vec3 localAnchorB);
+
+    // Hinge (revolute): axisWorld is a direction (not a point), converted to
+    // each body's local frame the same way anchorWorld is. limitEnabled/lower/
+    // upperAngle are optional angle-limit params (radians, about the axis).
+    physics::Joint* addHingeJoint(ecs::Entity a, ecs::Entity b, math::Vec3 anchorWorld, math::Vec3 axisWorld,
+                                  bool limitEnabled = false, float lowerAngle = 0.0f, float upperAngle = 0.0f);
+    physics::Joint* addHingeJointPhysics(ecs::Entity a, ecs::Entity b,
+                                         math::Vec3 localAnchorA, math::Vec3 localAnchorB,
+                                         math::Vec3 localAxisA, math::Vec3 localAxisB,
+                                         bool limitEnabled, float lowerAngle, float upperAngle);
+
+    // Cone-twist (swing-twist): twistAxisWorld is each body's "bone" direction;
+    // swingLimit/twistLimit are half-angle radians.
+    physics::Joint* addConeTwistJoint(ecs::Entity a, ecs::Entity b, math::Vec3 anchorWorld, math::Vec3 twistAxisWorld,
+                                      float swingLimit = 0.785398f, float twistLimit = 0.785398f);
+    physics::Joint* addConeTwistJointPhysics(ecs::Entity a, ecs::Entity b,
+                                             math::Vec3 localAnchorA, math::Vec3 localAnchorB,
+                                             math::Vec3 localTwistAxisA, math::Vec3 localTwistAxisB,
+                                             float swingLimit, float twistLimit);
+
+    // Remove the first physics::Joint whose endpoints match {a,b} (in either order).
+    void removeJointBetween(ecs::Entity a, ecs::Entity b);
+
+    // Re-syncs an existing live joint's persistent fields (anchors/axes/limits)
+    // from its ECS mirror component. The mirror is what the Inspector edits —
+    // without this, editing a joint's fields after creation would silently do
+    // nothing, since the live physics::Joint keeps whatever values it was
+    // created with. Also resets that joint's warm-start accumulators (built for
+    // the old geometry/limits, now stale). No-op if no matching live joint
+    // exists. Called by the editor inspectors after each committed field edit.
+    void resyncPointJoint(ecs::Entity e, const ecs::PointJointConstraint& c);
+    void resyncHingeJoint(ecs::Entity e, const ecs::HingeJointConstraint& c);
+    void resyncConeTwistJoint(ecs::Entity e, const ecs::ConeTwistJointConstraint& c);
+
+    // ---- Vehicles (raycast wheels — SuspensionJoint + WheelFrictionJoint) ----
+    // Code-level API only (no generic "Add Joint" editor dropdown entry —
+    // a vehicle is a whole rig, not a single two-body joint). All fields in
+    // localPos/local space are chassis-local.
+    struct WheelSpec {
+        math::Vec3 localPos{};             // wheel mount point, chassis-local
+        math::Vec3 localUp{0.0f, 1.0f, 0.0f};
+        float      restLength = 0.4f;
+        float      maxTravel  = 0.3f;
+        float      stiffness  = 40000.0f;  // N/m
+        float      damping    = 4000.0f;   // N*s/m
+        float      radius     = 0.35f;
+        float      muLong = 1.2f, muLat = 1.2f;
+        bool       driven = true;          // false = free-rolling (no drive/brake row)
+    };
+
+    // Builds one Suspension+WheelFriction joint pair per wheel spec on
+    // `chassis` (must already have a Hull). Returns one opaque handle per
+    // wheel (the WheelFrictionJoint*, wrapped as physics::Joint* for the
+    // Python binding's benefit) in the same order as `wheels`, for later
+    // control via setWheelDrive/setWheelSteer.
+    std::vector<physics::Joint*> addVehicle(ecs::Entity chassis, const std::vector<WheelSpec>& wheels);
+
+    // Sets a wheel's target angular velocity (rad/s) — the longitudinal
+    // friction row's slip target, i.e. throttle (positive) / brake (toward
+    // zero) / reverse (negative). `wheel` is a handle returned by addVehicle.
+    void setWheelDrive(physics::Joint* wheel, float angularVel);
+
+    // Sets a wheel's steer angle (radians, about its suspension's up axis).
+    void setWheelSteer(physics::Joint* wheel, float steerAngleRad);
+
     // ---- ECS registry ----
     ecs::Registry&       getRegistry()       { return registry_; }
     const ecs::Registry& getRegistry() const { return registry_; }
+
+    // Give an entity a Name plus (editor builds only) EditorSelectable +
+    // EditorPickable. Called at the end of every public factory method; also
+    // exposed for setup/scene scripts that spawn raw entities and need them to
+    // be saved by the scene serializer (its save loop iterates EditorSelectable).
+    void finalizeEntity(ecs::Entity e, const char* name);
 
     // Returns a scoped lock on the structure mutex. Use to synchronize registry
     // iteration on the main thread against concurrent archetype migrations
@@ -443,6 +531,9 @@ private:
     std::unordered_map<std::string, std::unique_ptr<physics::CompiledCollider>> compoundColliderCache_;
 
     std::vector<std::unique_ptr<physics::Spring>>        springs_;
+    // unique_ptr purely for pointer stability across vector growth (same
+    // rationale as springs_) — Joint is a std::variant, not polymorphic.
+    std::vector<std::unique_ptr<physics::Joint>>         joints_;
     physics::BroadphaseSAP                               sap_;
     std::vector<ecs::Entity>                             advanceEntities_;    // reused each tick
     std::vector<std::pair<ecs::Entity, ecs::Entity>>     sapPairs_;
@@ -468,10 +559,6 @@ private:
     };
     std::vector<UIOpacityTween> uiTweens_;
 
-    // Called at the end of every public factory method.
-    // Always adds ecs::Name; adds EditorSelectable/EditorPickable only in editor builds.
-    void finalizeEntity(ecs::Entity e, const char* name);
-
     // Physics-thread: diff this tick's contact pairs vs. last tick's, enqueue enter/exit.
     void detectCollisionEvents();
     std::atomic<bool>           collisionEventsEnabled_{ false };
@@ -488,6 +575,7 @@ private:
     PlaySnapshot playSnapshot_;
     size_t       prePlayMeshPoolSize_ = 0;
     size_t       prePlaySpringCount_  = 0;
+    size_t       prePlayJointCount_   = 0;
 #endif
 
 };

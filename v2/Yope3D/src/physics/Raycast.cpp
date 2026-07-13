@@ -96,4 +96,45 @@ float raycastOBB(math::Vec3 ray, math::Vec3 start,
     return tEnter >= 0.0f ? tEnter : tExit;
 }
 
+float raycastCapsule(math::Vec3 ray, math::Vec3 start,
+                     math::Vec3 center, float radius,
+                     float halfHeight, math::Vec3 up)
+{
+    // Standard analytic ray-vs-capsule intersection: quadratic against the
+    // infinite cylinder through the segment [pa,pb], clipped to the segment's
+    // extent; falls back to the two end-cap spheres both for genuine cap hits
+    // and for the degenerate case where the ray runs parallel to the axis
+    // (the cylinder quadratic's `a` term vanishes).
+    math::Vec3 pa = center - up * halfHeight;
+    math::Vec3 pb = center + up * halfHeight;
+    math::Vec3 ba = pb - pa;
+    math::Vec3 oa = start - pa;
+
+    float baba = ba.dot(ba);
+    float bard = ba.dot(ray);
+    float baoa = ba.dot(oa);
+    float rdoa = ray.dot(oa);
+    float oaoa = oa.dot(oa);
+
+    float a = baba - bard * bard;
+    if (std::abs(a) > 1e-8f) {
+        float b = baba * rdoa - baoa * bard;
+        float c = baba * oaoa - baoa * baoa - radius * radius * baba;
+        float h = b * b - a * c;
+        if (h >= 0.0f) {
+            float t = (-b - std::sqrt(h)) / a;
+            float y = baoa + t * bard;
+            if (t >= 0.0f && y > 0.0f && y < baba) return t;   // cylindrical body
+        }
+    }
+
+    float bestT = -1.0f;
+    for (const math::Vec3& capCenter : {pa, pb}) {
+        float t = raycastSphere(ray, start, capCenter, radius);
+        if (t < 0.0f) continue;
+        if (bestT < 0.0f || t < bestT) bestT = t;
+    }
+    return bestT;
+}
+
 } // namespace physics::Raycast

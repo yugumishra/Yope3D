@@ -299,6 +299,92 @@ bool deserializeSpringConstraint(const JsonNode& n, void* comp) {
     return true;
 }
 
+// ---- PointJointConstraint ----
+
+void serializePointJointConstraint(const void* comp, JsonWriter& w) {
+    auto* pj = static_cast<const ecs::PointJointConstraint*>(comp);
+    w.writeFloat3("localAnchorA", pj->localAnchorA.x, pj->localAnchorA.y, pj->localAnchorA.z);
+    w.writeFloat3("localAnchorB", pj->localAnchorB.x, pj->localAnchorB.y, pj->localAnchorB.z);
+    // targetId is *not* written here — same reasoning as SpringConstraint's
+    // targetId: SceneSerializer::save patches it in with the save-loop's
+    // runtime→fileId mapping.
+}
+
+bool deserializePointJointConstraint(const JsonNode& n, void* comp) {
+    auto* pj = static_cast<ecs::PointJointConstraint*>(comp);
+    auto readF3 = [&](const char* key, math::Vec3& v) {
+        if (!n.contains(key)) return;
+        auto& arr = n[key].asArray();
+        if (arr.size() >= 3) { v.x = arr[0].asFloat(); v.y = arr[1].asFloat(); v.z = arr[2].asFloat(); }
+    };
+    readF3("localAnchorA", pj->localAnchorA);
+    readF3("localAnchorB", pj->localAnchorB);
+    // targetId is resolved after all entities load; left as-is here.
+    return true;
+}
+
+// ---- HingeJointConstraint ----
+
+void serializeHingeJointConstraint(const void* comp, JsonWriter& w) {
+    auto* hj = static_cast<const ecs::HingeJointConstraint*>(comp);
+    w.writeFloat3("localAnchorA", hj->localAnchorA.x, hj->localAnchorA.y, hj->localAnchorA.z);
+    w.writeFloat3("localAnchorB", hj->localAnchorB.x, hj->localAnchorB.y, hj->localAnchorB.z);
+    w.writeFloat3("localAxisA",   hj->localAxisA.x,   hj->localAxisA.y,   hj->localAxisA.z);
+    w.writeFloat3("localAxisB",   hj->localAxisB.x,   hj->localAxisB.y,   hj->localAxisB.z);
+    w.writeBool ("limitEnabled", hj->limitEnabled);
+    w.writeFloat("lowerAngle",   hj->lowerAngle);
+    w.writeFloat("upperAngle",   hj->upperAngle);
+    // targetId patched in by SceneSerializer::save (same as PointJointConstraint's).
+}
+
+bool deserializeHingeJointConstraint(const JsonNode& n, void* comp) {
+    auto* hj = static_cast<ecs::HingeJointConstraint*>(comp);
+    auto readF3 = [&](const char* key, math::Vec3& v) {
+        if (!n.contains(key)) return;
+        auto& arr = n[key].asArray();
+        if (arr.size() >= 3) { v.x = arr[0].asFloat(); v.y = arr[1].asFloat(); v.z = arr[2].asFloat(); }
+    };
+    readF3("localAnchorA", hj->localAnchorA);
+    readF3("localAnchorB", hj->localAnchorB);
+    readF3("localAxisA",   hj->localAxisA);
+    readF3("localAxisB",   hj->localAxisB);
+    if (n.contains("limitEnabled")) hj->limitEnabled = n["limitEnabled"].asBool();
+    if (n.contains("lowerAngle"))   hj->lowerAngle   = n["lowerAngle"].asFloat();
+    if (n.contains("upperAngle"))   hj->upperAngle   = n["upperAngle"].asFloat();
+    // targetId is resolved after all entities load; left as-is here.
+    return true;
+}
+
+// ---- ConeTwistJointConstraint ----
+
+void serializeConeTwistJointConstraint(const void* comp, JsonWriter& w) {
+    auto* cj = static_cast<const ecs::ConeTwistJointConstraint*>(comp);
+    w.writeFloat3("localAnchorA",    cj->localAnchorA.x,    cj->localAnchorA.y,    cj->localAnchorA.z);
+    w.writeFloat3("localAnchorB",    cj->localAnchorB.x,    cj->localAnchorB.y,    cj->localAnchorB.z);
+    w.writeFloat3("localTwistAxisA", cj->localTwistAxisA.x, cj->localTwistAxisA.y, cj->localTwistAxisA.z);
+    w.writeFloat3("localTwistAxisB", cj->localTwistAxisB.x, cj->localTwistAxisB.y, cj->localTwistAxisB.z);
+    w.writeFloat("swingLimit", cj->swingLimit);
+    w.writeFloat("twistLimit", cj->twistLimit);
+    // targetId patched in by SceneSerializer::save (same as PointJointConstraint's).
+}
+
+bool deserializeConeTwistJointConstraint(const JsonNode& n, void* comp) {
+    auto* cj = static_cast<ecs::ConeTwistJointConstraint*>(comp);
+    auto readF3 = [&](const char* key, math::Vec3& v) {
+        if (!n.contains(key)) return;
+        auto& arr = n[key].asArray();
+        if (arr.size() >= 3) { v.x = arr[0].asFloat(); v.y = arr[1].asFloat(); v.z = arr[2].asFloat(); }
+    };
+    readF3("localAnchorA",    cj->localAnchorA);
+    readF3("localAnchorB",    cj->localAnchorB);
+    readF3("localTwistAxisA", cj->localTwistAxisA);
+    readF3("localTwistAxisB", cj->localTwistAxisB);
+    if (n.contains("swingLimit")) cj->swingLimit = n["swingLimit"].asFloat();
+    if (n.contains("twistLimit")) cj->twistLimit = n["twistLimit"].asFloat();
+    // targetId is resolved after all entities load; left as-is here.
+    return true;
+}
+
 // ---- Parent ----
 // The parent Entity ref, like SpringConstraint's target, is a fileId cross-reference
 // resolved by SceneSerializer after all entities exist. This body writes/reads
