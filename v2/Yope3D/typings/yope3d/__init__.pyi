@@ -622,6 +622,40 @@ class SpringConstraint:
     rest_length: float
     """Natural length in meters."""
 
+class PointJointConstraint:
+    """Serializable mirror of a ball-socket (point-to-point) joint. Created by
+    :meth:`World.add_point_joint` with ``persist=True``. Anchors are body-local
+    offsets from each body's COM."""
+
+    target: Entity
+    local_anchor_a: Vec3
+    local_anchor_b: Vec3
+
+class HingeJointConstraint:
+    """Serializable mirror of a hinge (revolute) joint. Created by
+    :meth:`World.add_hinge_joint` with ``persist=True``."""
+
+    target: Entity
+    local_anchor_a: Vec3
+    local_anchor_b: Vec3
+    local_axis_a: Vec3
+    local_axis_b: Vec3
+    limit_enabled: bool
+    lower_angle: float
+    upper_angle: float
+
+class ConeTwistJointConstraint:
+    """Serializable mirror of a cone-twist joint. Created by
+    :meth:`World.add_cone_twist_joint` with ``persist=True``."""
+
+    target: Entity
+    local_anchor_a: Vec3
+    local_anchor_b: Vec3
+    local_twist_axis_a: Vec3
+    local_twist_axis_b: Vec3
+    swing_limit: float
+    twist_limit: float
+
 class Parent:
     """Transform-hierarchy link. The entity's ``Transform`` is LOCAL to ``parent``'s
     frame; use :func:`get_world_position` for the composed world position. Physics
@@ -846,6 +880,9 @@ ComponentName = Literal[
     "LightSource",
     "Name",
     "SpringConstraint",
+    "PointJointConstraint",
+    "HingeJointConstraint",
+    "ConeTwistJointConstraint",
     "Parent",
     "ScriptComponent",
     "UITransform",
@@ -868,6 +905,44 @@ Prefer ``fix_entity`` / ``wake`` over ``reg_add``-ing them.
 # ==============================================================================
 # Engine singletons (bound by the engine before any script runs)
 # ==============================================================================
+
+class JointHandle:
+    """Opaque handle to a live joint (returned by ``World.add_vehicle``).
+
+    No methods or fields — hold the value and pass it back into
+    ``World.set_wheel_drive`` / ``World.set_wheel_steer``, never inspect it.
+    """
+
+class WheelSpec:
+    """One wheel's setup for ``World.add_vehicle`` (raycast wheel — see
+    physics/Joint.h's SuspensionJoint/WheelFrictionJoint). All fields
+    chassis-local; construct with ``WheelSpec()`` then set fields.
+    """
+
+    local_pos: Vec3
+    """Wheel mount point, chassis-local."""
+    local_up: Vec3
+    """Suspension travel axis, chassis-local (default ``(0,1,0)``) — the wheel
+    ray casts downward along ``-local_up`` (rotated to world)."""
+    rest_length: float
+    """Suspension rest length in meters."""
+    max_travel: float
+    """Extra ray distance past rest_length the wheel can droop before losing contact."""
+    stiffness: float
+    """Spring constant, N/m."""
+    damping: float
+    """Damper constant, N*s/m."""
+    radius: float
+    """Wheel radius in meters — converts angular velocity to a surface speed target."""
+    mu_long: float
+    """Longitudinal (drive/brake) friction coefficient."""
+    mu_lat: float
+    """Lateral (grip) friction coefficient."""
+    driven: bool
+    """When ``False`` the wheel free-rolls (lateral grip only) instead of
+    driving/braking toward ``wheel_angular_vel * radius``. Default ``True``.
+    Set the non-powered wheels ``False`` for a real FWD/RWD drivetrain."""
+    def __init__(self) -> None: ...
 
 class World:
     """Entity/physics factory and queries. Access via the ``yope3d.world`` singleton."""
@@ -1303,6 +1378,125 @@ class World:
         """
     def remove_spring_between(self, a: Entity, b: Entity) -> None:
         """Remove the first spring whose endpoints match ``{a, b}`` (either order)."""
+
+    # ------------------------------------------------------------------ #
+    # Joints — bilateral constraints (can push AND pull), solved inside the
+    # same island-parallel PGS loop as contacts. Unlike springs (a soft,
+    # one-shot force applied globally after the solve), a joint enforces a
+    # hard equality — the right tool for ragdolls/mechanisms that must stay
+    # rigidly connected even under tension or mid-air (no contact to lean on).
+    # ------------------------------------------------------------------ #
+
+    def add_point_joint(self, a: Entity, b: Entity, anchor: Vec3, persist: bool = False) -> None:
+        """Connect two bodies at a shared world-space anchor point (ball socket).
+
+        Args:
+            a: First body (must have a Hull).
+            b: Second body (must have a Hull).
+            anchor: World-space point both bodies are pinned to; converted to
+                each body's local-space offset at creation time (not re-derived
+                later — moving the bodies afterward does not change the anchor).
+            persist: If True, also add a serializable ``PointJointConstraint``
+                mirror component (on ``a``) so the joint survives Save Scene /
+                reload. Leave False for transient joints (e.g. a mouse-drag grab)
+                that are created and removed within a session.
+
+        Note:
+            Remove later with ``remove_joint_between(a, b)``.
+        """
+    def add_hinge_joint(
+        self,
+        a: Entity,
+        b: Entity,
+        anchor: Vec3,
+        axis: Vec3,
+        limit_enabled: bool = False,
+        lower_angle: float = 0.0,
+        upper_angle: float = 0.0,
+        persist: bool = False,
+    ) -> None:
+        """Connect two bodies with a hinge (revolute) — free rotation about one shared axis.
+
+        Args:
+            a: First body (must have a Hull).
+            b: Second body (must have a Hull).
+            anchor: World-space pivot point.
+            axis: World-space hinge axis (direction, not a point).
+            limit_enabled: Whether to clamp rotation to ``[lower_angle, upper_angle]``.
+            lower_angle: Lower angle limit in radians (only if ``limit_enabled``).
+            upper_angle: Upper angle limit in radians (only if ``limit_enabled``).
+            persist: If True, also add a serializable ``HingeJointConstraint``
+                mirror component (on ``a``) so the joint survives Save Scene / reload.
+
+        Note:
+            The limit is enforced at the position level only (split-impulse),
+            not also velocity-clamped — a very hard, fast-spinning hit can
+            overshoot by a substep before being pushed back. Remove later with
+            ``remove_joint_between(a, b)``.
+        """
+    def add_cone_twist_joint(
+        self,
+        a: Entity,
+        b: Entity,
+        anchor: Vec3,
+        twist_axis: Vec3,
+        swing_limit: float = 0.785398,
+        twist_limit: float = 0.785398,
+        persist: bool = False,
+    ) -> None:
+        """Connect two bodies with a cone-twist (swing-twist) — the anatomically
+        correct joint for shoulders/hips: a cone limit on how far ``b``'s bone
+        axis can swing away from ``a``'s, plus an independent limit on how far
+        ``b`` can twist about its own bone axis.
+
+        Args:
+            a: First body (must have a Hull).
+            b: Second body (must have a Hull).
+            anchor: World-space pivot point.
+            twist_axis: World-space "bone" direction for both bodies.
+            swing_limit: Half-angle cone limit in radians.
+            twist_limit: Twist limit in radians (symmetric, +/-).
+            persist: If True, also add a serializable ``ConeTwistJointConstraint``
+                mirror component (on ``a``) so the joint survives Save Scene / reload.
+
+        Note:
+            Same position-only limit caveat as ``add_hinge_joint``. Remove
+            later with ``remove_joint_between(a, b)``.
+        """
+    def remove_joint_between(self, a: Entity, b: Entity) -> None:
+        """Remove the first joint (of any type) whose endpoints match ``{a, b}`` (either order)."""
+    def finalize_entity(self, entity: Entity, name: str) -> None:
+        """Give ``entity`` a ``Name`` plus (in editor builds) ``EditorSelectable`` +
+        ``EditorPickable`` — the components the scene serializer's save loop and
+        editor picking need. Idempotent: the ``add_*`` factory helpers already call
+        this, so on a factory-spawned entity it simply **renames** in place. Use it
+        to give spawned entities readable names, or to finalize an entity that
+        somehow reached the registry without it."""
+
+    # ------------------------------------------------------------------ #
+    # Vehicles — raycast wheels (SuspensionJoint + WheelFrictionJoint per
+    # wheel; see physics/Joint.h). Code-only API, no editor "Add Joint"
+    # dropdown entry — a vehicle is a whole rig, not a single two-body joint.
+    # ------------------------------------------------------------------ #
+
+    def add_vehicle(self, chassis: Entity, wheels: list[WheelSpec]) -> list[JointHandle]:
+        """Build one Suspension+WheelFriction joint pair per wheel spec on `chassis`.
+
+        Args:
+            chassis: The vehicle body (must already have a Hull — e.g. from ``add_obb``).
+            wheels: One ``WheelSpec`` per wheel.
+
+        Returns:
+            One opaque handle per wheel, same order as `wheels`, for later
+            ``set_wheel_drive`` / ``set_wheel_steer`` calls.
+        """
+    def set_wheel_drive(self, wheel: JointHandle, angular_vel: float) -> None:
+        """Set a wheel's target angular velocity (rad/s) — throttle (positive),
+        brake (toward zero), or reverse (negative). No-op if `wheel` isn't a
+        wheel handle from ``add_vehicle``.
+        """
+    def set_wheel_steer(self, wheel: JointHandle, steer_angle: float) -> None:
+        """Set a wheel's steer angle in radians, about its suspension's up axis."""
 
     # ------------------------------------------------------------------ #
     # Lights
@@ -1860,6 +2054,12 @@ def reg_get(e: Entity, name: Literal["Name"]) -> Name | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["SpringConstraint"]) -> SpringConstraint | None: ...
 @overload
+def reg_get(e: Entity, name: Literal["PointJointConstraint"]) -> PointJointConstraint | None: ...
+@overload
+def reg_get(e: Entity, name: Literal["HingeJointConstraint"]) -> HingeJointConstraint | None: ...
+@overload
+def reg_get(e: Entity, name: Literal["ConeTwistJointConstraint"]) -> ConeTwistJointConstraint | None: ...
+@overload
 def reg_get(e: Entity, name: Literal["Parent"]) -> Parent | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["ScriptComponent"]) -> ScriptComponent | None: ...
@@ -2075,7 +2275,7 @@ def raycast(
         line-of-sight.
 
     Note:
-        Coverage is sphere / AABB / OBB bodies (capsule/cylinder not yet).
+        Coverage is sphere / AABB / OBB / capsule bodies (cylinder not yet).
     """
 
 def load_scene(path: str) -> None:

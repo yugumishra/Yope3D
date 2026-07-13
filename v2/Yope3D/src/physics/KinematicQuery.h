@@ -31,8 +31,8 @@ struct RayHit {
 // Cast a thin ray from `origin` along `dir` (need not be normalized; `t` is
 // reported in normalized units, i.e. world meters). Returns the nearest tangible
 // hit within `maxDist`, or {hit=false} on a miss. Skips `exclude`.
-// Coverage: sphere / AABB / OBB bodies (matches capsuleCast). Capsule and
-// cylinder obstacles are not yet ray-tested.
+// Coverage: sphere / AABB / OBB / capsule bodies. Cylinder obstacles are not
+// yet ray-tested.
 RayHit raycast(math::Vec3 origin, math::Vec3 dir, float maxDist,
                ecs::Registry& reg, ecs::Entity exclude);
 

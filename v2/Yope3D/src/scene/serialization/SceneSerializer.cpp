@@ -47,6 +47,9 @@ static std::vector<CompSerEntry> buildSerTable() {
         { ecs::typeId<ecs::Material>(),              "Material",              compser::serializeMaterial,              compser::deserializeMaterial              },
         { ecs::typeId<ecs::LightSource>(),           "LightSource",           compser::serializeLightSource,           compser::deserializeLightSource           },
         { ecs::typeId<ecs::SpringConstraint>(),      "SpringConstraint",      compser::serializeSpringConstraint,      compser::deserializeSpringConstraint      },
+        { ecs::typeId<ecs::PointJointConstraint>(),  "PointJointConstraint",  compser::serializePointJointConstraint,  compser::deserializePointJointConstraint  },
+        { ecs::typeId<ecs::HingeJointConstraint>(),  "HingeJointConstraint",  compser::serializeHingeJointConstraint,  compser::deserializeHingeJointConstraint  },
+        { ecs::typeId<ecs::ConeTwistJointConstraint>(), "ConeTwistJointConstraint", compser::serializeConeTwistJointConstraint, compser::deserializeConeTwistJointConstraint },
         { ecs::typeId<ecs::Parent>(),                "Parent",                compser::serializeParent,                compser::deserializeParent                },
         { ecs::typeId<ecs::AudioSource>(),           "AudioSource",           compser::serializeAudioSource,           compser::deserializeAudioSource           },
         { ecs::typeId<ecs::ScriptComponent>(),       "ScriptComponent",       compser::serializeScriptComponent,       compser::deserializeScriptComponent       },
@@ -122,6 +125,22 @@ bool save(const char* path, ecs::Registry& reg, World& world) {
             if (entry.typeId == ecs::typeId<ecs::SpringConstraint>()) {
                 auto* sc = static_cast<const ecs::SpringConstraint*>(comp);
                 auto it = runtimeToFile.find(sc->target.id);
+                w.writeUInt("targetId", it != runtimeToFile.end() ? it->second : UINT32_MAX);
+            }
+            // PointJointConstraint's target reference — same reasoning as SpringConstraint's.
+            if (entry.typeId == ecs::typeId<ecs::PointJointConstraint>()) {
+                auto* pj = static_cast<const ecs::PointJointConstraint*>(comp);
+                auto it = runtimeToFile.find(pj->target.id);
+                w.writeUInt("targetId", it != runtimeToFile.end() ? it->second : UINT32_MAX);
+            }
+            if (entry.typeId == ecs::typeId<ecs::HingeJointConstraint>()) {
+                auto* hj = static_cast<const ecs::HingeJointConstraint*>(comp);
+                auto it = runtimeToFile.find(hj->target.id);
+                w.writeUInt("targetId", it != runtimeToFile.end() ? it->second : UINT32_MAX);
+            }
+            if (entry.typeId == ecs::typeId<ecs::ConeTwistJointConstraint>()) {
+                auto* cj = static_cast<const ecs::ConeTwistJointConstraint*>(comp);
+                auto it = runtimeToFile.find(cj->target.id);
                 w.writeUInt("targetId", it != runtimeToFile.end() ? it->second : UINT32_MAX);
             }
             // Parent's parent Entity — same fileId cross-reference as SpringConstraint.
@@ -312,6 +331,29 @@ ParsedScene parseScene(const char* path) {
             ent.springTargetFileId = entNode["SpringConstraint"].contains("targetId")
                                        ? entNode["SpringConstraint"]["targetId"].asUInt() : UINT32_MAX;
         }
+        if (entNode.contains("PointJointConstraint")) {
+            snap.hasPointJoint = true;
+            compser::deserializePointJointConstraint(entNode["PointJointConstraint"], &snap.pointJoint);
+            // snap.pointJoint.target is left invalid here; commitFinalize resolves it
+            // via the fileId cross-reference and then calls addPointJointPhysics.
+            ent.hasPointJointTarget    = true;
+            ent.pointJointTargetFileId = entNode["PointJointConstraint"].contains("targetId")
+                                           ? entNode["PointJointConstraint"]["targetId"].asUInt() : UINT32_MAX;
+        }
+        if (entNode.contains("HingeJointConstraint")) {
+            snap.hasHingeJoint = true;
+            compser::deserializeHingeJointConstraint(entNode["HingeJointConstraint"], &snap.hingeJoint);
+            ent.hasHingeJointTarget    = true;
+            ent.hingeJointTargetFileId = entNode["HingeJointConstraint"].contains("targetId")
+                                           ? entNode["HingeJointConstraint"]["targetId"].asUInt() : UINT32_MAX;
+        }
+        if (entNode.contains("ConeTwistJointConstraint")) {
+            snap.hasConeTwistJoint = true;
+            compser::deserializeConeTwistJointConstraint(entNode["ConeTwistJointConstraint"], &snap.coneTwistJoint);
+            ent.hasConeTwistJointTarget    = true;
+            ent.coneTwistJointTargetFileId = entNode["ConeTwistJointConstraint"].contains("targetId")
+                                               ? entNode["ConeTwistJointConstraint"]["targetId"].asUInt() : UINT32_MAX;
+        }
         // Parent link (resolved to an ecs::Parent component in commitFinalize).
         if (entNode.contains("Parent")) {
             ent.hasParentLink = true;
@@ -457,6 +499,39 @@ void commitFinalize(ParsedScene& ps, World& world,
         }
     }
 
+    // Resolve PointJointConstraint cross-references (mirrors SpringConstraint).
+    for (const auto& ent : ps.entities) {
+        if (!ent.hasPointJointTarget) continue;
+        auto it = ps.fileIdToEntity.find(ent.fileId);
+        if (it == ps.fileIdToEntity.end() || !reg.valid(it->second)) continue;
+        if (auto* pj = reg.get<ecs::PointJointConstraint>(it->second)) {
+            auto tit = ps.fileIdToEntity.find(ent.pointJointTargetFileId);
+            if (tit != ps.fileIdToEntity.end()) pj->target = tit->second;
+        }
+    }
+
+    // Resolve HingeJointConstraint cross-references (mirrors SpringConstraint).
+    for (const auto& ent : ps.entities) {
+        if (!ent.hasHingeJointTarget) continue;
+        auto it = ps.fileIdToEntity.find(ent.fileId);
+        if (it == ps.fileIdToEntity.end() || !reg.valid(it->second)) continue;
+        if (auto* hj = reg.get<ecs::HingeJointConstraint>(it->second)) {
+            auto tit = ps.fileIdToEntity.find(ent.hingeJointTargetFileId);
+            if (tit != ps.fileIdToEntity.end()) hj->target = tit->second;
+        }
+    }
+
+    // Resolve ConeTwistJointConstraint cross-references (mirrors SpringConstraint).
+    for (const auto& ent : ps.entities) {
+        if (!ent.hasConeTwistJointTarget) continue;
+        auto it = ps.fileIdToEntity.find(ent.fileId);
+        if (it == ps.fileIdToEntity.end() || !reg.valid(it->second)) continue;
+        if (auto* cj = reg.get<ecs::ConeTwistJointConstraint>(it->second)) {
+            auto tit = ps.fileIdToEntity.find(ent.coneTwistJointTargetFileId);
+            if (tit != ps.fileIdToEntity.end()) cj->target = tit->second;
+        }
+    }
+
     // Resolve Parent cross-references (mirrors SpringConstraint). Older scenes have
     // no "Parent" keys, so this is a no-op for them.
     for (const auto& ent : ps.entities) {
@@ -473,6 +548,24 @@ void commitFinalize(ParsedScene& ps, World& world,
     for (auto [e, sc] : reg.view<ecs::SpringConstraint>()) {
         if (reg.valid(sc.target))
             world.addSpringPhysics(e, sc.target, sc.k, sc.restLength);
+    }
+
+    // Reconstruct physics joints from resolved PointJointConstraint components.
+    for (auto [e, pj] : reg.view<ecs::PointJointConstraint>()) {
+        if (reg.valid(pj.target))
+            world.addPointJointPhysics(e, pj.target, pj.localAnchorA, pj.localAnchorB);
+    }
+    for (auto [e, hj] : reg.view<ecs::HingeJointConstraint>()) {
+        if (reg.valid(hj.target))
+            world.addHingeJointPhysics(e, hj.target, hj.localAnchorA, hj.localAnchorB,
+                                       hj.localAxisA, hj.localAxisB,
+                                       hj.limitEnabled, hj.lowerAngle, hj.upperAngle);
+    }
+    for (auto [e, cj] : reg.view<ecs::ConeTwistJointConstraint>()) {
+        if (reg.valid(cj.target))
+            world.addConeTwistJointPhysics(e, cj.target, cj.localAnchorA, cj.localAnchorB,
+                                           cj.localTwistAxisA, cj.localTwistAxisB,
+                                           cj.swingLimit, cj.twistLimit);
     }
 
     // Enqueue embedded glTF textures collected during parseScene (main-thread:

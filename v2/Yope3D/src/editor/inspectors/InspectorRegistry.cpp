@@ -20,6 +20,9 @@ void drawMaterialComponent               (void*, EditorContext&, ecs::Entity);
 void drawLightSourceComponent            (void*, EditorContext&, ecs::Entity);
 void drawAudioSourceComponent            (void*, EditorContext&, ecs::Entity);
 void drawSpringConstraintComponent       (void*, EditorContext&, ecs::Entity);
+void drawPointJointConstraintComponent   (void*, EditorContext&, ecs::Entity);
+void drawHingeJointConstraintComponent   (void*, EditorContext&, ecs::Entity);
+void drawConeTwistJointConstraintComponent(void*, EditorContext&, ecs::Entity);
 void drawParentComponent                 (void*, EditorContext&, ecs::Entity);
 void drawScriptComponent                 (void*, EditorContext&, ecs::Entity);
 // UI component inspectors
@@ -49,6 +52,9 @@ void registerAllInspectors() {
         { ecs::typeId<ecs::LightSource>(),           drawLightSourceComponent           },
         { ecs::typeId<ecs::AudioSource>(),           drawAudioSourceComponent           },
         { ecs::typeId<ecs::SpringConstraint>(),      drawSpringConstraintComponent      },
+        { ecs::typeId<ecs::PointJointConstraint>(),  drawPointJointConstraintComponent  },
+        { ecs::typeId<ecs::HingeJointConstraint>(),  drawHingeJointConstraintComponent  },
+        { ecs::typeId<ecs::ConeTwistJointConstraint>(), drawConeTwistJointConstraintComponent },
         { ecs::typeId<ecs::Parent>(),                drawParentComponent                },
         { ecs::typeId<ecs::ScriptComponent>(),       drawScriptComponent                },
         { ecs::typeId<ecs::UITransform>(),           drawUITransformComponent           },

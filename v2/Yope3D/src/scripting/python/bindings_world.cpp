@@ -2,6 +2,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include "world/World.h"
+#include "physics/Joint.h"
 #include "physics/KinematicQuery.h"
 #include "physics/CompoundShape.h"
 #include "rendering/Camera.h"
@@ -23,7 +24,38 @@
 
 namespace py = pybind11;
 
+// Opaque handle to a live physics::Joint*. NOT a direct py::class_<physics::Joint>
+// binding: physics::Joint is a bare std::variant<...>, and <pybind11/stl.h>
+// (included for the rest of this file's vector/pair bindings) registers an
+// automatic type_caster<std::variant<Ts...>> that, being a template
+// specialization, is selected at compile time BEFORE pybind11 ever consults
+// the py::class_ runtime registry for that exact type — so a direct
+// py::class_<physics::Joint> binding is silently unreachable (confirmed:
+// attempting it produced "unable to convert function return value", with
+// pybind11 trying to describe the return type as one of the variant's
+// alternatives instead of treating it as an opaque class). Wrapping the
+// pointer in this plain (non-variant) struct sidesteps the collision entirely.
+struct JointHandle { physics::Joint* ptr = nullptr; };
+
 void bind_world(py::module_& m) {
+    // No methods exposed: scripts only ever hold the handle World::addVehicle
+    // returns and pass it back into set_wheel_drive/set_wheel_steer, never
+    // inspect it directly.
+    py::class_<JointHandle>(m, "JointHandle");
+
+    py::class_<World::WheelSpec>(m, "WheelSpec")
+        .def(py::init<>())
+        .def_readwrite("local_pos",   &World::WheelSpec::localPos)
+        .def_readwrite("local_up",    &World::WheelSpec::localUp)
+        .def_readwrite("rest_length", &World::WheelSpec::restLength)
+        .def_readwrite("max_travel",  &World::WheelSpec::maxTravel)
+        .def_readwrite("stiffness",   &World::WheelSpec::stiffness)
+        .def_readwrite("damping",     &World::WheelSpec::damping)
+        .def_readwrite("radius",      &World::WheelSpec::radius)
+        .def_readwrite("mu_long",     &World::WheelSpec::muLong)
+        .def_readwrite("mu_lat",      &World::WheelSpec::muLat)
+        .def_readwrite("driven",      &World::WheelSpec::driven);
+
     // World — factory and query methods exposed to Python scripts
     py::class_<World>(m, "World")
         .def("add_sphere",      &World::addSphere,
@@ -241,6 +273,72 @@ void bind_world(py::module_& m) {
              py::arg("root"), py::arg("target"), py::arg("duration"), py::arg("ease") = 0)
         // ---- Springs / misc ----
         .def("remove_spring_between", &World::removeSpringBetween, py::arg("a"), py::arg("b"))
+        // ---- Joints (bilateral — see physics/Joint.h) ----
+        // persist=True also writes the serializable ECS mirror component
+        // (Point/Hinge/ConeTwistJointConstraint) from the joint's just-computed
+        // body-local anchors/axes, so the joint survives Save Scene / reload
+        // (SceneSerializer rebuilds the live joint from it). Default False keeps
+        // transient joints (e.g. the mouse-drag grab) mirror-free — those are
+        // created/destroyed every grab and must not leave a stale component.
+        .def("add_point_joint",
+             [](World& w, ecs::Entity a, ecs::Entity b, math::Vec3 anchor, bool persist) {
+                 physics::Joint* j = w.addPointJoint(a, b, anchor);
+                 if (persist && j && !w.getRegistry().has<ecs::PointJointConstraint>(a)) {
+                     auto& pj = std::get<physics::PointToPointJoint>(*j);
+                     w.getRegistry().add<ecs::PointJointConstraint>(a, {b, pj.localAnchorA, pj.localAnchorB});
+                 }
+             }, py::arg("a"), py::arg("b"), py::arg("anchor"), py::arg("persist") = false)
+        .def("add_hinge_joint",
+             [](World& w, ecs::Entity a, ecs::Entity b, math::Vec3 anchor, math::Vec3 axis,
+                bool limit_enabled, float lower_angle, float upper_angle, bool persist) {
+                 physics::Joint* j = w.addHingeJoint(a, b, anchor, axis, limit_enabled, lower_angle, upper_angle);
+                 if (persist && j && !w.getRegistry().has<ecs::HingeJointConstraint>(a)) {
+                     auto& hj = std::get<physics::HingeJoint>(*j);
+                     w.getRegistry().add<ecs::HingeJointConstraint>(a,
+                         {b, hj.localAnchorA, hj.localAnchorB, hj.localAxisA, hj.localAxisB,
+                          hj.limitEnabled, hj.lowerAngle, hj.upperAngle});
+                 }
+             }, py::arg("a"), py::arg("b"), py::arg("anchor"), py::arg("axis"),
+                py::arg("limit_enabled") = false, py::arg("lower_angle") = 0.0f, py::arg("upper_angle") = 0.0f,
+                py::arg("persist") = false)
+        .def("add_cone_twist_joint",
+             [](World& w, ecs::Entity a, ecs::Entity b, math::Vec3 anchor, math::Vec3 twist_axis,
+                float swing_limit, float twist_limit, bool persist) {
+                 physics::Joint* j = w.addConeTwistJoint(a, b, anchor, twist_axis, swing_limit, twist_limit);
+                 if (persist && j && !w.getRegistry().has<ecs::ConeTwistJointConstraint>(a)) {
+                     auto& cj = std::get<physics::ConeTwistJoint>(*j);
+                     w.getRegistry().add<ecs::ConeTwistJointConstraint>(a,
+                         {b, cj.localAnchorA, cj.localAnchorB, cj.localTwistAxisA, cj.localTwistAxisB,
+                          cj.swingLimit, cj.twistLimit});
+                 }
+             }, py::arg("a"), py::arg("b"), py::arg("anchor"), py::arg("twist_axis"),
+                py::arg("swing_limit") = 0.785398f, py::arg("twist_limit") = 0.785398f,
+                py::arg("persist") = false)
+        .def("remove_joint_between", &World::removeJointBetween, py::arg("a"), py::arg("b"))
+        // Give an entity a Name plus (in editor builds) EditorSelectable +
+        // EditorPickable — the components the scene serializer's save loop and
+        // editor picking need. The add_* factories already call this, so for
+        // factory-spawned entities it just renames (idempotent); it's here for
+        // renaming and for any entity that reached the registry without it.
+        .def("finalize_entity", [](World& w, ecs::Entity e, const std::string& name) {
+                 w.finalizeEntity(e, name.c_str());
+             }, py::arg("entity"), py::arg("name"))
+        // ---- Vehicles (raycast wheels) ---- see JointHandle's comment above
+        // for why these wrap World::addVehicle's raw physics::Joint* instead
+        // of binding it directly.
+        .def("add_vehicle", [](World& w, ecs::Entity chassis, const std::vector<World::WheelSpec>& wheels) {
+                 auto raw = w.addVehicle(chassis, wheels);
+                 std::vector<JointHandle> handles;
+                 handles.reserve(raw.size());
+                 for (physics::Joint* p : raw) handles.push_back(JointHandle{p});
+                 return handles;
+             }, py::arg("chassis"), py::arg("wheels"))
+        .def("set_wheel_drive", [](World& w, JointHandle h, float angularVel) {
+                 w.setWheelDrive(h.ptr, angularVel);
+             }, py::arg("wheel"), py::arg("angular_vel"))
+        .def("set_wheel_steer", [](World& w, JointHandle h, float steerAngleRad) {
+                 w.setWheelSteer(h.ptr, steerAngleRad);
+             }, py::arg("wheel"), py::arg("steer_angle"))
         // ---- Scene shadow caster (single caster; radio behavior) ----
         // set_shadow_caster flags this light's LightSource.casts_shadow and clears
         // it on every other light. Pass a spot/directional light entity; point
@@ -304,10 +402,16 @@ void bind_world(py::module_& m) {
             return std::make_pair(x, y);
         })
         // Lock = hidden + captured (FPS mouselook, the default). Unlock to show a
-        // visible cursor for menus / screen_to_ray picking.
+        // visible cursor for menus / screen_to_ray picking. Routed through
+        // pause()/unpause() (paused == cursor visible) rather than poking GLFW's
+        // cursor mode directly — those also keep Window::paused in sync, which
+        // Window::cursorPosCallback uses to gate mouse-delta accumulation and to
+        // avoid a delta spike on the unlock->lock transition (firstMouse reset).
+        // A direct glfwSetInputMode call here would desync that bookkeeping:
+        // paused stays false forever, so a later unpause()/pause() (e.g. the
+        // engine's built-in TAB toggle) silently overrides whatever a script set.
         .def("set_cursor_locked", [](Window& w, bool locked) {
-            glfwSetInputMode(w.getHandle(), GLFW_CURSOR,
-                             locked ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+            if (locked) w.unpause(); else w.pause();
         }, py::arg("locked"))
         .def("is_cursor_locked", [](Window& w) {
             return glfwGetInputMode(w.getHandle(), GLFW_CURSOR) == GLFW_CURSOR_DISABLED;

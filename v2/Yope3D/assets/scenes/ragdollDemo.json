@@ -1,0 +1,88 @@
+{
+    "version": 1,
+    "gravity": [0, -9.80665, 0],
+    "exposure": 1,
+    "shadowBias": 0.0006,
+    "shadowNormalBias": 0.035,
+    "shadowPcfRadius": 1,
+    "shadowOrthoHalfExtent": 20,
+    "shadowOrthoFar": 40,
+    "shadowSpotNear": 1,
+    "shadowSpotFar": 30,
+    "entities": [
+        {
+            "fileId": 0,
+            "runtimeId": 0,
+            "Name":             {
+                "value": "DirLight"
+            },
+            "LightSource":             {
+                "type": 1,
+                "color": [0.95, 0.95, 1],
+                "intensity": 0.9,
+                "position": [0, 0, 0],
+                "direction": [-0.4, -1, -0.6],
+                "constant": 1,
+                "linear": 0,
+                "quadratic": 0,
+                "innerConeAngle": 0.2,
+                "outerConeAngle": 0.5,
+                "castsShadow": false
+            }
+        },
+        {
+            "fileId": 1,
+            "runtimeId": 1,
+            "isFixed": true,
+            "Name":             {
+                "value": "Floor"
+            },
+            "Transform":             {
+                "position": [0, 1.63623, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [20, 0.5, 20]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.1,
+                "gravity": false,
+                "tangible": true,
+                "isTrigger": false,
+                "velocity": [0, 0, 0]
+            },
+            "AABBForm":             {
+                "extent": [20, 0.5, 20]
+            },
+            "MeshRenderer":             {
+                "color": [0.3, 0.3, 0.34],
+                "primitiveType": 3,
+                "primitiveExtents": [1, 1, 1]
+            }
+        },
+        {
+            "fileId": 2,
+            "runtimeId": 2,
+            "Name":             {
+                "value": "RagdollDemo"
+            },
+            "ScriptComponent":             {
+                "scriptClass": "PythonScript",
+                "paramsBlob": "{\n    \"module\": \"behaviors.ragdoll_generator\",\n    \"class\": \"RagdollDemo\",\n    \"height\": 1.8,\n    \"mass\": 70.0,\n    \"spawn_y\": 3.0\n}"
+            }
+        },
+        {
+            "fileId": 3,
+            "runtimeId": 3,
+            "Name":             {
+                "value": "MouseDrag"
+            },
+            "ScriptComponent":             {
+                "scriptClass": "PythonScript",
+                "paramsBlob": "{\n    \"module\": \"behaviors.mouse_drag_ragdoll\",\n    \"class\": \"MouseDragRagdoll\",\n    \"fly_speed\": 8.0,\n    \"mouse_sens\": 0.002\n}"
+            }
+        }
+    ]
+}

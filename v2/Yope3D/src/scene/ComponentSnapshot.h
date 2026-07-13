@@ -28,6 +28,9 @@ struct ComponentSnapshot {
     bool hasAudio     = false;  ecs::AudioSource audio;   // Source* always null in the snapshot
     bool hasScript    = false;  ecs::ScriptComponent script;  // instance always null in the snapshot
     bool hasSpring    = false;  ecs::SpringConstraint spring; // target resolved on restore
+    bool hasPointJoint = false; ecs::PointJointConstraint pointJoint; // target resolved on restore
+    bool hasHingeJoint = false; ecs::HingeJointConstraint hingeJoint; // target resolved on restore
+    bool hasConeTwistJoint = false; ecs::ConeTwistJointConstraint coneTwistJoint; // target resolved on restore
     bool hasParent    = false;  ecs::Parent      parent;      // parent handle remapped by caller (subtree ops)
 
     // Mesh visual data (stored separately — RenderMesh* is non-owning)

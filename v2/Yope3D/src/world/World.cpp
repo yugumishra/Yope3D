@@ -1000,6 +1000,221 @@ void World::removeSpringBetween(ecs::Entity a, ecs::Entity b) {
         }), springs_.end());
 }
 
+// ---- Joints ----
+
+physics::Joint* World::addPointJoint(ecs::Entity a, ecs::Entity b, math::Vec3 anchorWorld) {
+    math::Vec3 localA{}, localB{};
+    {
+        std::lock_guard lk(structureMtx_);
+        if (auto* tf = registry_.get<Transform>(a))
+            localA = quatToMat3(tf->rotation).transpose() * (anchorWorld - tf->position);
+        if (auto* tf = registry_.get<Transform>(b))
+            localB = quatToMat3(tf->rotation).transpose() * (anchorWorld - tf->position);
+    }
+    return addPointJointPhysics(a, b, localA, localB);
+}
+
+// Low-level: create the physics::Joint object only (no ECS component). Used by
+// the editor command system and scene serializer, mirroring addSpringPhysics —
+// the PointJointConstraint component that lives on entity A drives the physics
+// without creating a 3rd entity. Local anchors are already in each body's local
+// frame (unlike addPointJoint, which converts from a world-space anchor).
+physics::Joint* World::addPointJointPhysics(ecs::Entity a, ecs::Entity b,
+                                            math::Vec3 localAnchorA, math::Vec3 localAnchorB) {
+    std::lock_guard lk(structureMtx_);
+    physics::PointToPointJoint pj;
+    pj.a = a; pj.b = b;
+    pj.localAnchorA = localAnchorA;
+    pj.localAnchorB = localAnchorB;
+    joints_.push_back(std::make_unique<physics::Joint>(std::move(pj)));
+    return joints_.back().get();
+}
+
+physics::Joint* World::addHingeJoint(ecs::Entity a, ecs::Entity b, math::Vec3 anchorWorld, math::Vec3 axisWorld,
+                                     bool limitEnabled, float lowerAngle, float upperAngle) {
+    math::Vec3 localAnchorA{}, localAnchorB{}, localAxisA{0,0,1}, localAxisB{0,0,1};
+    {
+        std::lock_guard lk(structureMtx_);
+        if (auto* tf = registry_.get<Transform>(a)) {
+            math::Mat3 RtA = quatToMat3(tf->rotation).transpose();
+            localAnchorA = RtA * (anchorWorld - tf->position);
+            localAxisA   = RtA * axisWorld;
+        }
+        if (auto* tf = registry_.get<Transform>(b)) {
+            math::Mat3 RtB = quatToMat3(tf->rotation).transpose();
+            localAnchorB = RtB * (anchorWorld - tf->position);
+            localAxisB   = RtB * axisWorld;
+        }
+    }
+    return addHingeJointPhysics(a, b, localAnchorA, localAnchorB, localAxisA, localAxisB,
+                                limitEnabled, lowerAngle, upperAngle);
+}
+
+physics::Joint* World::addHingeJointPhysics(ecs::Entity a, ecs::Entity b,
+                                            math::Vec3 localAnchorA, math::Vec3 localAnchorB,
+                                            math::Vec3 localAxisA, math::Vec3 localAxisB,
+                                            bool limitEnabled, float lowerAngle, float upperAngle) {
+    std::lock_guard lk(structureMtx_);
+    physics::HingeJoint hj;
+    hj.a = a; hj.b = b;
+    hj.localAnchorA = localAnchorA; hj.localAnchorB = localAnchorB;
+    hj.localAxisA   = localAxisA;   hj.localAxisB   = localAxisB;
+    hj.limitEnabled = limitEnabled; hj.lowerAngle = lowerAngle; hj.upperAngle = upperAngle;
+    joints_.push_back(std::make_unique<physics::Joint>(std::move(hj)));
+    return joints_.back().get();
+}
+
+physics::Joint* World::addConeTwistJoint(ecs::Entity a, ecs::Entity b, math::Vec3 anchorWorld, math::Vec3 twistAxisWorld,
+                                         float swingLimit, float twistLimit) {
+    math::Vec3 localAnchorA{}, localAnchorB{}, localAxisA{0,0,1}, localAxisB{0,0,1};
+    {
+        std::lock_guard lk(structureMtx_);
+        if (auto* tf = registry_.get<Transform>(a)) {
+            math::Mat3 RtA = quatToMat3(tf->rotation).transpose();
+            localAnchorA = RtA * (anchorWorld - tf->position);
+            localAxisA   = RtA * twistAxisWorld;
+        }
+        if (auto* tf = registry_.get<Transform>(b)) {
+            math::Mat3 RtB = quatToMat3(tf->rotation).transpose();
+            localAnchorB = RtB * (anchorWorld - tf->position);
+            localAxisB   = RtB * twistAxisWorld;
+        }
+    }
+    return addConeTwistJointPhysics(a, b, localAnchorA, localAnchorB, localAxisA, localAxisB,
+                                    swingLimit, twistLimit);
+}
+
+physics::Joint* World::addConeTwistJointPhysics(ecs::Entity a, ecs::Entity b,
+                                                math::Vec3 localAnchorA, math::Vec3 localAnchorB,
+                                                math::Vec3 localTwistAxisA, math::Vec3 localTwistAxisB,
+                                                float swingLimit, float twistLimit) {
+    std::lock_guard lk(structureMtx_);
+    physics::ConeTwistJoint cj;
+    cj.a = a; cj.b = b;
+    cj.localAnchorA = localAnchorA; cj.localAnchorB = localAnchorB;
+    cj.localTwistAxisA = localTwistAxisA; cj.localTwistAxisB = localTwistAxisB;
+    cj.swingLimit = swingLimit; cj.twistLimit = twistLimit;
+    joints_.push_back(std::make_unique<physics::Joint>(std::move(cj)));
+    return joints_.back().get();
+}
+
+static physics::Joint* findJointBetweenImpl(std::vector<std::unique_ptr<physics::Joint>>& joints,
+                                            ecs::Entity a, ecs::Entity b) {
+    for (auto& jp : joints) {
+        auto [ja, jb] = physics::jointEntityPair(*jp);
+        if ((ja == a && jb == b) || (ja == b && jb == a)) return jp.get();
+    }
+    return nullptr;
+}
+
+void World::resyncPointJoint(ecs::Entity e, const ecs::PointJointConstraint& c) {
+    std::lock_guard lk(structureMtx_);
+    auto* joint = findJointBetweenImpl(joints_, e, c.target);
+    if (!joint) return;
+    if (auto* pj = std::get_if<physics::PointToPointJoint>(joint)) {
+        pj->localAnchorA = c.localAnchorA;
+        pj->localAnchorB = c.localAnchorB;
+        pj->lambda = {}; pj->lambdaP = {};   // stale for the old geometry
+    }
+}
+
+void World::resyncHingeJoint(ecs::Entity e, const ecs::HingeJointConstraint& c) {
+    std::lock_guard lk(structureMtx_);
+    auto* joint = findJointBetweenImpl(joints_, e, c.target);
+    if (!joint) return;
+    if (auto* hj = std::get_if<physics::HingeJoint>(joint)) {
+        hj->localAnchorA = c.localAnchorA; hj->localAnchorB = c.localAnchorB;
+        hj->localAxisA   = c.localAxisA;   hj->localAxisB   = c.localAxisB;
+        hj->limitEnabled = c.limitEnabled;
+        hj->lowerAngle   = c.lowerAngle;
+        hj->upperAngle   = c.upperAngle;
+        hj->lambda = {}; hj->lambdaP = {};
+        hj->lambdaAng1 = hj->lambdaAng2 = 0.0f;
+        hj->lambdaLimit = 0.0f;
+    }
+}
+
+void World::resyncConeTwistJoint(ecs::Entity e, const ecs::ConeTwistJointConstraint& c) {
+    std::lock_guard lk(structureMtx_);
+    auto* joint = findJointBetweenImpl(joints_, e, c.target);
+    if (!joint) return;
+    if (auto* cj = std::get_if<physics::ConeTwistJoint>(joint)) {
+        cj->localAnchorA    = c.localAnchorA;    cj->localAnchorB    = c.localAnchorB;
+        cj->localTwistAxisA = c.localTwistAxisA; cj->localTwistAxisB = c.localTwistAxisB;
+        cj->swingLimit = c.swingLimit;
+        cj->twistLimit = c.twistLimit;
+        cj->lambda = {}; cj->lambdaP = {};
+        cj->lambdaSwing = cj->lambdaTwistPos = cj->lambdaTwistNeg = 0.0f;
+    }
+}
+
+void World::removeJointBetween(ecs::Entity a, ecs::Entity b) {
+    std::lock_guard lk(structureMtx_);
+    joints_.erase(std::remove_if(joints_.begin(), joints_.end(),
+        [&](const std::unique_ptr<physics::Joint>& jp) {
+            auto [ja, jb] = physics::jointEntityPair(*jp);
+            return (ja == a && jb == b) || (ja == b && jb == a);
+        }), joints_.end());
+}
+
+// ---- Vehicles ----
+
+std::vector<physics::Joint*> World::addVehicle(ecs::Entity chassis, const std::vector<WheelSpec>& wheels) {
+    std::lock_guard lk(structureMtx_);
+    std::vector<physics::Joint*> handles;
+    handles.reserve(wheels.size());
+
+    for (const auto& spec : wheels) {
+        physics::SuspensionJoint sj;
+        sj.chassis      = chassis;
+        sj.localWheelPos = spec.localPos;
+        sj.localUp      = spec.localUp;
+        sj.restLength   = spec.restLength;
+        sj.maxTravel    = spec.maxTravel;
+        sj.stiffness    = spec.stiffness;
+        sj.damping      = spec.damping;
+        joints_.push_back(std::make_unique<physics::Joint>(std::move(sj)));
+        // Stable address: joints_ owns each Joint via unique_ptr, so pushing
+        // more elements never invalidates this pointer (only the vector of
+        // unique_ptrs itself moves, not what they point to) — see Joint.h's
+        // WheelFrictionJoint::suspension comment.
+        auto* suspensionPtr = std::get_if<physics::SuspensionJoint>(joints_.back().get());
+
+        physics::WheelFrictionJoint wj;
+        wj.chassis         = chassis;
+        wj.suspension       = suspensionPtr;
+        wj.radius           = spec.radius;
+        wj.muLong           = spec.muLong;
+        wj.muLat            = spec.muLat;
+        wj.driven           = spec.driven;
+        joints_.push_back(std::make_unique<physics::Joint>(std::move(wj)));
+        handles.push_back(joints_.back().get());
+    }
+    return handles;
+}
+
+void World::setWheelDrive(physics::Joint* wheel, float angularVel) {
+    if (!wheel) return;
+    std::lock_guard lk(structureMtx_);
+    if (auto* wj = std::get_if<physics::WheelFrictionJoint>(wheel)) {
+        wj->wheelAngularVel = angularVel;
+        // A chassis idling near rest length falls asleep quickly (low
+        // velocity, held steady by suspension); once asleep its island is
+        // skipped by advance() entirely, so further drive/steer commands
+        // would silently do nothing without this wake.
+        wake(wj->chassis);
+    }
+}
+
+void World::setWheelSteer(physics::Joint* wheel, float steerAngleRad) {
+    if (!wheel) return;
+    std::lock_guard lk(structureMtx_);
+    if (auto* wj = std::get_if<physics::WheelFrictionJoint>(wheel)) {
+        wj->steerAngle = steerAngleRad;
+        wake(wj->chassis);
+    }
+}
+
 // ---- Script physics helpers ----
 
 void World::wake(ecs::Entity e) {
@@ -1393,6 +1608,7 @@ void World::resetPhysics() {
         if (m) m->destroy(gpu_->device());
     meshPool_.clear();
     springs_.clear();
+    joints_.clear();
     contactCache_.clear();
     meshToEntity_.clear();
 
@@ -1431,6 +1647,7 @@ void World::cleanup() {
         if (m) m->destroy(gpu_->device());
     meshPool_.clear();
     springs_.clear();
+    joints_.clear();
     contactCache_.clear();
     meshToEntity_.clear();
     registry_ = ecs::Registry{};
@@ -1493,6 +1710,17 @@ void World::advance(float dt) {
         sap_.collectPairs(advanceEntities_, registry_, sapPairs_);
     }
 
+    // 1b. Wheel raycast refresh — SuspensionJoint's ground-contact geometry is
+    // produced by a real raycast, not narrowphase detect(), so it must run
+    // before solveIsland's precompute pass consumes it (mirrors why
+    // narrowphase detect() below must run before contacts can be solved).
+    {
+        YOPE_PROF_SCOPE("wheel_raycast", "physics");
+        for (auto& jp : joints_)
+            if (auto* susp = std::get_if<physics::SuspensionJoint>(jp.get()))
+                physics::ColliderDiscrete::refreshSuspensionRaycast(*susp, registry_);
+    }
+
     // 2. Narrow-phase detection.
     {
         YOPE_PROF_SCOPE("narrowphase_detect", "physics");
@@ -1535,7 +1763,10 @@ void World::advance(float dt) {
 
     // 3. Island-partitioned PGS solve.
     lastIslandCount_ = 0;
-    if (!advanceContacts_.empty()) {
+    // Joints (like contacts) can require a solve even with zero geometric
+    // contact — e.g. two joint-connected bodies hanging in the air — so the
+    // guard must not be contacts-only.
+    if (!advanceContacts_.empty() || !joints_.empty()) {
         if (!threadPool_) {
             unsigned int n = std::max(1u, std::thread::hardware_concurrency() - 1u);
             threadPool_ = std::make_unique<ThreadPool>(n);
@@ -1547,10 +1778,22 @@ void World::advance(float dt) {
         for (const auto& s : springs_)
             springPairs.push_back({s->first_, s->second_});
 
+        // Same idea for joints, plus the actual Joint* list so the island
+        // builder can attach each joint to the island that will solve it.
+        std::vector<std::pair<ecs::Entity, ecs::Entity>> jointPairs;
+        std::vector<physics::Joint*> allJointPtrs;
+        jointPairs.reserve(joints_.size());
+        allJointPtrs.reserve(joints_.size());
+        for (auto& jp : joints_) {
+            allJointPtrs.push_back(jp.get());
+            jointPairs.push_back(physics::jointEntityPair(*jp));
+        }
+
         std::vector<physics::Island> islands;
         {
             YOPE_PROF_SCOPE("island_build", "physics");
-            islandDetector_.build(advanceContacts_, contactCache_, islands, registry_, springPairs);
+            islandDetector_.build(advanceContacts_, contactCache_, islands, registry_,
+                                  springPairs, jointPairs, allJointPtrs);
         }
         lastIslandCount_ = static_cast<int>(islands.size());
         YOPE_PROF_SET_ISLAND_COUNT(lastIslandCount_);
@@ -1565,7 +1808,7 @@ void World::advance(float dt) {
                         // island, so analyze_profile.py can plot solve-time vs. island size
                         // and spot the single-giant-island case where parallelism collapses.
                         YOPE_PROF_SCOPE_N("pgs_island", "physics", islandContactN);
-                        physics::ColliderDiscrete::solveIsland(island.contacts, dt, reg, island.localCache);
+                        physics::ColliderDiscrete::solveIsland(island.contacts, island.joints, dt, reg, island.localCache);
                     });
                 }
             }
@@ -1635,8 +1878,10 @@ void World::advance(float dt) {
         tf.position += hc.pseudoVel * dt;
         constexpr float MAX_PSEUDO_OMEGA = 2.0f;
         float pOmLen = std::sqrt(hc.pseudoOmega.dot(hc.pseudoOmega));
-        if (pOmLen > MAX_PSEUDO_OMEGA)
+        if (pOmLen > MAX_PSEUDO_OMEGA) {
             hc.pseudoOmega = hc.pseudoOmega * (MAX_PSEUDO_OMEGA / pOmLen);
+            pOmLen = MAX_PSEUDO_OMEGA;
+        }
         if (pOmLen > 1e-7f) {
             float angle = pOmLen * dt;
             math::Quat dq = math::Quat::fromAxisAngle(hc.pseudoOmega * (1.0f / pOmLen), angle);
@@ -1860,12 +2105,20 @@ void World::destroyDebugMeshes() {
 }
 
 void World::finalizeEntity(ecs::Entity e, const char* name) {
-    ecs::Name n{};
-    std::strncpy(n.value, name, sizeof(n.value) - 1);
-    registry_.add<ecs::Name>(e, n);
+    // Idempotent: every factory calls this once on a fresh entity, but it's also
+    // exposed to setup scripts that may call it on an entity a factory already
+    // finalized — re-adding a present component asserts, so overwrite in place.
+    if (auto* existing = registry_.get<ecs::Name>(e)) {
+        std::strncpy(existing->value, name, sizeof(existing->value) - 1);
+        existing->value[sizeof(existing->value) - 1] = '\0';
+    } else {
+        ecs::Name n{};
+        std::strncpy(n.value, name, sizeof(n.value) - 1);
+        registry_.add<ecs::Name>(e, n);
+    }
 #ifdef YOPE_EDITOR
-    registry_.add<ecs::EditorSelectable>(e);
-    registry_.add<ecs::EditorPickable>(e);
+    if (!registry_.has<ecs::EditorSelectable>(e)) registry_.add<ecs::EditorSelectable>(e);
+    if (!registry_.has<ecs::EditorPickable>(e))   registry_.add<ecs::EditorPickable>(e);
 #endif
 }
 
@@ -1873,6 +2126,7 @@ void World::finalizeEntity(ecs::Entity e, const char* name) {
 void World::snapshotForPlay() {
     prePlayMeshPoolSize_       = meshPool_.size();
     prePlaySpringCount_        = springs_.size();
+    prePlayJointCount_         = joints_.size();
     playSnapshot_.registry     = registry_.takeSnapshot();
     playSnapshot_.gravity      = gravity;
     playSnapshot_.layers       = layers;
@@ -1896,8 +2150,9 @@ void World::restoreFromPlay() {
     }
     meshPool_.resize(prePlayMeshPoolSize_);
 
-    // Drop springs added during play.
+    // Drop springs and joints added during play.
     springs_.resize(prePlaySpringCount_);
+    joints_.resize(prePlayJointCount_);
 
     // Restore ECS state.
     registry_.restoreSnapshot(playSnapshot_.registry);
@@ -1925,6 +2180,7 @@ void World::restoreFromPlay() {
 void World::takeScriptSnapshot() {
     prePlayMeshPoolSize_   = meshPool_.size();
     prePlaySpringCount_    = springs_.size();
+    prePlayJointCount_     = joints_.size();
     playSnapshot_.registry = registry_.takeSnapshot();
     playSnapshot_.gravity  = gravity;
     playSnapshot_.layers   = layers;
@@ -1942,6 +2198,7 @@ void World::restoreScriptSnapshot() {
     }
     meshPool_.resize(prePlayMeshPoolSize_);
     springs_.resize(prePlaySpringCount_);
+    joints_.resize(prePlayJointCount_);
 
     registry_.restoreSnapshot(playSnapshot_.registry);
     gravity = playSnapshot_.gravity;

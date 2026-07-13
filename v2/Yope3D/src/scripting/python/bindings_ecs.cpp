@@ -119,6 +119,35 @@ void bind_ecs(py::module_& m) {
         .def_readwrite("k",           &ecs::SpringConstraint::k)
         .def_readwrite("rest_length", &ecs::SpringConstraint::restLength);
 
+    // Joint constraint mirror components — serializable authored form of a
+    // physics::Joint (the live joint isn't an ECS component). Created by
+    // world.add_*_joint(..., persist=True); editable here to tune-then-save.
+    // Changing fields only re-syncs the live joint through the editor's
+    // resync path, not automatically from Python — save + reload applies them.
+    py::class_<ecs::PointJointConstraint>(m, "PointJointConstraint")
+        .def_readwrite("target",         &ecs::PointJointConstraint::target)
+        .def_readwrite("local_anchor_a", &ecs::PointJointConstraint::localAnchorA)
+        .def_readwrite("local_anchor_b", &ecs::PointJointConstraint::localAnchorB);
+
+    py::class_<ecs::HingeJointConstraint>(m, "HingeJointConstraint")
+        .def_readwrite("target",         &ecs::HingeJointConstraint::target)
+        .def_readwrite("local_anchor_a", &ecs::HingeJointConstraint::localAnchorA)
+        .def_readwrite("local_anchor_b", &ecs::HingeJointConstraint::localAnchorB)
+        .def_readwrite("local_axis_a",   &ecs::HingeJointConstraint::localAxisA)
+        .def_readwrite("local_axis_b",   &ecs::HingeJointConstraint::localAxisB)
+        .def_readwrite("limit_enabled",  &ecs::HingeJointConstraint::limitEnabled)
+        .def_readwrite("lower_angle",    &ecs::HingeJointConstraint::lowerAngle)
+        .def_readwrite("upper_angle",    &ecs::HingeJointConstraint::upperAngle);
+
+    py::class_<ecs::ConeTwistJointConstraint>(m, "ConeTwistJointConstraint")
+        .def_readwrite("target",             &ecs::ConeTwistJointConstraint::target)
+        .def_readwrite("local_anchor_a",     &ecs::ConeTwistJointConstraint::localAnchorA)
+        .def_readwrite("local_anchor_b",     &ecs::ConeTwistJointConstraint::localAnchorB)
+        .def_readwrite("local_twist_axis_a", &ecs::ConeTwistJointConstraint::localTwistAxisA)
+        .def_readwrite("local_twist_axis_b", &ecs::ConeTwistJointConstraint::localTwistAxisB)
+        .def_readwrite("swing_limit",        &ecs::ConeTwistJointConstraint::swingLimit)
+        .def_readwrite("twist_limit",        &ecs::ConeTwistJointConstraint::twistLimit);
+
     // Parent — transform hierarchy link. Transform is LOCAL to parent's frame;
     // use get_world_position() for the composed world position.
     py::class_<ecs::Parent>(m, "Parent")

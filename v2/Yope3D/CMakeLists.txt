@@ -260,6 +260,9 @@ set(EDITOR_SOURCES
     src/editor/commands/SetUIParentCommand.cpp
     src/editor/commands/RemoveColliderCommand.cpp
     src/editor/commands/AddSpringConstraintCommand.cpp
+    src/editor/commands/AddPointJointCommand.cpp
+    src/editor/commands/AddHingeJointCommand.cpp
+    src/editor/commands/AddConeTwistJointCommand.cpp
     src/editor/commands/SetAssetCommands.cpp
     src/editor/inspectors/InspectorRegistry.cpp
     src/editor/inspectors/TransformInspector.cpp
@@ -272,6 +275,9 @@ set(EDITOR_SOURCES
     src/editor/inspectors/NameInspector.cpp
     src/editor/inspectors/AudioSourceInspector.cpp
     src/editor/inspectors/SpringConstraintInspector.cpp
+    src/editor/inspectors/PointJointInspector.cpp
+    src/editor/inspectors/HingeJointInspector.cpp
+    src/editor/inspectors/ConeTwistJointInspector.cpp
     src/editor/inspectors/ParentInspector.cpp
     src/editor/inspectors/UITransformInspector.cpp
     src/editor/inspectors/UIBackgroundInspector.cpp

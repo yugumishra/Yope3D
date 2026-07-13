@@ -17,10 +17,16 @@ void IslandDetector::build(
     const EntityContactCache& globalCache,
     std::vector<Island>& islands,
     ecs::Registry& reg,
-    const std::vector<std::pair<ecs::Entity, ecs::Entity>>& springPairs)
+    const std::vector<std::pair<ecs::Entity, ecs::Entity>>& springPairs,
+    const std::vector<std::pair<ecs::Entity, ecs::Entity>>& jointPairs,
+    const std::vector<Joint*>& allJoints)
 {
     islands.clear();
-    if (allContacts.empty()) return;
+    // A connected component with zero geometric contacts (e.g. a ragdoll
+    // hanging mid-air, joined only by joints/springs) must still get an
+    // island — the old `allContacts.empty()` guard skipped island building
+    // entirely in that case, silently dropping the joint/spring solve.
+    if (allContacts.empty() && springPairs.empty() && jointPairs.empty()) return;
 
     auto isFixed = [&](ecs::Entity e) -> bool { return reg.has<ecs::Fixed>(e); };
     auto isSleeping = [&](ecs::Entity e) -> bool { return reg.has<ecs::Sleeping>(e); };
@@ -56,6 +62,12 @@ void IslandDetector::build(
             if (!isFixed(eb) && reg.has<ecs::Hull>(eb))
                 maxEntityId = std::max(maxEntityId, eb.id);
         }
+        for (const auto& [ea, eb] : jointPairs) {
+            if (!isFixed(ea) && reg.has<ecs::Hull>(ea))
+                maxEntityId = std::max(maxEntityId, ea.id);
+            if (!isFixed(eb) && reg.has<ecs::Hull>(eb))
+                maxEntityId = std::max(maxEntityId, eb.id);
+        }
 
         // Grow once; shrink only if vastly over-sized (avoid reallocation churn).
         if (entityToUfId.size() < static_cast<size_t>(maxEntityId) + 1)
@@ -76,6 +88,15 @@ void IslandDetector::build(
         // Spring endpoints may not appear in any contact — still assign IDs so
         // the union step can bridge their contact islands.
         for (const auto& [ea, eb] : springPairs) {
+            if (!isFixed(ea) && reg.has<ecs::Hull>(ea)
+                && entityToUfId[ea.id] == kNoUfId)
+                entityToUfId[ea.id] = nextId++;
+            if (!isFixed(eb) && reg.has<ecs::Hull>(eb)
+                && entityToUfId[eb.id] == kNoUfId)
+                entityToUfId[eb.id] = nextId++;
+        }
+        // Joint endpoints — same reasoning as spring endpoints above.
+        for (const auto& [ea, eb] : jointPairs) {
             if (!isFixed(ea) && reg.has<ecs::Hull>(ea)
                 && entityToUfId[ea.id] == kNoUfId)
                 entityToUfId[ea.id] = nextId++;
@@ -120,6 +141,16 @@ void IslandDetector::build(
             int rb = find(ufB);
             if (ra != rb) parent[ra] = rb;
         }
+        for (const auto& [ea, eb] : jointPairs) {
+            if (isFixed(ea) || isFixed(eb)) continue;
+            if (ea.id >= entityToUfId.size() || eb.id >= entityToUfId.size()) continue;
+            int ufA = entityToUfId[ea.id];
+            int ufB = entityToUfId[eb.id];
+            if (ufA == kNoUfId || ufB == kNoUfId) continue;
+            int ra = find(ufA);
+            int rb = find(ufB);
+            if (ra != rb) parent[ra] = rb;   // no-op self-pair (ea==eb) for single-body joints
+        }
     }
 
     // 3. Partition contacts by island root.
@@ -147,6 +178,23 @@ void IslandDetector::build(
             }
             islands[islandIdx].contacts.push_back(c);
         }
+        // Seed an island for any spring/joint-connected component that has
+        // zero geometric contacts (e.g. two bodies joined only by a joint,
+        // never touching) — otherwise it would never get an Island entry and
+        // would silently never be solved. Empty `contacts` is fine; solveIsland
+        // already tolerates contacts.empty() with non-empty joints.
+        auto seedIslandFor = [&](ecs::Entity ea, ecs::Entity eb) {
+            if (isFixed(ea) && isFixed(eb)) return;
+            ecs::Entity anchor = !isFixed(ea) ? ea : eb;
+            if (anchor.id >= entityToUfId.size() || entityToUfId[anchor.id] == kNoUfId) return;
+            int root = find(entityToUfId[anchor.id]);
+            if (rootToIsland[root] < 0) {
+                rootToIsland[root] = static_cast<int>(islands.size());
+                islands.emplace_back();
+            }
+        };
+        for (const auto& [ea, eb] : springPairs) seedIslandFor(ea, eb);
+        for (const auto& [ea, eb] : jointPairs)  seedIslandFor(ea, eb);
         YOPE_PROF_EMIT("island_partition_n", "physics", 0.0,
                        static_cast<int>(islands.size()));
     }
@@ -161,6 +209,26 @@ void IslandDetector::build(
     std::vector<uint8_t>& seen = seen_;
     {
         YOPE_PROF_SCOPE("island_entity_cache", "physics");
+
+        // Attach each Joint* to the island owning its (anchor) root — must run
+        // before the per-island contact loop below so joint-contributed entities
+        // are already marked in `seen` and don't get double-pushed, and so a
+        // joint-only island (seeded above with zero contacts) still ends up with
+        // a populated entities list for Phase 5's wake propagation.
+        for (Joint* jp : allJoints) {
+            auto [ea, eb] = jointEntityPair(*jp);
+            if (isFixed(ea) && isFixed(eb)) continue;
+            ecs::Entity anchor = !isFixed(ea) ? ea : eb;
+            if (anchor.id >= entityToUfId.size() || entityToUfId[anchor.id] == kNoUfId) continue;
+            int root = find(entityToUfId[anchor.id]);
+            int islandIdx = rootToIsland[root];
+            if (islandIdx < 0) continue;   // shouldn't happen given the seeding pass above
+            Island& isl = islands[islandIdx];
+            isl.joints.push_back(jp);
+            if (ea.id < seen.size() && !seen[ea.id]) { seen[ea.id] = 1; isl.entities.push_back(ea); }
+            if (eb.id < seen.size() && !seen[eb.id]) { seen[eb.id] = 1; isl.entities.push_back(eb); }
+        }
+
         int totalEntities = 0;
         for (int islandIdx = 0; islandIdx < static_cast<int>(islands.size()); ++islandIdx) {
             Island& isl = islands[islandIdx];

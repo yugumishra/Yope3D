@@ -1,6 +1,7 @@
 #include "ColliderDiscrete.h"
 #include "PhysicsConstants.h"
 #include "CompoundShape.h"
+#include "KinematicQuery.h"
 #include "../ecs/Registry.h"
 #include "../ecs/Components.h"
 #include "../world/Transform.h"
@@ -10,8 +11,670 @@
 #include <limits>
 #include <optional>
 #include <vector>
+#include <type_traits>
 
 namespace physics::ColliderDiscrete {
+
+namespace {
+
+// Cross-product ("skew-symmetric") matrix S such that S*x == v.cross(x).
+// Column-major (m[col*3+row], matching Mat3's convention elsewhere in this file).
+math::Mat3 skew(const math::Vec3& v) {
+    math::Mat3 s;
+    s.m[0] = 0.0f;  s.m[3] = -v.z; s.m[6] =  v.y;
+    s.m[1] =  v.z;  s.m[4] = 0.0f; s.m[7] = -v.x;
+    s.m[2] = -v.y;  s.m[5] =  v.x; s.m[8] = 0.0f;
+    return s;
+}
+
+// K = (invMassA + invMassB) * I3 - [rA]x * IinvA * [rA]x - [rB]x * IinvB * [rB]x
+// (same effective-mass shape as the contact solver's scalar effN, generalized
+// to a 3x3 block since a ball socket has no preferred axis). Shared by every
+// joint type below — all of them retain the point-to-point block as their
+// linear-DOF-removing core.
+math::Mat3 computePointBlockK(const math::Vec3& rA, const math::Vec3& rB,
+                              const ecs::Hull* ha, const ecs::Hull* hb) {
+    math::Mat3 skewA = skew(rA), skewB = skew(rB);
+    math::Mat3 termA = skewA * ha->inertiaTensorWorld * skewA;
+    math::Mat3 termB = skewB * hb->inertiaTensorWorld * skewB;
+    math::Mat3 K;
+    for (int i = 0; i < 9; ++i) K.m[i] = -termA.m[i] - termB.m[i];
+    float invSum = ha->inverseMass + hb->inverseMass;
+    K.m[0] += invSum; K.m[4] += invSum; K.m[8] += invSum;
+    return K.inverse();
+}
+
+// Effective mass for a pure-angular (no lever arm) scalar constraint row along
+// a world-space axis: eff = axis.(IinvA*axis) + axis.(IinvB*axis).
+float angularEffectiveMass(const math::Vec3& axis, const math::Mat3& IinvA, const math::Mat3& IinvB) {
+    float eff = axis.dot(IinvA * axis) + axis.dot(IinvB * axis);
+    return (eff > 1e-6f) ? 1.0f / eff : 0.0f;
+}
+
+// Swing-twist decomposition of a relative rotation qRel about world-space
+// `axis`: qRel = swing * twist, twist a pure rotation about axis. Standard
+// technique (project qRel's vector part onto axis to get the twist quat,
+// swing = qRel * ~twist). twistAngle needs no explicit normalization —
+// atan2 is invariant to positive scaling of both arguments, and (proj, qRel.w)
+// scale identically to the normalized twist quat's (v.axis, w).
+struct SwingTwist { float twistAngle; math::Vec3 swingAxis; float swingAngle; };
+
+SwingTwist decomposeSwingTwist(const math::Quat& qRelIn, const math::Vec3& axis) {
+    // Canonicalize to the w >= 0 cover: q and -q are the same rotation, but the
+    // angle formulas below are not sign-invariant — an uncanonicalized qRel past
+    // 180 deg reads as ~2pi-of-swing / +-2pi-of-twist with an inverted correction
+    // direction, which feeds the limit rows garbage.
+    math::Quat qRel = (qRelIn.w < 0.0f)
+        ? math::Quat{-qRelIn.x, -qRelIn.y, -qRelIn.z, -qRelIn.w}
+        : qRelIn;
+
+    math::Vec3 v{qRel.x, qRel.y, qRel.z};
+    float proj = v.dot(axis);
+    float twistAngle = 2.0f * std::atan2(proj, qRel.w);
+
+    math::Vec3 twistV = axis * proj;
+    math::Quat twist{twistV.x, twistV.y, twistV.z, qRel.w};
+    float tlen = std::sqrt(twist.x*twist.x + twist.y*twist.y + twist.z*twist.z + twist.w*twist.w);
+    math::Quat twistN = (tlen > 1e-8f)
+        ? math::Quat{twist.x/tlen, twist.y/tlen, twist.z/tlen, twist.w/tlen}
+        : math::Quat{0.0f, 0.0f, 0.0f, 1.0f};
+    math::Quat swing = qRel * (~twistN);
+    if (swing.w < 0.0f) swing = math::Quat{-swing.x, -swing.y, -swing.z, -swing.w};
+
+    float swingW = std::max(-1.0f, std::min(1.0f, swing.w));
+    float swingAngle = 2.0f * std::acos(swingW);
+    math::Vec3 swingAxis{swing.x, swing.y, swing.z};
+    float slen = std::sqrt(swingAxis.dot(swingAxis));
+    swingAxis = (slen > 1e-6f) ? swingAxis * (1.0f / slen) : math::Vec3{0.0f, 0.0f, 1.0f};
+    return {twistAngle, swingAxis, swingAngle};
+}
+
+// Shared shape for a single velocity-level unilateral angular limit row
+// (Hinge's angle limit, ConeTwist's swing/twist limits) — same accumulate-
+// clamp-apply idiom as a contact normal row, just with a pure angular
+// (lever-arm-free) Jacobian. `dir` must already point in the "decreases the
+// violation" direction; only active once `violation` (current angle already
+// past the bound) is positive, so it does nothing while safely inside the
+// limit and only engages to stop the rotation from digging the violation
+// deeper *this same substep* — the position-level counterpart
+// (solveAngularLimitRow, below) only runs once per substep after
+// integration, so without this a fast spin can blow well past the limit for
+// several substeps before the position pull-back wins the tug-of-war.
+template <class ApplyFn>
+void solveVelocityAngularLimitRow(ecs::Hull* ha, ecs::Hull* hb, const math::Vec3& dir,
+                                  float violation, float W, float& lambda, ApplyFn&& applyImpulses) {
+    if (violation <= 0.0f) { lambda = 0.0f; return; }
+    float cdot = (hb->omega - ha->omega).dot(dir);
+    float dl = W * -cdot;
+    float oldL = lambda;
+    lambda = std::max(0.0f, lambda + dl);
+    float applied = lambda - oldL;
+    if (std::abs(applied) < 1e-10f) return;
+    ha->angularImpulse += dir * -applied;
+    hb->angularImpulse += dir *  applied;
+    applyImpulses(ha);
+    applyImpulses(hb);
+}
+
+// ---- PointToPointJoint: 3x3 coupled block, bilateral (push AND pull). ----
+// Reuses the contact solver's effective-mass-formula shape generalized to a
+// 3x3 block (a ball socket has no preferred axis, so independent scalar rows
+// per axis converge far slower under warm start than one coupled solve), and
+// its accumulate-impulse idiom with lo=-inf/hi=+inf (no clamp) instead of the
+// contact normal's [0,inf) unilateral clamp.
+
+void precomputePointToPoint(PointToPointJoint& j, ecs::Registry& reg) {
+    auto* ha = reg.get<ecs::Hull>(j.a);   auto* hb = reg.get<ecs::Hull>(j.b);
+    auto* tfa = reg.get<Transform>(j.a);  auto* tfb = reg.get<Transform>(j.b);
+    if (!ha || !hb || !tfa || !tfb) { j.K = math::Mat3::zero(); return; }
+
+    math::Mat3 Ra = math::Mat3::rotation(tfa->rotation);
+    math::Mat3 Rb = math::Mat3::rotation(tfb->rotation);
+    j.rA = Ra * j.localAnchorA;
+    j.rB = Rb * j.localAnchorB;
+    j.K = computePointBlockK(j.rA, j.rB, ha, hb);
+}
+
+template <class ApplyFn>
+void warmStartPointToPoint(PointToPointJoint& j, ecs::Registry& reg, ApplyFn&& applyImpulses) {
+    auto* ha = reg.get<ecs::Hull>(j.a); auto* hb = reg.get<ecs::Hull>(j.b);
+    if (!ha || !hb) return;
+    j.lambda  = j.lambda * 0.999f;   // same decay factor as contacts' normal warm-start
+    j.lambdaP = {};                  // position accumulator never carries across frames
+
+    const math::Vec3& imp = j.lambda;
+    if (ha->inverseMass > 0.0f) { ha->linearImpulse += -imp; ha->angularImpulse += j.rA.cross(-imp); }
+    if (hb->inverseMass > 0.0f) { hb->linearImpulse +=  imp; hb->angularImpulse += j.rB.cross( imp); }
+    applyImpulses(ha);
+    applyImpulses(hb);
+}
+
+template <class ApplyFn>
+void solveVelocityPointToPoint(PointToPointJoint& j, ecs::Registry& reg, ApplyFn&& applyImpulses) {
+    auto* ha = reg.get<ecs::Hull>(j.a); auto* hb = reg.get<ecs::Hull>(j.b);
+    if (!ha || !hb) return;
+
+    math::Vec3 relVel = hb->velocity + hb->omega.cross(j.rB)
+                       - ha->velocity - ha->omega.cross(j.rA);
+    math::Vec3 dLambda = j.K * (relVel * -1.0f);   // bilateral: no clamp
+    j.lambda += dLambda;
+
+    if (ha->inverseMass > 0.0f) { ha->linearImpulse += -dLambda; ha->angularImpulse += j.rA.cross(-dLambda); }
+    if (hb->inverseMass > 0.0f) { hb->linearImpulse +=  dLambda; hb->angularImpulse += j.rB.cross( dLambda); }
+    applyImpulses(ha);
+    applyImpulses(hb);
+}
+
+void solvePositionPointToPoint(PointToPointJoint& j, ecs::Registry& reg, float dt) {
+    auto* ha = reg.get<ecs::Hull>(j.a); auto* hb = reg.get<ecs::Hull>(j.b);
+    auto* tfa = reg.get<Transform>(j.a); auto* tfb = reg.get<Transform>(j.b);
+    if (!ha || !hb || !tfa || !tfb) return;
+    bool aFixed = reg.has<ecs::Fixed>(j.a);
+    bool bFixed = reg.has<ecs::Fixed>(j.b);
+
+    math::Vec3 cStar = (hb->pseudoVel + hb->pseudoOmega.cross(j.rB))
+                      - (ha->pseudoVel + ha->pseudoOmega.cross(j.rA));
+    math::Vec3 posError = (tfb->position + j.rB) - (tfa->position + j.rA);
+    // Target relative velocity that decays the gap exponentially (Baumgarte),
+    // NOT positive-fed-back with it — sign flips relative to the contact
+    // solver's unilateral bias, which instead targets a minimum *separating*
+    // speed for a positive penetration depth.
+    math::Vec3 bias = posError * (-SPLIT_BETA * j.correctionStiffness / dt);
+
+    math::Vec3 dLambdaP = j.K * (bias - cStar);
+    j.lambdaP += dLambdaP;
+
+    if (!aFixed) {
+        ha->pseudoVel   += -dLambdaP * ha->inverseMass;
+        ha->pseudoOmega += ha->inertiaTensorWorld * j.rA.cross(-dLambdaP);
+    }
+    if (!bFixed) {
+        hb->pseudoVel   +=  dLambdaP * hb->inverseMass;
+        hb->pseudoOmega += hb->inertiaTensorWorld * j.rB.cross( dLambdaP);
+    }
+}
+
+// ---- HingeJoint: PointToPoint's 3x3 block + 2 angular-lock rows (removes 2 of
+// the 3 rotational DOF, leaving rotation free only about the shared axis) +
+// an optional angle limit. Limit is position-only (split-impulse), not also
+// velocity-clamped — see the struct comment in Joint.h for the rationale.
+
+void precomputeHinge(HingeJoint& j, ecs::Registry& reg) {
+    auto* ha = reg.get<ecs::Hull>(j.a);   auto* hb = reg.get<ecs::Hull>(j.b);
+    auto* tfa = reg.get<Transform>(j.a);  auto* tfb = reg.get<Transform>(j.b);
+    if (!ha || !hb || !tfa || !tfb) {
+        j.K = math::Mat3::zero(); j.Wang1 = j.Wang2 = j.Wlimit = 0.0f;
+        return;
+    }
+
+    math::Mat3 Ra = math::Mat3::rotation(tfa->rotation);
+    math::Mat3 Rb = math::Mat3::rotation(tfb->rotation);
+    j.rA = Ra * j.localAnchorA;
+    j.rB = Rb * j.localAnchorB;
+    j.K = computePointBlockK(j.rA, j.rB, ha, hb);
+
+    j.axisWorld = Ra * j.localAxisA;
+    float alen = std::sqrt(j.axisWorld.dot(j.axisWorld));
+    if (alen > 1e-6f) j.axisWorld = j.axisWorld * (1.0f / alen);
+
+    // Same T1/T2-from-normal idiom as the contact solver's tangent basis
+    // (ColliderDiscrete.cpp precompute above), applied to the hinge axis.
+    j.perp1 = (std::abs(j.axisWorld.x) < 0.9f)
+            ? j.axisWorld.cross({1.0f, 0.0f, 0.0f})
+            : j.axisWorld.cross({0.0f, 1.0f, 0.0f});
+    float p1len = std::sqrt(j.perp1.dot(j.perp1));
+    if (p1len > 1e-7f) j.perp1 = j.perp1 * (1.0f / p1len);
+    j.perp2 = j.axisWorld.cross(j.perp1);
+
+    j.Wang1  = angularEffectiveMass(j.perp1,     ha->inertiaTensorWorld, hb->inertiaTensorWorld);
+    j.Wang2  = angularEffectiveMass(j.perp2,     ha->inertiaTensorWorld, hb->inertiaTensorWorld);
+    j.Wlimit = angularEffectiveMass(j.axisWorld, ha->inertiaTensorWorld, hb->inertiaTensorWorld);
+
+    math::Quat qRel = tfb->rotation * (~tfa->rotation);
+    j.currentAngle = decomposeSwingTwist(qRel, j.axisWorld).twistAngle;
+
+    // decomposeSwingTwist returns the twist in (-pi, pi] — a branch cut at
+    // +-pi. An asymmetric hinge range near that cut (e.g. the elbow's [0, 2.4])
+    // lets a fast overshoot cross pi, whereupon the measured angle jumps from
+    // ~+pi to ~-pi: the joint reads its over-flexion as a NEGATIVE angle below
+    // the lower limit, and the unilateral limit row then drives it the WRONG
+    // way (deeper past the limit instead of back). Unwrap into the 2pi window
+    // centred on the limit range so any reachable overshoot stays a continuous,
+    // correctly-signed violation. (Only meaningful when the limit is enabled;
+    // harmless otherwise.)
+    if (j.limitEnabled) {
+        constexpr float PI     = 3.14159265358979323846f;
+        constexpr float TWO_PI = 2.0f * PI;
+        float mid = 0.5f * (j.lowerAngle + j.upperAngle);
+        while (j.currentAngle - mid >  PI) j.currentAngle -= TWO_PI;
+        while (j.currentAngle - mid < -PI) j.currentAngle += TWO_PI;
+    }
+}
+
+template <class ApplyFn>
+void warmStartHinge(HingeJoint& j, ecs::Registry& reg, ApplyFn&& applyImpulses) {
+    auto* ha = reg.get<ecs::Hull>(j.a); auto* hb = reg.get<ecs::Hull>(j.b);
+    if (!ha || !hb) return;
+    j.lambda     = j.lambda     * 0.999f;
+    j.lambdaAng1 = j.lambdaAng1 * 0.999f;
+    j.lambdaAng2 = j.lambdaAng2 * 0.999f;
+    j.lambdaP        = {};   // position accumulators never carry across frames
+    j.lambdaLimit    = 0.0f;
+    j.lambdaLimitVel = 0.0f;
+
+    const math::Vec3& imp = j.lambda;
+    if (ha->inverseMass > 0.0f) { ha->linearImpulse += -imp; ha->angularImpulse += j.rA.cross(-imp); }
+    if (hb->inverseMass > 0.0f) { hb->linearImpulse +=  imp; hb->angularImpulse += j.rB.cross( imp); }
+    // Angular-lock rows: pure angular impulse, no lever arm / no linear component.
+    ha->angularImpulse += j.perp1 * -j.lambdaAng1;
+    hb->angularImpulse += j.perp1 *  j.lambdaAng1;
+    ha->angularImpulse += j.perp2 * -j.lambdaAng2;
+    hb->angularImpulse += j.perp2 *  j.lambdaAng2;
+    applyImpulses(ha);
+    applyImpulses(hb);
+}
+
+template <class ApplyFn>
+void solveVelocityHinge(HingeJoint& j, ecs::Registry& reg, ApplyFn&& applyImpulses) {
+    auto* ha = reg.get<ecs::Hull>(j.a); auto* hb = reg.get<ecs::Hull>(j.b);
+    if (!ha || !hb) return;
+
+    math::Vec3 relVel = hb->velocity + hb->omega.cross(j.rB)
+                       - ha->velocity - ha->omega.cross(j.rA);
+    math::Vec3 dLambda = j.K * (relVel * -1.0f);
+    j.lambda += dLambda;
+    if (ha->inverseMass > 0.0f) { ha->linearImpulse += -dLambda; ha->angularImpulse += j.rA.cross(-dLambda); }
+    if (hb->inverseMass > 0.0f) { hb->linearImpulse +=  dLambda; hb->angularImpulse += j.rB.cross( dLambda); }
+    applyImpulses(ha);
+    applyImpulses(hb);
+
+    if (j.Wang1 > 0.0f) {
+        float cdot = (hb->omega - ha->omega).dot(j.perp1);
+        float dl = j.Wang1 * -cdot;
+        j.lambdaAng1 += dl;
+        ha->angularImpulse += j.perp1 * -dl;
+        hb->angularImpulse += j.perp1 *  dl;
+        applyImpulses(ha);
+        applyImpulses(hb);
+    }
+    if (j.Wang2 > 0.0f) {
+        float cdot = (hb->omega - ha->omega).dot(j.perp2);
+        float dl = j.Wang2 * -cdot;
+        j.lambdaAng2 += dl;
+        ha->angularImpulse += j.perp2 * -dl;
+        hb->angularImpulse += j.perp2 *  dl;
+        applyImpulses(ha);
+        applyImpulses(hb);
+    }
+
+    if (j.limitEnabled && j.Wlimit > 0.0f) {
+        float violation = 0.0f;
+        math::Vec3 dir{};
+        if (j.currentAngle > j.upperAngle)      { violation = j.currentAngle - j.upperAngle; dir = j.axisWorld * -1.0f; }
+        else if (j.currentAngle < j.lowerAngle) { violation = j.lowerAngle - j.currentAngle; dir = j.axisWorld; }
+        solveVelocityAngularLimitRow(ha, hb, dir, violation, j.Wlimit, j.lambdaLimitVel, applyImpulses);
+    } else {
+        j.lambdaLimitVel = 0.0f;
+    }
+}
+
+void solvePositionHinge(HingeJoint& j, ecs::Registry& reg, float dt) {
+    auto* ha = reg.get<ecs::Hull>(j.a); auto* hb = reg.get<ecs::Hull>(j.b);
+    auto* tfa = reg.get<Transform>(j.a); auto* tfb = reg.get<Transform>(j.b);
+    if (!ha || !hb || !tfa || !tfb) return;
+    bool aFixed = reg.has<ecs::Fixed>(j.a);
+    bool bFixed = reg.has<ecs::Fixed>(j.b);
+
+    math::Vec3 cStar = (hb->pseudoVel + hb->pseudoOmega.cross(j.rB))
+                      - (ha->pseudoVel + ha->pseudoOmega.cross(j.rA));
+    math::Vec3 posError = (tfb->position + j.rB) - (tfa->position + j.rA);
+    math::Vec3 bias = posError * (-SPLIT_BETA * j.correctionStiffness / dt);
+    math::Vec3 dLambdaP = j.K * (bias - cStar);
+    j.lambdaP += dLambdaP;
+    if (!aFixed) { ha->pseudoVel += -dLambdaP * ha->inverseMass; ha->pseudoOmega += ha->inertiaTensorWorld * j.rA.cross(-dLambdaP); }
+    if (!bFixed) { hb->pseudoVel +=  dLambdaP * hb->inverseMass; hb->pseudoOmega += hb->inertiaTensorWorld * j.rB.cross( dLambdaP); }
+
+    if (!j.limitEnabled || j.Wlimit <= 0.0f) return;
+
+    // Unilateral, position-only: `dir` is the direction that DECREASES the
+    // violation when the correction impulse is applied positively — same
+    // accumulate-clamp-apply shape as a contact normal row, just with a pure
+    // angular (lever-arm-free) Jacobian instead of a point-contact one.
+    float violation = 0.0f;
+    math::Vec3 dir{};
+    if (j.currentAngle > j.upperAngle)      { violation = j.currentAngle - j.upperAngle; dir = j.axisWorld * -1.0f; }
+    else if (j.currentAngle < j.lowerAngle) { violation = j.lowerAngle - j.currentAngle; dir = j.axisWorld; }
+
+    if (violation <= 0.0f) { j.lambdaLimit = 0.0f; return; }
+
+    float cStarAng = (hb->pseudoOmega - ha->pseudoOmega).dot(dir);
+    float biasAng  = (SPLIT_BETA * j.correctionStiffness / dt) * violation;
+    float dl = j.Wlimit * (biasAng - cStarAng);
+    float oldL = j.lambdaLimit;
+    j.lambdaLimit = std::max(0.0f, j.lambdaLimit + dl);
+    float applied = j.lambdaLimit - oldL;
+    if (!aFixed) ha->pseudoOmega += ha->inertiaTensorWorld * (dir * -applied);
+    if (!bFixed) hb->pseudoOmega += hb->inertiaTensorWorld * (dir *  applied);
+}
+
+// ---- ConeTwistJoint: PointToPoint's 3x3 block + swing-cone limit + twist
+// limit, each enforced at both the velocity level (solveVelocityAngularLimitRow,
+// above) and the position level (solveAngularLimitRow, below) — see HingeJoint's
+// comment in Joint.h for why both passes are needed.
+
+void precomputeConeTwist(ConeTwistJoint& j, ecs::Registry& reg) {
+    auto* ha = reg.get<ecs::Hull>(j.a);   auto* hb = reg.get<ecs::Hull>(j.b);
+    auto* tfa = reg.get<Transform>(j.a);  auto* tfb = reg.get<Transform>(j.b);
+    if (!ha || !hb || !tfa || !tfb) {
+        j.K = math::Mat3::zero(); j.Wswing = j.Wtwist = 0.0f;
+        return;
+    }
+
+    math::Mat3 Ra = math::Mat3::rotation(tfa->rotation);
+    math::Mat3 Rb = math::Mat3::rotation(tfb->rotation);
+    j.rA = Ra * j.localAnchorA;
+    j.rB = Rb * j.localAnchorB;
+    j.K = computePointBlockK(j.rA, j.rB, ha, hb);
+
+    j.twistAxisWorld = Ra * j.localTwistAxisA;
+    float alen = std::sqrt(j.twistAxisWorld.dot(j.twistAxisWorld));
+    if (alen > 1e-6f) j.twistAxisWorld = j.twistAxisWorld * (1.0f / alen);
+
+    math::Quat qRel = tfb->rotation * (~tfa->rotation);
+    SwingTwist st = decomposeSwingTwist(qRel, j.twistAxisWorld);
+    j.twistAngle  = st.twistAngle;
+    j.swingAxis   = st.swingAxis;
+    j.swingAngle  = st.swingAngle;
+
+    j.Wswing = angularEffectiveMass(j.swingAxis,     ha->inertiaTensorWorld, hb->inertiaTensorWorld);
+    j.Wtwist = angularEffectiveMass(j.twistAxisWorld, ha->inertiaTensorWorld, hb->inertiaTensorWorld);
+}
+
+template <class ApplyFn>
+void warmStartConeTwist(ConeTwistJoint& j, ecs::Registry& reg, ApplyFn&& applyImpulses) {
+    auto* ha = reg.get<ecs::Hull>(j.a); auto* hb = reg.get<ecs::Hull>(j.b);
+    if (!ha || !hb) return;
+    j.lambda = j.lambda * 0.999f;
+    j.lambdaP = {};
+    j.lambdaSwing = j.lambdaTwistPos = j.lambdaTwistNeg = 0.0f;
+    j.lambdaSwingVel = j.lambdaTwistPosVel = j.lambdaTwistNegVel = 0.0f;
+
+    const math::Vec3& imp = j.lambda;
+    if (ha->inverseMass > 0.0f) { ha->linearImpulse += -imp; ha->angularImpulse += j.rA.cross(-imp); }
+    if (hb->inverseMass > 0.0f) { hb->linearImpulse +=  imp; hb->angularImpulse += j.rB.cross( imp); }
+    applyImpulses(ha);
+    applyImpulses(hb);
+}
+
+template <class ApplyFn>
+void solveVelocityConeTwist(ConeTwistJoint& j, ecs::Registry& reg, ApplyFn&& applyImpulses) {
+    auto* ha = reg.get<ecs::Hull>(j.a); auto* hb = reg.get<ecs::Hull>(j.b);
+    if (!ha || !hb) return;
+
+    math::Vec3 relVel = hb->velocity + hb->omega.cross(j.rB)
+                       - ha->velocity - ha->omega.cross(j.rA);
+    math::Vec3 dLambda = j.K * (relVel * -1.0f);
+    j.lambda += dLambda;
+    if (ha->inverseMass > 0.0f) { ha->linearImpulse += -dLambda; ha->angularImpulse += j.rA.cross(-dLambda); }
+    if (hb->inverseMass > 0.0f) { hb->linearImpulse +=  dLambda; hb->angularImpulse += j.rB.cross( dLambda); }
+    applyImpulses(ha);
+    applyImpulses(hb);
+
+    if (j.Wswing > 0.0f)
+        solveVelocityAngularLimitRow(ha, hb, j.swingAxis * -1.0f,
+                                     j.swingAngle - j.swingLimit, j.Wswing, j.lambdaSwingVel, applyImpulses);
+    else
+        j.lambdaSwingVel = 0.0f;
+
+    if (j.Wtwist > 0.0f) {
+        solveVelocityAngularLimitRow(ha, hb, j.twistAxisWorld * -1.0f,
+                                     j.twistAngle - j.twistLimit, j.Wtwist, j.lambdaTwistPosVel, applyImpulses);
+        solveVelocityAngularLimitRow(ha, hb, j.twistAxisWorld,
+                                     -j.twistLimit - j.twistAngle, j.Wtwist, j.lambdaTwistNegVel, applyImpulses);
+    } else {
+        j.lambdaTwistPosVel = j.lambdaTwistNegVel = 0.0f;
+    }
+}
+
+// Shared shape for a single position-only unilateral angular limit row (used
+// 3x below: swing, twist-positive, twist-negative). `dir` must already point
+// in the "decreases the violation" direction; `lambda` is that row's own
+// accumulator.
+void solveAngularLimitRow(ecs::Hull* ha, ecs::Hull* hb, bool aFixed, bool bFixed,
+                          const math::Vec3& dir, float violation, float W, float dt,
+                          float correctionStiffness, float& lambda) {
+    if (violation <= 0.0f) { lambda = 0.0f; return; }
+    float cStarAng = (hb->pseudoOmega - ha->pseudoOmega).dot(dir);
+    float biasAng  = (SPLIT_BETA * correctionStiffness / dt) * violation;
+    float dl = W * (biasAng - cStarAng);
+    float oldL = lambda;
+    lambda = std::max(0.0f, lambda + dl);
+    float applied = lambda - oldL;
+    if (!aFixed) ha->pseudoOmega += ha->inertiaTensorWorld * (dir * -applied);
+    if (!bFixed) hb->pseudoOmega += hb->inertiaTensorWorld * (dir *  applied);
+}
+
+void solvePositionConeTwist(ConeTwistJoint& j, ecs::Registry& reg, float dt) {
+    auto* ha = reg.get<ecs::Hull>(j.a); auto* hb = reg.get<ecs::Hull>(j.b);
+    auto* tfa = reg.get<Transform>(j.a); auto* tfb = reg.get<Transform>(j.b);
+    if (!ha || !hb || !tfa || !tfb) return;
+    bool aFixed = reg.has<ecs::Fixed>(j.a);
+    bool bFixed = reg.has<ecs::Fixed>(j.b);
+
+    math::Vec3 cStar = (hb->pseudoVel + hb->pseudoOmega.cross(j.rB))
+                      - (ha->pseudoVel + ha->pseudoOmega.cross(j.rA));
+    math::Vec3 posError = (tfb->position + j.rB) - (tfa->position + j.rA);
+    math::Vec3 bias = posError * (-SPLIT_BETA * j.correctionStiffness / dt);
+    math::Vec3 dLambdaP = j.K * (bias - cStar);
+    j.lambdaP += dLambdaP;
+    if (!aFixed) { ha->pseudoVel += -dLambdaP * ha->inverseMass; ha->pseudoOmega += ha->inertiaTensorWorld * j.rA.cross(-dLambdaP); }
+    if (!bFixed) { hb->pseudoVel +=  dLambdaP * hb->inverseMass; hb->pseudoOmega += hb->inertiaTensorWorld * j.rB.cross( dLambdaP); }
+
+    // Swing: single-sided (swingAngle is always >= 0 by construction of the decomposition).
+    if (j.Wswing > 0.0f)
+        solveAngularLimitRow(ha, hb, aFixed, bFixed, j.swingAxis * -1.0f,
+                             j.swingAngle - j.swingLimit, j.Wswing, dt, j.correctionStiffness, j.lambdaSwing);
+    else
+        j.lambdaSwing = 0.0f;
+
+    // Twist: two symmetric half-rows, one per bound.
+    if (j.Wtwist > 0.0f) {
+        solveAngularLimitRow(ha, hb, aFixed, bFixed, j.twistAxisWorld * -1.0f,
+                             j.twistAngle - j.twistLimit, j.Wtwist, dt, j.correctionStiffness, j.lambdaTwistPos);
+        solveAngularLimitRow(ha, hb, aFixed, bFixed, j.twistAxisWorld,
+                             -j.twistLimit - j.twistAngle, j.Wtwist, dt, j.correctionStiffness, j.lambdaTwistNeg);
+    } else {
+        j.lambdaTwistPos = j.lambdaTwistNeg = 0.0f;
+    }
+}
+
+// ---- SuspensionJoint: 1-DOF unilateral spring/damper along the wheel's
+// world-space "up" axis, chassis-only ("ground" is an implicit Fixed body —
+// no Hull lookup, no reaction impulse on it, exactly like a contact against
+// a Fixed entity already skips that side). Unlike every joint above, this is
+// NOT an iterative equality constraint — it's a direct force (same idiom as
+// physics::Spring's one-shot write), so the entire impulse is computed once
+// in warmStartSuspension (called once per substep, before the 24-iteration
+// loop) rather than accumulated across velocity iterations; solveVelocitySuspension
+// is intentionally a no-op. The effective-mass formula (precomputeSuspension)
+// still reuses the contact normal row's exact shape.
+
+void precomputeSuspension(SuspensionJoint& j, ecs::Registry& reg) {
+    auto* ha = reg.get<ecs::Hull>(j.chassis);
+    auto* tf = reg.get<Transform>(j.chassis);
+    if (!ha || !tf || !j.grounded) { j.W = 0.0f; return; }
+
+    j.rChassis = j.hitPoint - tf->position;
+    math::Vec3 angA = (ha->inertiaTensorWorld * j.rChassis.cross(j.worldUp)).cross(j.rChassis);
+    float effN = ha->inverseMass + angA.dot(j.worldUp);
+    j.W = (effN > 1e-6f) ? 1.0f / effN : 0.0f;
+}
+
+template <class ApplyFn>
+void warmStartSuspension(SuspensionJoint& j, ecs::Registry& reg, float dt, ApplyFn&& applyImpulses) {
+    auto* ha = reg.get<ecs::Hull>(j.chassis);
+    j.lambda = 0.0f;   // fresh spring force every substep — see struct comment in Joint.h
+    if (!ha || !j.grounded || j.W <= 0.0f) return;
+
+    math::Vec3 pointVel = ha->velocity + ha->omega.cross(j.rChassis);
+    float vn = pointVel.dot(j.worldUp);
+    float compression = j.restLength - j.currentLength;   // positive = spring compressed
+    float forceMag = std::max(0.0f, j.stiffness * compression - j.damping * vn);   // Hooke's law; can't pull
+    j.lambda = forceMag * dt;
+
+    math::Vec3 imp = j.worldUp * j.lambda;
+    if (ha->inverseMass > 0.0f) { ha->linearImpulse += imp; ha->angularImpulse += j.rChassis.cross(imp); }
+    applyImpulses(ha);
+}
+
+// ---- WheelFrictionJoint: lateral (target 0, pure grip) + longitudinal
+// (target = wheel surface speed, drive/brake) friction rows at the wheel
+// contact, both bounded by [-mu*Fz,+mu*Fz] using the paired SuspensionJoint's
+// this-substep lambda — reuses the contact friction row's exact
+// accumulate-clamp shape (ColliderDiscrete.cpp's contact solve, `cone = c.mu
+// * c.lambda[i]`), just with wheel-orientation-derived tangent directions
+// instead of a manifold's T1/T2.
+
+void precomputeWheelFriction(WheelFrictionJoint& j, ecs::Registry& reg) {
+    auto* ha = reg.get<ecs::Hull>(j.chassis);
+    auto* tf = reg.get<Transform>(j.chassis);
+    if (!ha || !tf || !j.suspension || !j.suspension->grounded) { j.Wlong = j.Wlat = 0.0f; return; }
+
+    j.rChassis = j.suspension->hitPoint - tf->position;   // same contact point the suspension uses
+
+    math::Mat3 R = math::Mat3::rotation(tf->rotation);
+    math::Vec3 chassisFwd = R * math::Vec3{0.0f, 0.0f, 1.0f};
+    math::Mat3 steerRot = math::Mat3::rotation(j.suspension->worldUp, j.steerAngle);
+    math::Vec3 wheelFwd = steerRot * chassisFwd;
+
+    // Project the steered forward direction onto the ground plane (perp to
+    // the raycast hit normal) for the actual contact-plane longitudinal axis;
+    // lateral is perpendicular to both.
+    const math::Vec3& n = j.suspension->hitNormal;
+    math::Vec3 longDir = wheelFwd - n * wheelFwd.dot(n);
+    float llen = std::sqrt(longDir.dot(longDir));
+    j.longDir = (llen > 1e-6f) ? longDir * (1.0f / llen) : chassisFwd;
+    j.latDir  = n.cross(j.longDir);
+
+    math::Vec3 angLong = (ha->inertiaTensorWorld * j.rChassis.cross(j.longDir)).cross(j.rChassis);
+    float effLong = ha->inverseMass + angLong.dot(j.longDir);
+    j.Wlong = (effLong > 1e-6f) ? 1.0f / effLong : 0.0f;
+
+    math::Vec3 angLat = (ha->inertiaTensorWorld * j.rChassis.cross(j.latDir)).cross(j.rChassis);
+    float effLat = ha->inverseMass + angLat.dot(j.latDir);
+    j.Wlat = (effLat > 1e-6f) ? 1.0f / effLat : 0.0f;
+}
+
+template <class ApplyFn>
+void warmStartWheelFriction(WheelFrictionJoint& j, ecs::Registry& reg, ApplyFn&& applyImpulses) {
+    auto* ha = reg.get<ecs::Hull>(j.chassis);
+    if (!ha || !j.suspension || !j.suspension->grounded || j.Wlong <= 0.0f) {
+        j.lambdaLong = j.lambdaLat = 0.0f;
+        return;
+    }
+    j.lambdaLong *= 0.995f;   // same decay factor as contact friction's warm-start
+    j.lambdaLat  *= 0.995f;
+    math::Vec3 imp = j.longDir * j.lambdaLong + j.latDir * j.lambdaLat;
+    if (ha->inverseMass > 0.0f) { ha->linearImpulse += imp; ha->angularImpulse += j.rChassis.cross(imp); }
+    applyImpulses(ha);
+}
+
+template <class ApplyFn>
+void solveVelocityWheelFriction(WheelFrictionJoint& j, ecs::Registry& reg, ApplyFn&& applyImpulses) {
+    auto* ha = reg.get<ecs::Hull>(j.chassis);
+    if (!ha || !j.suspension || !j.suspension->grounded) return;
+    float Fz = j.suspension->lambda;
+    if (Fz <= 0.0f) return;
+
+    math::Vec3 contactVel = ha->velocity + ha->omega.cross(j.rChassis);
+
+    if (j.driven && j.Wlong > 0.0f) {
+        float targetSpeed = j.wheelAngularVel * j.radius;
+        float vLong = contactVel.dot(j.longDir);
+        float dl = j.Wlong * (targetSpeed - vLong);
+        float cone = j.muLong * Fz;
+        float oldL = j.lambdaLong;
+        j.lambdaLong = std::max(-cone, std::min(cone, j.lambdaLong + dl));
+        float applied = j.lambdaLong - oldL;
+        if (std::abs(applied) > 1e-10f) {
+            math::Vec3 imp = j.longDir * applied;
+            if (ha->inverseMass > 0.0f) { ha->linearImpulse += imp; ha->angularImpulse += j.rChassis.cross(imp); }
+            applyImpulses(ha);
+        }
+    }
+    if (j.Wlat > 0.0f) {
+        float vLat = contactVel.dot(j.latDir);
+        float dl = j.Wlat * -vLat;
+        float cone = j.muLat * Fz;
+        float oldL = j.lambdaLat;
+        j.lambdaLat = std::max(-cone, std::min(cone, j.lambdaLat + dl));
+        float applied = j.lambdaLat - oldL;
+        if (std::abs(applied) > 1e-10f) {
+            math::Vec3 imp = j.latDir * applied;
+            if (ha->inverseMass > 0.0f) { ha->linearImpulse += imp; ha->angularImpulse += j.rChassis.cross(imp); }
+            applyImpulses(ha);
+        }
+    }
+}
+
+// ---- Type-dispatching entry points (std::visit + if constexpr, mirrors the
+// analyticalBoolean() dispatch idiom in ColliderAnalytical.cpp). Each new
+// joint type added in later phases gets one more `if constexpr` branch here
+// rather than a new call site at every one of solveIsland's four passes. ----
+
+void precomputeJoint(Joint& j, ecs::Registry& reg) {
+    std::visit([&](auto& v) {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, PointToPointJoint>) precomputePointToPoint(v, reg);
+        else if constexpr (std::is_same_v<T, HingeJoint>)   precomputeHinge(v, reg);
+        else if constexpr (std::is_same_v<T, ConeTwistJoint>) precomputeConeTwist(v, reg);
+        else if constexpr (std::is_same_v<T, SuspensionJoint>) precomputeSuspension(v, reg);
+        else if constexpr (std::is_same_v<T, WheelFrictionJoint>) precomputeWheelFriction(v, reg);
+    }, j);
+}
+
+// `dt` is only consumed by SuspensionJoint (converts its spring/damper force
+// to a one-shot impulse — see warmStartSuspension's comment); every other
+// type ignores it.
+template <class ApplyFn>
+void warmStartJoint(Joint& j, ecs::Registry& reg, float dt, ApplyFn&& applyImpulses) {
+    std::visit([&](auto& v) {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, PointToPointJoint>) warmStartPointToPoint(v, reg, applyImpulses);
+        else if constexpr (std::is_same_v<T, HingeJoint>)   warmStartHinge(v, reg, applyImpulses);
+        else if constexpr (std::is_same_v<T, ConeTwistJoint>) warmStartConeTwist(v, reg, applyImpulses);
+        else if constexpr (std::is_same_v<T, SuspensionJoint>) warmStartSuspension(v, reg, dt, applyImpulses);
+        else if constexpr (std::is_same_v<T, WheelFrictionJoint>) warmStartWheelFriction(v, reg, applyImpulses);
+    }, j);
+}
+
+template <class ApplyFn>
+void solveVelocityJoint(Joint& j, ecs::Registry& reg, ApplyFn&& applyImpulses) {
+    std::visit([&](auto& v) {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, PointToPointJoint>) solveVelocityPointToPoint(v, reg, applyImpulses);
+        else if constexpr (std::is_same_v<T, HingeJoint>)   solveVelocityHinge(v, reg, applyImpulses);
+        else if constexpr (std::is_same_v<T, ConeTwistJoint>) solveVelocityConeTwist(v, reg, applyImpulses);
+        else if constexpr (std::is_same_v<T, WheelFrictionJoint>) solveVelocityWheelFriction(v, reg, applyImpulses);
+        // SuspensionJoint: no-op — its entire impulse is a one-shot force
+        // already applied in warmStartSuspension (see Joint.h's struct comment).
+    }, j);
+}
+
+void solvePositionJoint(Joint& j, ecs::Registry& reg, float dt) {
+    std::visit([&](auto& v) {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, PointToPointJoint>) solvePositionPointToPoint(v, reg, dt);
+        else if constexpr (std::is_same_v<T, HingeJoint>)   solvePositionHinge(v, reg, dt);
+        else if constexpr (std::is_same_v<T, ConeTwistJoint>) solvePositionConeTwist(v, reg, dt);
+        // Suspension/WheelFriction: no position-level pass — the raycast IS
+        // the ground-contact geometry, refreshed exactly each substep, so
+        // there's no accumulated anchor drift to correct the way a two-body
+        // joint's linear DOF can drift.
+    }, j);
+}
+
+} // namespace
 
 // ============================================================================
 // Per-shape-pair narrowphase timing (A4).
@@ -60,7 +723,7 @@ PairBucket getBucket(int ai, int bi) {
 // Normal convention: from a toward b throughout.
 // ============================================================================
 
-void solveIsland(std::vector<ActiveContact>& contacts, float dt,
+void solveIsland(std::vector<ActiveContact>& contacts, std::vector<Joint*>& joints, float dt,
                  ecs::Registry& reg, EntityContactCache& cache)
 {
     auto getH  = [&](ecs::Entity e) -> ecs::Hull*   { return reg.get<ecs::Hull>(e); };
@@ -122,6 +785,7 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
             c.neta[i] = (vn0 < -PGS_RESTITUTION_THRESHOLD) ? -c.e * vn0 : 0.0f;
         }
     }
+    for (Joint* jp : joints) precomputeJoint(*jp, reg);
 
     // ---- Warm start ----
     for (auto& c : contacts) {
@@ -147,6 +811,7 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
             applyImpulses(hb);
         }
     }
+    for (Joint* jp : joints) warmStartJoint(*jp, reg, dt, applyImpulses);
 
     // ---- Velocity iterations (global) ----
     for (int iter = 0; iter < PGS_VELOCITY_ITERATIONS; iter++) {
@@ -212,6 +877,7 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
                 }
             }
         }
+        for (Joint* jp : joints) solveVelocityJoint(*jp, reg, applyImpulses);
     }
 
     // ---- Cache write-back ----
@@ -251,6 +917,31 @@ void solveIsland(std::vector<ActiveContact>& contacts, float dt,
                 }
             }
         }
+        for (Joint* jp : joints) solvePositionJoint(*jp, reg, dt);
+    }
+}
+
+void refreshSuspensionRaycast(SuspensionJoint& j, ecs::Registry& reg) {
+    auto* tf = reg.get<Transform>(j.chassis);
+    if (!tf) { j.grounded = false; return; }
+
+    math::Mat3 R = math::Mat3::rotation(tf->rotation);
+    j.worldUp = R * j.localUp;
+    float ulen = std::sqrt(j.worldUp.dot(j.worldUp));
+    j.worldUp = (ulen > 1e-6f) ? j.worldUp * (1.0f / ulen) : math::Vec3{0.0f, 1.0f, 0.0f};
+
+    math::Vec3 mountWorld = tf->position + R * j.localWheelPos;
+    float maxDist = j.restLength + j.maxTravel;
+    KinematicQuery::RayHit hit = KinematicQuery::raycast(mountWorld, j.worldUp * -1.0f, maxDist, reg, j.chassis);
+
+    if (hit.hit) {
+        j.grounded      = true;
+        j.hitPoint       = hit.point;
+        j.hitNormal      = hit.normal;
+        j.currentLength  = hit.t;
+    } else {
+        j.grounded      = false;
+        j.currentLength = maxDist;   // fully extended, no ground contact this substep
     }
 }
 

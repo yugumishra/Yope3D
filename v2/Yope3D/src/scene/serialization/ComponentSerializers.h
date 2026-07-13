@@ -54,6 +54,18 @@ bool deserializeName           (const JsonNode& node, void* comp);
 void serializeSpringConstraint (const void* comp, JsonWriter& w);
 bool deserializeSpringConstraint(const JsonNode& node, void* comp);
 
+// PointJointConstraint (serializes local anchors + target id)
+void serializePointJointConstraint  (const void* comp, JsonWriter& w);
+bool deserializePointJointConstraint(const JsonNode& node, void* comp);
+
+// HingeJointConstraint (serializes local anchors/axes/limit + target id)
+void serializeHingeJointConstraint  (const void* comp, JsonWriter& w);
+bool deserializeHingeJointConstraint(const JsonNode& node, void* comp);
+
+// ConeTwistJointConstraint (serializes local anchors/axes/limits + target id)
+void serializeConeTwistJointConstraint  (const void* comp, JsonWriter& w);
+bool deserializeConeTwistJointConstraint(const JsonNode& node, void* comp);
+
 // Parent (empty body; parentId cross-reference patched by SceneSerializer)
 void serializeParent           (const void* comp, JsonWriter& w);
 bool deserializeParent         (const JsonNode& node, void* comp);
