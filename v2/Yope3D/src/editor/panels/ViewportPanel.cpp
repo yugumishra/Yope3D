@@ -163,6 +163,8 @@ void ViewportPanel::drawContent(EditorContext& ctx) {
             for (char& c : ext) c = static_cast<char>(std::tolower(c));
             if ((ext == ".obj" || ext == ".gltf" || ext == ".glb") && ctx.world && ctx.history)
                 ctx.history->execute(ctx, std::make_unique<ImportModelCommand>(dropped));
+            else if (ext == ".ytemplated" && ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<SpawnTemplateCommand>(dropped));
         }
         ImGui::EndDragDropTarget();
     }

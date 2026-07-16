@@ -1,0 +1,62 @@
+{
+    "version": 1,
+    "entities": [
+        {
+            "fileId": 0,
+            "runtimeId": 0,
+            "Name": {
+                "value": "Car"
+            },
+            "Transform": {
+                "position": [0, 0.5, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "Hull": {
+                "mass": 60.0,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.2,
+                "gravity": true,
+                "tangible": true,
+                "isTrigger": false,
+                "velocity": [0, 0, 0]
+            },
+            "OBBForm": {
+                "extent": [1.0, 0.35, 2.0]
+            },
+            "MeshRenderer": {
+                "color": [0.7, 0.15, 0.15],
+                "primitiveType": 3,
+                "primitiveExtents": [1.0, 0.35, 2.0]
+            }
+        },
+        {
+            "fileId": 1,
+            "templateRef": "prefabs/wheel.ytemplated",
+            "parentId": 0,
+            "Transform": { "position": [-1.35, -0.65, 1.4], "rotation": [0, 0, 0, 1] }
+        },
+        {
+            "fileId": 2,
+            "templateRef": "prefabs/wheel.ytemplated",
+            "parentId": 0,
+            "Transform": { "position": [1.35, -0.65, 1.4], "rotation": [0, 0, 0, 1] }
+        },
+        {
+            "fileId": 3,
+            "templateRef": "prefabs/wheel.ytemplated",
+            "parentId": 0,
+            "Transform": { "position": [-1.35, -0.65, -1.4], "rotation": [0, 0, 0, 1] },
+            "overrides": { "MeshRenderer": { "color": [0.9, 0.5, 0.1], "primitiveType": 3, "primitiveExtents": [0.4, 0.4, 0.4] } }
+        },
+        {
+            "fileId": 4,
+            "templateRef": "prefabs/wheel.ytemplated",
+            "parentId": 0,
+            "Transform": { "position": [1.35, -0.65, -1.4], "rotation": [0, 0, 0, 1] },
+            "overrides": { "MeshRenderer": { "color": [0.9, 0.5, 0.1], "primitiveType": 3, "primitiveExtents": [0.4, 0.4, 0.4] } }
+        }
+    ]
+}

@@ -39,6 +39,7 @@ private:
     void doTogglePlay();
     void copySelected();
     void pasteClipboard();
+    void saveSelectionAsTemplate();
 
     Engine engine_;
 

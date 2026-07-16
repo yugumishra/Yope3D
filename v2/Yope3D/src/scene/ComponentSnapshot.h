@@ -25,6 +25,7 @@ struct ComponentSnapshot {
     bool hasCompoundCollider = false; ecs::CompoundCollider compoundCollider;  // compiled always null in the snapshot
     bool hasLight     = false;  ecs::LightSource light;
     bool hasName      = false;  ecs::Name        name;
+    bool hasTemplateInstance = false; ecs::TemplateInstance templateInstance;
     bool hasAudio     = false;  ecs::AudioSource audio;   // Source* always null in the snapshot
     bool hasScript    = false;  ecs::ScriptComponent script;  // instance always null in the snapshot
     bool hasSpring    = false;  ecs::SpringConstraint spring; // target resolved on restore

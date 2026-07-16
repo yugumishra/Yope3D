@@ -13,6 +13,9 @@
 #include "scripting/python/PythonInterpreter.h"  // boundContext() for attach_script
 #include "scripting/ScriptContext.h"
 #include "scene/SceneManager.h"
+#include "scene/TemplateSpawner.h"
+#include "math/Vec3.h"
+#include "math/Quat.h"
 
 namespace py = pybind11;
 
@@ -547,5 +550,19 @@ void bind_ecs(py::module_& m) {
             return sceneManager->instantiateScript(e, *ctx);
         }, py::arg("entity"), py::arg("module"), py::arg("class_name"),
            py::arg("params") = py::dict());
+
+    // spawn — instantiate a .ytemplated file's entity subtree into the live
+    // world at pos/rot (override, not additive — see TemplateSpawner.h), and
+    // instantiate + init() every scripted entity in it immediately (mirrors
+    // attach_script). Pulls world/audio/assets/sceneManager all from the one
+    // bound ScriptContext rather than separate yope3d module-attribute lookups
+    // (unlike world/scene_manager, assets/audio have no such attribute today).
+    m.def("spawn",
+        [](const std::string& path, const math::Vec3& pos, const math::Quat& rot) -> ecs::Entity {
+            auto* ctx = PythonInterpreter::boundContext();
+            if (!ctx || !ctx->world) return ecs::NullEntity;
+            return TemplateSpawner::spawn(path, *ctx->world, pos, rot,
+                                          ctx->audio, ctx->assets, ctx->sceneManager, ctx);
+        }, py::arg("path"), py::arg("pos") = math::Vec3{0.0f, 0.0f, 0.0f}, py::arg("rot") = math::Quat{});
 }
 #endif // YOPE_PYTHON

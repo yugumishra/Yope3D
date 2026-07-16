@@ -328,6 +328,10 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                 if (ctx.history && ReparentCommand::canReparent(*ctx.registry, e, ecs::NullEntity))
                     ctx.history->execute(ctx, std::make_unique<ReparentCommand>(e, ecs::NullEntity));
             }
+            if (ImGui::MenuItem("Save as Template...")) {
+                if (ctx.selection) ctx.selection->set(e);
+                if (ctx.onSaveAsTemplate) ctx.onSaveAsTemplate();
+            }
             if (ImGui::MenuItem("Delete")) {
                 if (ctx.history)
                     ctx.history->execute(ctx, std::make_unique<DeleteEntityCommand>(e));

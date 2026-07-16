@@ -2308,6 +2308,39 @@ def attach_script(
         reset an existing one.
     """
 
+def spawn(path: str, pos: Vec3 = ..., rot: Quat = ...) -> Entity:
+    """Instantiate a ``.ytemplated`` file's entity subtree into the live world.
+
+    A template is a saved entity + its children (mesh, material, hull,
+    collider, script, params, internal joints/springs -- anything "Save
+    Selection as Template..." captured), authored once and reused across
+    scenes instead of hand-duplicating the wiring every time. This is the
+    runtime counterpart to dragging a ``.ytemplated`` file from the Asset
+    Browser into the viewport.
+
+    ``pos``/``rot`` *replace* the template root's authored position/rotation
+    outright -- they are not added on top of it. The template's own authored
+    placement (typically the origin) is just where it happened to be built;
+    ``spawn`` always means "put the instance exactly here," matching every
+    other placement API in this module (``world.add_capsule(pos, ...)`` etc.)::
+
+        e = yope3d.spawn("prefabs/enemy.ytemplated", spawn_point.position)
+
+    Every scripted entity in the spawned subtree (including ones nested via
+    the template's own internal template references) is instantiated and has
+    ``init()`` called before this returns -- same guarantee as
+    ``attach_script``.
+
+    Args:
+        path: Path to a ``.ytemplated`` file, asset-relative or absolute.
+        pos: World-space position for the spawned root. Defaults to the origin.
+        rot: World-space rotation for the spawned root. Defaults to identity.
+
+    Returns:
+        The new root entity, or an invalid ``Entity`` if ``path`` couldn't be
+        parsed (missing file, malformed JSON, template reference cycle).
+    """
+
 # ==============================================================================
 # Kinematic queries (character-controller support)
 # ==============================================================================

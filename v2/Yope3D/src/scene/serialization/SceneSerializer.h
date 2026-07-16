@@ -17,6 +17,14 @@ namespace SceneSerializer {
 // Save all EditorSelectable entities + world settings to a JSON file.
 bool save(const char* path, ecs::Registry& reg, World& world);
 
+// Save exactly the given entities (no world-settings keys) to a JSON file —
+// same {"version":1,"entities":[...]} shape save() writes, minus gravity/
+// exposure/shadow tuning. Used for .ytemplated export; entities[0] is treated
+// by convention as the template root by callers of this function (parseScene
+// doesn't care about ordering, it just reads fileId).
+bool saveEntities(const char* path, const std::vector<ecs::Entity>& entities,
+                  ecs::Registry& reg, World& world);
+
 // Clear the scene and load entities from a JSON file.
 // Returns empty string on success, error message on failure.
 // audio:   optional — rebinds AudioSource.source from path on load.
@@ -62,6 +70,8 @@ struct ParsedScene {
     float       shadowOrthoFar        = 40.0f;
     float       shadowSpotNear        = 1.0f;
     float       shadowSpotFar         = 30.0f;
+    float       shadowPointNear       = 0.05f;
+    float       shadowPointFar        = 25.0f;
 
     struct Ent {
         ComponentSnapshot snap;
@@ -99,5 +109,19 @@ size_t      commitEntities(ParsedScene& ps, World& world, size_t maxEntities);
 inline bool commitDone(const ParsedScene& ps) { return ps.cursor >= ps.entities.size(); }
 void        commitFinalize(ParsedScene& ps, World& world,
                            AudioSystem* audio, AssetManager* assets, bool startAudio);
+
+// Same as commitFinalize, except the Spring/PointJoint/HingeJoint/ConeTwistJoint
+// physics-reconstruction step is scoped to just ps.fileIdToEntity's values instead
+// of the whole registry. Required whenever committing into a LIVE world that may
+// already hold other entities with constraints (e.g. TemplateSpawner::spawn) —
+// World::addSpringPhysics/addPointJointPhysics/addHingeJointPhysics/
+// addConeTwistJointPhysics are NOT idempotent (each unconditionally pushes a new
+// physics object), so calling commitFinalize's registry-wide loops there would
+// duplicate every other entity's existing spring/joint on every single spawn.
+// commitFinalize itself is untouched and keeps using the registry-wide loops —
+// its only caller is whole-scene load, where "whole registry" and "just-loaded
+// entities" are equivalent anyway (the world was just reset).
+void        commitFinalizeScoped(ParsedScene& ps, World& world,
+                                 AudioSystem* audio, AssetManager* assets, bool startAudio);
 
 } // namespace SceneSerializer

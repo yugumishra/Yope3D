@@ -50,6 +50,10 @@ bool deserializeLightSource    (const JsonNode& node, void* comp);
 void serializeName             (const void* comp, JsonWriter& w);
 bool deserializeName           (const JsonNode& node, void* comp);
 
+// TemplateInstance (provenance marker: which .ytemplated this subtree came from)
+void serializeTemplateInstance  (const void* comp, JsonWriter& w);
+bool deserializeTemplateInstance(const JsonNode& node, void* comp);
+
 // SpringConstraint (serializes k, restLength, target id)
 void serializeSpringConstraint (const void* comp, JsonWriter& w);
 bool deserializeSpringConstraint(const JsonNode& node, void* comp);

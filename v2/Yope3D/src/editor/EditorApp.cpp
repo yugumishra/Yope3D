@@ -20,6 +20,7 @@
 #include <unordered_set>
 #include "editor/inspectors/InspectorRegistry.h"
 #include "scene/serialization/SceneSerializer.h"
+#include "scene/TemplateSpawner.h"
 #include "platform/FileWatcher.h"
 #include "gpu/Swapchain.h"
 #include <ImGuizmo.h>
@@ -90,6 +91,7 @@ bool EditorApp::init(const std::string& sceneOverride) {
     };
     ctx_.onNewScene    = [this]() { pendingNewScene_ = true; };
     ctx_.onDeleteEntity = [this](ecs::Entity e) { pendingDeleteEntities_.push_back(e); };
+    ctx_.onSaveAsTemplate = [this]() { saveSelectionAsTemplate(); };
 
     idBufferPass_.init(*engine_.gpu,
                        engine_.renderer->getUBOSetLayout(),
@@ -438,6 +440,9 @@ void EditorApp::buildMenuBar() {
             if (auto picked = FileDialog::openFile({{"Scene", "json"}}))
                 pendingLoadScenePath_ = *picked;
         }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Save Selection as Template...", nullptr, false, selection_.get().size() == 1))
+            saveSelectionAsTemplate();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Edit")) {
@@ -638,4 +643,23 @@ void EditorApp::pasteClipboard() {
         }
     }
     history_.execute(ctx_, std::make_unique<PasteEntitiesCommand>(std::move(snaps), clipboardIds_));
+}
+
+void EditorApp::saveSelectionAsTemplate() {
+    if (selection_.get().size() != 1) {
+        Console::log("Save as Template requires exactly one selected entity", LogSeverity::Warning);
+        return;
+    }
+    ecs::Entity root = selection_.primary();
+    auto& reg = engine_.world->getRegistry();
+
+    // Same subtree-collection call copySelected() uses — root-first,
+    // parent-before-child order (SaveEntities/parseScene's fileId 0 convention).
+    std::vector<ecs::Entity> sub;
+    hierarchy::collectSubtree(reg, root, sub);
+
+    if (auto picked = FileDialog::saveFile({{"Template", "ytemplated"}}, "assets/prefabs", "template.ytemplated")) {
+        SceneSerializer::saveEntities(picked->c_str(), sub, reg, *ctx_.world);
+        TemplateSpawner::invalidateCache(*picked);
+    }
 }

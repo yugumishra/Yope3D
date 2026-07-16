@@ -280,6 +280,20 @@ bool deserializeName(const JsonNode& n, void* comp) {
     return true;
 }
 
+// ---- TemplateInstance ----
+
+void serializeTemplateInstance(const void* comp, JsonWriter& w) {
+    w.writeString("sourcePath", static_cast<const ecs::TemplateInstance*>(comp)->sourcePath);
+}
+
+bool deserializeTemplateInstance(const JsonNode& n, void* comp) {
+    if (n.contains("sourcePath")) {
+        auto* ti = static_cast<ecs::TemplateInstance*>(comp);
+        std::strncpy(ti->sourcePath, n["sourcePath"].asString().c_str(), sizeof(ti->sourcePath) - 1);
+    }
+    return true;
+}
+
 // ---- SpringConstraint ----
 
 void serializeSpringConstraint(const void* comp, JsonWriter& w) {
