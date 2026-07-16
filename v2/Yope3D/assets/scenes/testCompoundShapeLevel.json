@@ -2,6 +2,15 @@
     "version": 1,
     "gravity": [0, -9.80665, 0],
     "exposure": 1,
+    "shadowBias": 0.0006,
+    "shadowNormalBias": 0.035,
+    "shadowPcfRadius": 1,
+    "shadowOrthoHalfExtent": 20,
+    "shadowOrthoFar": 40,
+    "shadowSpotNear": 1,
+    "shadowSpotFar": 30,
+    "shadowPointNear": 0.05,
+    "shadowPointFar": 25,
     "entities": [
         {
             "fileId": 0,
@@ -13,13 +22,14 @@
                 "type": 0,
                 "color": [1, 1, 1],
                 "intensity": 1.5,
-                "position": [0, 4, 0],
+                "position": [0, 5.43969, 0],
                 "direction": [0, -1, 0],
                 "constant": 1,
                 "linear": 0.09,
                 "quadratic": 0.032,
                 "innerConeAngle": 0.2,
-                "outerConeAngle": 0.5
+                "outerConeAngle": 0.5,
+                "castsShadow": true
             }
         },
         {
@@ -42,6 +52,7 @@
                 "restitution": 0.3,
                 "gravity": false,
                 "tangible": true,
+                "isTrigger": false,
                 "velocity": [0, 0, 0]
             },
             "CompoundCollider":             {
@@ -57,8 +68,8 @@
                 "value": "Sphere"
             },
             "Transform":             {
-                "position": [-1.12933, 14.4032, -2.38323],
-                "rotation": [-0.0680943, 0.199364, 0.958687, 0.191147],
+                "position": [3.69585, 0.829622, -1.70566],
+                "rotation": [0.792787, 0.0692794, 0.0824895, 0.599904],
                 "scale": [0.500001, 0.500001, 0.500001]
             },
             "Hull":             {
@@ -69,7 +80,8 @@
                 "restitution": 0.3,
                 "gravity": true,
                 "tangible": true,
-                "velocity": [-7.39456e-07, -0.0408542, -0.772189]
+                "isTrigger": false,
+                "velocity": [0, 0, 0]
             },
             "SphereForm":             {
                 "radius": 0.500001
@@ -132,21 +144,17 @@
                 "roughnessFactor": 1,
                 "emissiveFactor": [1, 1, 1],
                 "normalScale": 1
-            },
-            "ScriptComponent":             {
-                "scriptClass": "PythonScript",
-                "paramsBlob": "{\n    \"module\": \"behaviors.sandbox_gallery\",\n    \"class\": \"SandboxGallery\",\n    \"scenes\": [\n\n    ]\n}"
             }
         },
         {
             "fileId": 5,
-            "runtimeId": 15,
+            "runtimeId": 5,
             "Name":             {
                 "value": "testTable"
             },
             "Transform":             {
-                "position": [-0.641144, 5.02804, -1.04223],
-                "rotation": [0.0131821, -0.441257, -0.33353, 0.832992],
+                "position": [-2.79247, 2.38508, -1.8163],
+                "rotation": [5.04058e-08, -0.356204, 2.47772e-08, 0.934408],
                 "scale": [0.999997, 0.999997, 0.999999]
             },
             "Hull":             {
@@ -157,6 +165,7 @@
                 "restitution": 0.3,
                 "gravity": true,
                 "tangible": true,
+                "isTrigger": false,
                 "velocity": [0, 0, 0]
             },
             "CompoundCollider":             {
@@ -167,7 +176,7 @@
         },
         {
             "fileId": 6,
-            "runtimeId": 5,
+            "runtimeId": 6,
             "Name":             {
                 "value": "Cube"
             },
@@ -191,7 +200,7 @@
         },
         {
             "fileId": 7,
-            "runtimeId": 6,
+            "runtimeId": 7,
             "Name":             {
                 "value": "Cube.001"
             },
@@ -215,7 +224,7 @@
         },
         {
             "fileId": 8,
-            "runtimeId": 7,
+            "runtimeId": 8,
             "Name":             {
                 "value": "Cube.002"
             },
@@ -239,7 +248,7 @@
         },
         {
             "fileId": 9,
-            "runtimeId": 8,
+            "runtimeId": 9,
             "Name":             {
                 "value": "Cube.003"
             },
@@ -263,7 +272,7 @@
         },
         {
             "fileId": 10,
-            "runtimeId": 9,
+            "runtimeId": 10,
             "Name":             {
                 "value": "Sphere"
             },
@@ -283,7 +292,7 @@
         },
         {
             "fileId": 11,
-            "runtimeId": 10,
+            "runtimeId": 11,
             "Name":             {
                 "value": "Cube"
             },
@@ -307,7 +316,7 @@
         },
         {
             "fileId": 12,
-            "runtimeId": 11,
+            "runtimeId": 12,
             "Name":             {
                 "value": "Cube.004"
             },
@@ -331,7 +340,7 @@
         },
         {
             "fileId": 13,
-            "runtimeId": 12,
+            "runtimeId": 13,
             "Name":             {
                 "value": "Cube.001"
             },
@@ -355,7 +364,7 @@
         },
         {
             "fileId": 14,
-            "runtimeId": 13,
+            "runtimeId": 14,
             "Name":             {
                 "value": "Cube.002"
             },
@@ -379,7 +388,7 @@
         },
         {
             "fileId": 15,
-            "runtimeId": 14,
+            "runtimeId": 15,
             "Name":             {
                 "value": "Cube.003"
             },

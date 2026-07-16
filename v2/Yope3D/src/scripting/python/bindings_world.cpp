@@ -361,6 +361,8 @@ void bind_world(py::module_& m) {
         .def_readwrite("shadow_ortho_far",         &World::shadowOrthoFar)
         .def_readwrite("shadow_spot_near",         &World::shadowSpotNear)
         .def_readwrite("shadow_spot_far",          &World::shadowSpotFar)
+        .def_readwrite("shadow_point_near",        &World::shadowPointNear)
+        .def_readwrite("shadow_point_far",         &World::shadowPointFar)
         .def_readwrite("debug_physics", &World::debugPhysics)
         .def("set_paused", &World::setPaused, py::arg("paused"))
         .def_property("paused",

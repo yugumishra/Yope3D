@@ -988,11 +988,18 @@ class World:
     shadow_spot_far: float
     """Spot caster's perspective far plane (default ``30.0``). Keep no larger than
     the light's actual reach."""
+    shadow_point_near: float
+    """Point caster's per-face (6x 90-degree) perspective near plane (default
+    ``0.05``). Same precision tradeoff as ``shadow_spot_near``, applied symmetrically
+    in all 6 cube directions."""
+    shadow_point_far: float
+    """Point caster's per-face perspective far plane (default ``25.0``). Keep no
+    larger than the light's actual reach."""
 
     def set_shadow_caster(self, entity: Entity) -> None:
         """Mark ``entity``'s light as the single scene shadow caster (radio behavior:
-        clears ``casts_shadow`` on every other light). Pass a spot or directional
-        light; point lights aren't a supported caster type."""
+        clears ``casts_shadow`` on every other light). Point lights render via a
+        6-face cube shadow map; spot/directional use a single 2D map."""
     def clear_shadow_caster(self) -> None:
         """Disable shadow casting on all lights (no scene caster)."""
     def get_shadow_caster(self) -> Entity | None:

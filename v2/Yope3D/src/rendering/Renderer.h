@@ -27,6 +27,7 @@ class DescriptorPool;
 class UIManager;
 class Raytracer;
 class ShadowMap;
+class PointShadowMap;
 
 // ---------------------------------------------------------------------------
 // Renderer
@@ -90,11 +91,29 @@ private:
 
     // Single generic shadow caster (see World::getShadowCaster). Independent of the
     // swapchain — one fixed-resolution depth map, rendered before the main 3D pass
-    // in both the runtime and editor-offscreen record paths.
-    std::unique_ptr<RenderPass> shadowPass_;
-    std::unique_ptr<ShadowMap>  shadowMap_;
+    // in both the runtime and editor-offscreen record paths. shadowMap_ serves
+    // spot/directional casters (single 2D map); pointShadowMap_ serves a point
+    // caster (6-layer 2D array, one layer per cube face — see PointShadowMap.h).
+    // Both share shadowPass_ (same depth-only render pass, one framebuffer each /
+    // per-face) and both are always rendered (cleared, at minimum) every frame
+    // regardless of the active caster's type, for the same reason recordShadowPass
+    // documents: the main pipeline's descriptor layout statically declares both
+    // sampler bindings, so both images must stay in a valid sampled layout even
+    // when unused this frame.
+    std::unique_ptr<RenderPass>     shadowPass_;
+    std::unique_ptr<ShadowMap>      shadowMap_;
+    std::unique_ptr<PointShadowMap> pointShadowMap_;
     VkPipelineLayout             shadowPipelineLayout_ = VK_NULL_HANDLE;
     VkPipeline                   shadowPipeline_        = VK_NULL_HANDLE;
+
+    // This frame's CPU-computed shadow matrices, cached here by drawFrame /
+    // beginFrameForEditor (where camera position is known, for the directional
+    // ortho box) alongside filling GlobalUBO, then consumed by recordShadowPass
+    // (which only has World, not the camera) — avoids recomputing (and needing to
+    // thread cameraPos into) the shadow pass's own matrix math.
+    math::Mat4                shadowLightViewProjCPU_{};
+    std::array<math::Mat4, 6> shadowLightViewProjPointCPU_{};
+    bool                       shadowCasterIsPoint_ = false;
 
     std::vector<VkFramebuffer> framebuffers;
 

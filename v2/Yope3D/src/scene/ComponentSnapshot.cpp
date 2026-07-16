@@ -51,6 +51,12 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
             sl.innerConeAngle = light.innerConeAngle; sl.outerConeAngle = light.outerConeAngle;
             e = world.addLight(sl);
         }
+        // PointLight/DirectionalLight/SpotLight (above) don't carry castsShadow —
+        // restore it here so the scene shadow caster (radio-button flag, see
+        // World::setShadowCaster) survives an editor Play->Stop cycle instead of
+        // silently resetting to false on every light.
+        if (reg.valid(e) && reg.has<ecs::LightSource>(e))
+            reg.get<ecs::LightSource>(e)->castsShadow = light.castsShadow;
         return e;
     }
 

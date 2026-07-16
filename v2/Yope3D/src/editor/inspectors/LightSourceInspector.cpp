@@ -78,10 +78,11 @@ void drawLightSourceComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
             ctx.history->execute(ctx, std::make_unique<SetComponentCommand<ecs::LightSource>>(e, before, *ls, "Edit Attenuation"));
     }
 
-    // Shadow caster (Spot / Directional only — the only two supported caster
-    // types). Acts as a radio button: checking this light clears the flag on
-    // whichever light previously had it (World::setShadowCaster enforces that).
-    if ((ls->type == 1 || ls->type == 2) && ImGui::CollapsingHeader("Shadows", ImGuiTreeNodeFlags_DefaultOpen)) {
+    // Shadow caster (Point / Spot / Directional — Flash isn't a supported caster
+    // type, it's camera-attached). Acts as a radio button: checking this light
+    // clears the flag on whichever light previously had it (World::setShadowCaster
+    // enforces that).
+    if (ls->type != 3 && ImGui::CollapsingHeader("Shadows", ImGuiTreeNodeFlags_DefaultOpen)) {
         bool casts = ls->castsShadow;
         if (ImGui::Checkbox("Scene Shadow Caster", &casts) && ctx.world) {
             if (casts) ctx.world->setShadowCaster(e);
