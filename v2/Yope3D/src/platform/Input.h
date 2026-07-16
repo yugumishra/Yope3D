@@ -2,6 +2,7 @@
 
 #include <GLFW/glfw3.h>
 #include <array>
+#include <string>
 #include <vector>
 
 // Per-frame mouse movement accumulated from the cursor callback.
@@ -53,6 +54,19 @@ public:
     // True only on the first frame a key transitions to released.
     bool isKeyReleased(int key) const;
 
+    // Localized name of the physical key `key` under the CURRENT OS keyboard
+    // layout (thin glfwGetKeyName wrapper), e.g. "," for KEY_W on Dvorak, "w"
+    // on QWERTY/Colemak — for rendering an accurate "Press ___" label in a
+    // rebind UI. Contrast with `key` itself, which is a layout-independent
+    // physical-position token (gameplay logic should keep using that
+    // directly; only *display* needs this). Returns "" for non-printable
+    // keys (arrows, F-keys, modifiers, ...) — GLFW has no name for those, so
+    // callers need their own fallback label table.
+    std::string getKeyName(int key) const {
+        const char* name = glfwGetKeyName(key, 0);
+        return name ? name : "";
+    }
+
     // ------------------------------------------------------------------
     // Mouse buttons
     // ------------------------------------------------------------------
@@ -62,6 +76,13 @@ public:
     bool isMMBDown()      const { return mouseButtons[GLFW_MOUSE_BUTTON_MIDDLE]; }
     bool isForwardMBDown()  const { return mouseButtons[GLFW_MOUSE_BUTTON_5];   }
     bool isBackwardMBDown() const { return mouseButtons[GLFW_MOUSE_BUTTON_4];   }
+
+    // Generic held-state query by raw button index — lets callers (e.g. a
+    // script-side action-map layer) poll an arbitrary bound button without
+    // dispatching through the five named is_*MBDown() helpers above.
+    bool isMouseDown(int button) const {
+        return button >= 0 && button < static_cast<int>(mouseButtons.size()) && mouseButtons[button];
+    }
 
     // One-shot button-transition queries (true only on the frame the button
     // changes state). Requires pollEvents() before beginFrame() — see note above.

@@ -59,6 +59,9 @@ bool Engine::init(const std::string& sceneOverride) {
         , screenW, screenH);
     window->init(input.get());
     window->setIcon("textures/tnail.png");
+    window->setEscapeCloses(cfg.escapeCloses);
+    window->setTabPauses(cfg.tabPauses);
+    window->setF11Fullscreen(cfg.f11Fullscreen);
 #ifdef YOPE_EDITOR
     glfwSetInputMode(window->getHandle(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 #else

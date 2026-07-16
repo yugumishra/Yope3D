@@ -28,6 +28,12 @@ public:
 
     void setTitle(const std::string& newTitle);
     void setEscapeCloses(bool v) { escapeCloses = v; }
+    void setTabPauses(bool v) { tabPauses = v; }
+    void setF11Fullscreen(bool v) { f11Fullscreen = v; }
+
+    bool getEscapeCloses()  const { return escapeCloses; }
+    bool getTabPauses()     const { return tabPauses; }
+    bool getF11Fullscreen() const { return f11Fullscreen; }
 
     int   getWidth()       const { return width;  }
     int   getHeight()      const { return height; }
@@ -65,6 +71,8 @@ private:
     bool fullscreen    = false;
     bool resized       = false;
     bool escapeCloses  = true;
+    bool tabPauses     = true;
+    bool f11Fullscreen = true;
 
     // Previous cursor position — used to compute per-frame delta.
     // 'firstMouse' prevents a large spike on the very first callback.

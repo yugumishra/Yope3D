@@ -133,13 +133,15 @@ void Window::framebufferResizeCallback(GLFWwindow* w, int newWidth, int newHeigh
 void Window::keyCallback(GLFWwindow* w, int key, int /*scancode*/, int action, int /*mods*/) {
     auto* self = static_cast<Window*>(glfwGetWindowUserPointer(w));
 
-    // Engine-level hotkeys are consumed here and are NOT forwarded to Input,
-    // so scripts never see them as raw keys.
+    // Engine-level hotkeys below are opt-out (Config/Python: escapeCloses/
+    // tabPauses/f11Fullscreen) and always forwarded to Input regardless of
+    // whether the built-in behavior fires — a script-side action map can bind
+    // ESC/TAB/F11 to its own gameplay action once the built-in one is disabled.
 
     if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE && self->escapeCloses)
         glfwSetWindowShouldClose(w, GLFW_TRUE);
 
-    if (key == GLFW_KEY_F11 && action == GLFW_PRESS) {
+    if (key == GLFW_KEY_F11 && action == GLFW_PRESS && self->f11Fullscreen) {
         if (!self->fullscreen) {
             // Go fullscreen on the primary monitor at its native resolution.
             glfwMaximizeWindow(w);
@@ -157,7 +159,7 @@ void Window::keyCallback(GLFWwindow* w, int key, int /*scancode*/, int action, i
         }
     }
 
-    if (key == GLFW_KEY_TAB && action == GLFW_PRESS) {
+    if (key == GLFW_KEY_TAB && action == GLFW_PRESS && self->tabPauses) {
         if (self->paused) self->unpause();
         else              self->pause();
     }

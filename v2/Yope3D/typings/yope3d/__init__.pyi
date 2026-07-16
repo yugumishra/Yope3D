@@ -1949,6 +1949,38 @@ class Window:
         """
     def is_cursor_locked(self) -> bool:
         """Return ``True`` while the cursor is captured for mouselook."""
+    def set_escape_closes(self, enabled: bool) -> None:
+        """Enable/disable the built-in ESC-closes-window hotkey.
+
+        Note:
+            Defaults from ``yope3d.cfg``'s ``escapeCloses`` key (default
+            ``true``). The editor disables this itself (ESC deselects
+            instead). Disable it to bind ESC to a pause menu via an action
+            map — the key still reaches ``Input`` either way, so
+            ``is_key_pressed(KEY_ESCAPE)`` works regardless of this flag.
+        """
+    def set_tab_pauses(self, enabled: bool) -> None:
+        """Enable/disable the built-in TAB-toggles-cursor-lock hotkey.
+
+        Note:
+            Defaults from ``yope3d.cfg``'s ``tabPauses`` key (default
+            ``true``). Disable if your game wants TAB for a scoreboard/
+            inventory instead.
+        """
+    def set_f11_fullscreen(self, enabled: bool) -> None:
+        """Enable/disable the built-in F11-toggles-fullscreen hotkey.
+
+        Note:
+            Defaults from ``yope3d.cfg``'s ``f11Fullscreen`` key (default
+            ``true``). Disable if your game exposes fullscreen through its
+            own settings menu instead.
+        """
+    def get_escape_closes(self) -> bool:
+        """Return whether the built-in ESC-closes-window hotkey is active."""
+    def get_tab_pauses(self) -> bool:
+        """Return whether the built-in TAB-toggles-cursor-lock hotkey is active."""
+    def get_f11_fullscreen(self) -> bool:
+        """Return whether the built-in F11-toggles-fullscreen hotkey is active."""
 
 class Input:
     """Polled keyboard/mouse state. Singleton ``yope3d.input``.
@@ -1963,6 +1995,21 @@ class Input:
         """Return ``True`` only on the frame ``key`` went down (one-shot)."""
     def is_key_released(self, key: int) -> bool:
         """Return ``True`` only on the frame ``key`` went up (one-shot)."""
+    def get_key_name(self, key: int) -> str:
+        """Return the localized name of ``key`` under the current OS keyboard
+        layout (thin ``glfwGetKeyName`` wrapper), or ``""`` if it has none.
+
+        Note:
+            ``key`` (a ``yope3d.KEY_*`` constant) is a layout-independent
+            *physical position* token — gameplay logic should keep comparing
+            against it directly regardless of the player's layout. This
+            method is for *display* only: building an accurate "Press ___"
+            label in a rebind UI, e.g. ``KEY_W`` returns ``","`` under Dvorak
+            but ``"w"`` under QWERTY/Colemak. Returns ``""`` for
+            non-printable keys (arrows, F-keys, modifiers, ...) — GLFW has no
+            name for those; build your own fallback label table for them
+            (see ``behaviors/_actions.py``'s ``label()`` for an example).
+        """
     def is_lmb_down(self) -> bool:
         """Return ``True`` while the left mouse button is held."""
     def is_rmb_down(self) -> bool:
@@ -1973,6 +2020,14 @@ class Input:
         """Return ``True`` while the 5th (forward) mouse button is held."""
     def is_backward_mb_down(self) -> bool:
         """Return ``True`` while the 4th (backward) mouse button is held."""
+    def is_mouse_down(self, button: int) -> bool:
+        """Return ``True`` while ``button`` is held (use ``yope3d.MOUSE_*``).
+
+        Note:
+            Generic held-state query by raw button index, for code (e.g. an
+            action-map layer) that binds an arbitrary button without
+            dispatching through the named ``is_*mb_down()`` helpers above.
+        """
     def is_mouse_pressed(self, button: int) -> bool:
         """Return ``True`` only on the frame ``button`` went down (use ``yope3d.MOUSE_*``)."""
     def is_mouse_released(self, button: int) -> bool:
@@ -2594,18 +2649,59 @@ def set_velocity(entity: Entity, velocity: Vec3) -> None:
 # Key constants (GLFW key codes, for Input.is_key_*)
 # ==============================================================================
 
-# --- Letters ---
-KEY_W: Final[int]
+# --- Letters (full A-Z; needed for the behaviors/_actions.py action-map
+# layer and its keyboard-layout remap generators) ---
 KEY_A: Final[int]
-KEY_S: Final[int]
+KEY_B: Final[int]
+KEY_C: Final[int]
 KEY_D: Final[int]
-KEY_Q: Final[int]
 KEY_E: Final[int]
-KEY_R: Final[int]
 KEY_F: Final[int]
+KEY_G: Final[int]
 KEY_H: Final[int]
+KEY_I: Final[int]
+KEY_J: Final[int]
+KEY_K: Final[int]
+KEY_L: Final[int]
+KEY_M: Final[int]
+KEY_N: Final[int]
+KEY_O: Final[int]
 KEY_P: Final[int]
+KEY_Q: Final[int]
+KEY_R: Final[int]
+KEY_S: Final[int]
+KEY_T: Final[int]
+KEY_U: Final[int]
 KEY_V: Final[int]
+KEY_W: Final[int]
+KEY_X: Final[int]
+KEY_Y: Final[int]
+KEY_Z: Final[int]
+
+# --- Digits ---
+KEY_0: Final[int]
+KEY_1: Final[int]
+KEY_2: Final[int]
+KEY_3: Final[int]
+KEY_4: Final[int]
+KEY_5: Final[int]
+KEY_6: Final[int]
+KEY_7: Final[int]
+KEY_8: Final[int]
+KEY_9: Final[int]
+
+# --- Punctuation ---
+KEY_SEMICOLON: Final[int]
+KEY_APOSTROPHE: Final[int]
+KEY_COMMA: Final[int]
+KEY_PERIOD: Final[int]
+KEY_SLASH: Final[int]
+KEY_MINUS: Final[int]
+KEY_EQUAL: Final[int]
+KEY_LEFT_BRACKET: Final[int]
+KEY_RIGHT_BRACKET: Final[int]
+KEY_BACKSLASH: Final[int]
+KEY_GRAVE_ACCENT: Final[int]
 
 # --- Arrows ---
 KEY_LEFT: Final[int]
@@ -2613,13 +2709,41 @@ KEY_RIGHT: Final[int]
 KEY_UP: Final[int]
 KEY_DOWN: Final[int]
 
+# --- Navigation ---
+KEY_INSERT: Final[int]
+KEY_DELETE: Final[int]
+KEY_HOME: Final[int]
+KEY_END: Final[int]
+KEY_PAGE_UP: Final[int]
+KEY_PAGE_DOWN: Final[int]
+
+# --- Function keys ---
+KEY_F1: Final[int]
+KEY_F2: Final[int]
+KEY_F3: Final[int]
+KEY_F4: Final[int]
+KEY_F5: Final[int]
+KEY_F6: Final[int]
+KEY_F7: Final[int]
+KEY_F8: Final[int]
+KEY_F9: Final[int]
+KEY_F10: Final[int]
+KEY_F11: Final[int]
+KEY_F12: Final[int]
+
 # --- Action / modifier / special ---
 KEY_SPACE: Final[int]
+KEY_TAB: Final[int]
 KEY_ESCAPE: Final[int]
 KEY_ENTER: Final[int]
 KEY_BACKSPACE: Final[int]
+KEY_CAPS_LOCK: Final[int]
 KEY_LEFT_SHIFT: Final[int]
+KEY_RIGHT_SHIFT: Final[int]
 KEY_LEFT_CONTROL: Final[int]
+KEY_RIGHT_CONTROL: Final[int]
+KEY_LEFT_ALT: Final[int]
+KEY_RIGHT_ALT: Final[int]
 
 # ==============================================================================
 # Mouse button constants (for Input.is_mouse_pressed / is_mouse_released)
