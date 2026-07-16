@@ -322,4 +322,18 @@ struct TextLabel3D {
     int   billboard     = 1;
 };
 
+// ---- Rigid (node-TRS) animation playback ----
+// Placed on an imported model's root entity. `clip` keys into
+// World::animationClips_ — the variable-length keyframe data can't live in a
+// (trivially-relocatable) component, so this only carries playback state.
+// World::updateAnimations samples the clip each tick and writes the bound
+// entities' LOCAL Transforms (see World's node->entity binding table).
+struct AnimationPlayer {
+    char  clip[128] = {};
+    float time      = 0.0f;
+    float speed     = 1.0f;
+    int   loop      = 1;
+    int   playing   = 0;
+};
+
 } // namespace ecs

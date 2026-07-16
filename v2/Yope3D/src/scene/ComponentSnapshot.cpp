@@ -371,6 +371,10 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
         if (!reg.has<ecs::Material>(e)) reg.add<ecs::Material>(e, m);
         else if (auto* t = reg.get<ecs::Material>(e)) *t = m;
     }
+    if (hasAnimationPlayer) {
+        if (!reg.has<ecs::AnimationPlayer>(e)) reg.add<ecs::AnimationPlayer>(e, animationPlayer);
+        else if (auto* t = reg.get<ecs::AnimationPlayer>(e)) *t = animationPlayer;
+    }
 
     return e;
 }
@@ -451,6 +455,12 @@ ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world
     if (auto* t = reg.get<ecs::UIText>(e))               { s.hasUIText = true;               s.uiText = *t; }
     if (auto* t = reg.get<ecs::UIButton>(e))             { s.hasUIButton = true;             s.uiButton = *t; }
     if (auto* t = reg.get<ecs::TextLabel3D>(e))          { s.hasTextLabel3D = true;          s.textLabel3D = *t; }
+    if (auto* t = reg.get<ecs::AnimationPlayer>(e)) {
+        s.hasAnimationPlayer = true;
+        s.animationPlayer    = *t;
+        s.animationPlayer.time    = 0.0f;   // never snapshot live playback position
+        s.animationPlayer.playing = 0;
+    }
 
     return s;
 }

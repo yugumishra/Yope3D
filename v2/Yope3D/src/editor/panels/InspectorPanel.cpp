@@ -53,6 +53,10 @@ void InspectorPanel::draw(EditorContext& ctx) {
     // Material is addable to any entity that has a MeshRenderer and no Material yet.
     bool hasMeshRend  = ctx.registry->has<ecs::MeshRenderer>(e);
     bool hasMaterial  = ctx.registry->has<ecs::Material>(e);
+    // Animation player is addable to any entity with a world Transform (mirrors
+    // TextLabel3D's gating) — typically added automatically by importModel()
+    // for animated glTF models, but can be attached manually too.
+    bool hasAnimPlayer = ctx.registry->has<ecs::AnimationPlayer>(e);
 
     // Check if any component can still be added — always show the button.
     // "Add Joint..." stays available whenever hasHull is true regardless of
@@ -60,7 +64,8 @@ void InspectorPanel::draw(EditorContext& ctx) {
     // via a dropdown, not just PointJointConstraint.
     bool anyAddable = !hasHull || (hasHull && !hasSpring) || hasHull
                       || !hasAudio || !hasLight || !hasScript
-                      || (hasTransform && !hasText3D) || (hasMeshRend && !hasMaterial);
+                      || (hasTransform && !hasText3D) || (hasMeshRend && !hasMaterial)
+                      || (hasTransform && !hasAnimPlayer);
 
     if (ctx.history && ctx.world && anyAddable) {
         ImGui::Spacing();
@@ -150,6 +155,12 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 if (hasMeshRend && !hasMaterial) {
                     if (ImGui::Selectable("Material (PBR)")) {
                         ctx.registry->add<ecs::Material>(e, ecs::Material{});
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+                if (hasTransform && !hasAnimPlayer) {
+                    if (ImGui::Selectable("Animation Player")) {
+                        ctx.registry->add<ecs::AnimationPlayer>(e, ecs::AnimationPlayer{});
                         ImGui::CloseCurrentPopup();
                     }
                 }

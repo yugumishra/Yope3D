@@ -330,6 +330,7 @@ set(EDITOR_SOURCES
     src/editor/inspectors/UITransformInspector.cpp
     src/editor/inspectors/UIBackgroundInspector.cpp
     src/editor/inspectors/UIButtonInspector.cpp
+    src/editor/inspectors/AnimationPlayerInspector.cpp
     src/editor/picking/IdBufferPass.cpp
     src/platform/FileWatcher.cpp
     src/editor/panels/ViewportPanel.cpp

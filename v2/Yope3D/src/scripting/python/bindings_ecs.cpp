@@ -267,6 +267,18 @@ void bind_ecs(py::module_& m) {
         .def_readwrite("size_meters", &ecs::TextLabel3D::sizeMeters)
         .def_readwrite("billboard",   &ecs::TextLabel3D::billboard);
 
+    py::class_<ecs::AnimationPlayer>(m, "AnimationPlayer")
+        .def_property("clip",
+            [](const ecs::AnimationPlayer& a) { return std::string(a.clip); },
+            [](ecs::AnimationPlayer& a, const std::string& s) {
+                std::strncpy(a.clip, s.c_str(), sizeof(a.clip) - 1);
+                a.clip[sizeof(a.clip) - 1] = '\0';
+            })
+        .def_readwrite("time",    &ecs::AnimationPlayer::time)
+        .def_readwrite("speed",   &ecs::AnimationPlayer::speed)
+        .def_readwrite("loop",    &ecs::AnimationPlayer::loop)
+        .def_readwrite("playing", &ecs::AnimationPlayer::playing);
+
     {
         py::class_<ecs::Material>(m, "Material")
             .def_property("albedo_map",

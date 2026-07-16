@@ -605,6 +605,11 @@ std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
 
     std::vector<ecs::Entity> entities;
 
+    // Populated only on the glTF path; used after the root/holder logic below
+    // (common to both loader paths) to register any parsed animations.
+    GltfLoader::LoadedModel  gltfModel;
+    std::vector<ecs::Entity> gltfNodeEntity;
+
     if (ext == ".glb" || ext == ".gltf") {
         // Decode glTF-embedded/base64 images and register them as GPU textures.
         GltfLoader::RegisterImageFn reg;
@@ -627,6 +632,16 @@ std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
         for (const auto& n : model.nodes)
             if (n.parent >= 0) hasChildren[n.parent] = true;
 
+        // A node targeted by an animation channel must also keep its authored
+        // local TRS uncentered — recenterMesh bakes a mesh-centroid offset into
+        // the node's position (see localWithMeshOffset below), which would
+        // desync every keyframe's translation from where the mesh actually sits.
+        std::vector<bool> animatedNode(model.nodes.size(), false);
+        for (const auto& a : model.animations)
+            for (const auto& ch : a.channels)
+                if (ch.targetNode >= 0 && ch.targetNode < static_cast<int>(animatedNode.size()))
+                    animatedNode[ch.targetNode] = true;
+
         // One entity per node (Option B: nodes carry local TRS, mesh verts are local).
         std::vector<ecs::Entity> nodeEntity(model.nodes.size(), ecs::NullEntity);
         for (size_t i = 0; i < model.nodes.size(); ++i) {
@@ -634,9 +649,10 @@ std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
             ecs::Entity e;
             if (node.meshes.size() == 1) {
                 // Node carries its single primitive directly. Re-center to the geometry
-                // center (unless it parents children, whose frames depend on this pivot).
+                // center (unless it parents children, whose frames depend on this pivot,
+                // or it's animated — see animatedNode above).
                 // Re-center BEFORE upload so the GPU mesh gets the centered verts.
-                math::Vec3 c = hasChildren[i] ? math::Vec3{0, 0, 0}
+                math::Vec3 c = (hasChildren[i] || animatedNode[i]) ? math::Vec3{0, 0, 0}
                                               : recenterMesh(node.meshes[0]);
                 e = addRenderObject(node.meshes[0]);
                 { std::lock_guard lk(structureMtx_); applyMaterialData(registry_, e, node.meshes[0].material); }
@@ -677,6 +693,9 @@ std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
                     registry_.add<ecs::Parent>(nodeEntity[i], ecs::Parent{nodeEntity[p]});
             }
         }
+
+        gltfModel      = std::move(model);
+        gltfNodeEntity = std::move(nodeEntity);
     } else {
         LoadedMesh m = ObjLoader::load(fullPath);
         math::Vec3 c = recenterMesh(m);
@@ -716,6 +735,82 @@ std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
         }
         entities.push_back(holder);
     }
+
+    // Register any parsed glTF animations. AnimationPlayer + the clip binding
+    // attach to an ANCHOR entity that updateAnimations never writes to — never
+    // the model's own animated root node directly. Without this split, a clip
+    // with a channel on the root node (a spinning/translating whole-object
+    // animation, not just a sub-part) would overwrite any gizmo/inspector edit
+    // on that same entity the instant the clip played again: there would be no
+    // Transform left for the user to actually own.
+    //
+    // - Multi-root import: the synthesized `holder` above already IS such an
+    //   anchor (created outside model.nodes, so no channel can target it) —
+    //   reuse it directly, no extra hierarchy level.
+    // - Single-root import: reuse the sole top root directly UNLESS it is
+    //   itself an animation channel target, in which case wrap it in a fresh
+    //   anchor parent (mirrors the multi-root holder pattern) so its own local
+    //   transform stays exclusively animation-owned.
+    if (!gltfModel.animations.empty() && !gltfNodeEntity.empty()) {
+        ecs::Entity contentRoot = (topRoots.size() > 1) ? entities.back()
+                                : (!topRoots.empty()     ? topRoots.front() : ecs::NullEntity);
+        std::lock_guard lk(structureMtx_);
+        if (registry_.valid(contentRoot)) {
+            bool rootIsAnimTarget = false;
+            if (topRoots.size() == 1) {
+                for (size_t i = 0; i < gltfNodeEntity.size() && !rootIsAnimTarget; ++i) {
+                    if (gltfNodeEntity[i] != contentRoot) continue;
+                    for (const auto& a : gltfModel.animations)
+                        for (const auto& ch : a.channels)
+                            if (ch.targetNode == static_cast<int>(i)) { rootIsAnimTarget = true; break; }
+                }
+            }
+
+            std::string stem = std::filesystem::path(absPath).stem().string();
+            ecs::Entity anchor;
+            if (topRoots.size() > 1) {
+                anchor = contentRoot;   // == holder; already a safe anchor
+            } else if (rootIsAnimTarget) {
+                anchor = registry_.create();
+                registry_.add<Transform>(anchor, Transform{});
+                finalizeEntity(anchor, stem.empty() ? "Model" : stem.c_str());
+                registry_.add<ecs::Parent>(contentRoot, ecs::Parent{anchor});
+                entities.push_back(anchor);
+            } else {
+                anchor = contentRoot;   // root's own transform is never animated — safe as-is
+            }
+
+            AnimBinding binding;
+            binding.nodeEntities = gltfNodeEntity;
+            binding.restLocal.reserve(gltfNodeEntity.size());
+            for (ecs::Entity ne : gltfNodeEntity) {
+                Transform t{};
+                if (registry_.valid(ne))
+                    if (auto* tf = registry_.get<Transform>(ne)) t = *tf;
+                binding.restLocal.push_back(t);
+            }
+
+            std::string firstClipKey;
+            for (size_t ai = 0; ai < gltfModel.animations.size(); ++ai) {
+                auto& la = gltfModel.animations[ai];
+                std::string key = stem + ":" + (la.name.empty() ? ("anim" + std::to_string(ai)) : la.name);
+                auto clip = std::make_unique<anim::Clip>();
+                clip->name     = key;
+                clip->duration = la.duration;
+                clip->channels = std::move(la.channels);
+                if (ai == 0) firstClipKey = key;
+                animationClips_[key] = std::move(clip);
+            }
+
+            animBindings_[anchor.id] = std::move(binding);
+            if (!registry_.has<ecs::AnimationPlayer>(anchor)) {
+                ecs::AnimationPlayer ap{};
+                std::strncpy(ap.clip, firstClipKey.c_str(), sizeof(ap.clip) - 1);
+                registry_.add<ecs::AnimationPlayer>(anchor, ap);
+            }
+        }
+    }
+
     return entities;
 }
 
@@ -836,6 +931,10 @@ void World::removeEntity(ecs::Entity e) {
     // Purge contact cache entries keyed by this entity.
     std::erase_if(contactCache_,
         [e](const auto& kv) { return kv.first.a == e || kv.first.b == e; });
+
+    // Purge this entity's animation binding, if it was an animated model's root.
+    animBindings_.erase(e.id);
+    animLastSampled_.erase(e.id);
 
     if (mesh) meshToEntity_.erase(mesh);
 
@@ -1421,6 +1520,170 @@ ecs::Entity World::addTextLabel3D(const char* fontPath, const char* text, math::
     return e;
 }
 
+void World::updateAnimations(float dt) {
+    for (auto [root, ap] : registry_.view<ecs::AnimationPlayer>()) {
+        auto clipIt = animationClips_.find(ap.clip);
+        if (clipIt == animationClips_.end()) continue;
+        anim::Clip* clip = clipIt->second.get();
+
+        if (ap.playing) {
+            ap.time += dt * ap.speed;
+            if (clip->duration > 0.0f) {
+                if (ap.loop) {
+                    ap.time = std::fmod(ap.time, clip->duration);
+                    if (ap.time < 0.0f) ap.time += clip->duration;
+                } else if (ap.time >= clip->duration) {
+                    ap.time    = clip->duration;
+                    ap.playing = 0;
+                } else if (ap.time < 0.0f) {
+                    ap.time    = 0.0f;
+                    ap.playing = 0;
+                }
+            }
+        }
+
+        // Skip the write entirely when paused/stopped and neither the clip nor
+        // the scrub time has moved since the last sample — otherwise a
+        // stationary clip re-stamps its pose every tick and silently reverts
+        // any gizmo/inspector edit made on the bound entities in between (they'd
+        // never visibly "stick").
+        auto lastIt = animLastSampled_.find(root.id);
+        bool changed = (lastIt == animLastSampled_.end()) ||
+                       (lastIt->second.clip != ap.clip) || (lastIt->second.time != ap.time);
+        if (!ap.playing && !changed) continue;
+        animLastSampled_[root.id] = { ap.clip, ap.time };
+
+        auto bindIt = animBindings_.find(root.id);
+        if (bindIt == animBindings_.end()) continue;
+        const auto& binding = bindIt->second;
+        const auto& nodeEntities = binding.nodeEntities;
+
+        for (const auto& ch : clip->channels) {
+            if (ch.targetNode < 0 || ch.targetNode >= static_cast<int>(nodeEntities.size())) continue;
+            ecs::Entity target = nodeEntities[ch.targetNode];
+            if (!registry_.valid(target)) continue;
+            auto* tf = registry_.get<Transform>(target);
+            if (!tf) continue;
+
+            if (!binding.additive) {
+                // importModel() binding: the sampled value IS the authoritative
+                // local Transform for this path (glTF channel semantics).
+                switch (ch.path) {
+                    case anim::Path::Translation: tf->position = anim::sampleVec3Channel(ch, ap.time); break;
+                    case anim::Path::Rotation:     tf->rotation = anim::sampleQuatChannel(ch, ap.time); break;
+                    case anim::Path::Scale:        tf->scale    = anim::sampleVec3Channel(ch, ap.time); break;
+                }
+            } else {
+                // attachAnimation() binding: the clip's own coordinate frame is
+                // unrelated to the target's placement — apply only the DELTA
+                // from the clip's frame-0 pose, composed onto the target's
+                // Transform as it was when attached (restLocal).
+                const Transform& rest = binding.restLocal[ch.targetNode];
+                switch (ch.path) {
+                    case anim::Path::Translation: {
+                        math::Vec3 p0 = anim::sampleVec3Channel(ch, 0.0f);
+                        math::Vec3 pt = anim::sampleVec3Channel(ch, ap.time);
+                        tf->position = rest.position + (pt - p0);
+                        break;
+                    }
+                    case anim::Path::Rotation: {
+                        math::Quat q0 = anim::sampleQuatChannel(ch, 0.0f);
+                        math::Quat qt = anim::sampleQuatChannel(ch, ap.time);
+                        tf->rotation = rest.rotation * ((~q0) * qt);
+                        break;
+                    }
+                    case anim::Path::Scale: {
+                        math::Vec3 s0 = anim::sampleVec3Channel(ch, 0.0f);
+                        math::Vec3 st = anim::sampleVec3Channel(ch, ap.time);
+                        // Ratio, not divideSafe (whose zero-denominator fallback of 0
+                        // would collapse the target's scale to nothing — a ratio's
+                        // safe fallback is 1, i.e. "no change in this axis").
+                        math::Vec3 ratio{
+                            std::fabs(s0.x) > 1e-8f ? st.x / s0.x : 1.0f,
+                            std::fabs(s0.y) > 1e-8f ? st.y / s0.y : 1.0f,
+                            std::fabs(s0.z) > 1e-8f ? st.z / s0.z : 1.0f,
+                        };
+                        tf->scale = rest.scale.hadamard(ratio);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void World::resetAnimationPose(ecs::Entity root) {
+    auto bindIt = animBindings_.find(root.id);
+    if (bindIt == animBindings_.end()) return;
+    const auto& binding = bindIt->second;
+    std::lock_guard lk(structureMtx_);
+    for (size_t i = 0; i < binding.nodeEntities.size(); ++i) {
+        ecs::Entity ne = binding.nodeEntities[i];
+        if (!registry_.valid(ne)) continue;
+        if (auto* tf = registry_.get<Transform>(ne)) *tf = binding.restLocal[i];
+    }
+    // Sync the last-sampled cache to the player's current clip/time (the
+    // Inspector's Stop button sets time to 0 before calling this) so the next
+    // updateAnimations tick sees "unchanged" and doesn't immediately resample
+    // the clip over the rest pose just written above.
+    if (auto* ap = registry_.get<ecs::AnimationPlayer>(root))
+        animLastSampled_[root.id] = { ap->clip, ap->time };
+}
+
+std::string World::attachAnimation(ecs::Entity target, const std::string& path) {
+    return attachAnimationAbs(target, assets::resolveFilesystemPath(path));
+}
+
+std::string World::attachAnimationAbs(ecs::Entity target, const std::string& absPath) {
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(target) || !registry_.get<Transform>(target)) return "";
+
+    GltfLoader::LoadedModel model = GltfLoader::load(absPath);
+    if (model.animations.empty()) return "";
+
+    std::string stem = std::filesystem::path(absPath).stem().string();
+    std::string firstClipKey;
+    for (size_t ai = 0; ai < model.animations.size(); ++ai) {
+        auto& la = model.animations[ai];
+        if (la.channels.empty()) continue;
+        std::string key = stem + ":" + (la.name.empty() ? ("anim" + std::to_string(ai)) : la.name);
+        if (firstClipKey.empty()) firstClipKey = key;
+        if (animationClips_.count(key)) continue;   // already registered — reuse verbatim
+
+        auto clip = std::make_unique<anim::Clip>();
+        clip->name     = key;
+        clip->duration = la.duration;
+        clip->channels = std::move(la.channels);
+        // A clip-only file animates a single object — collapse every channel onto
+        // binding index 0 regardless of the source file's own node indices (which
+        // node the exporter assigned doesn't matter; only its channels do).
+        for (auto& ch : clip->channels) ch.targetNode = 0;
+        animationClips_[key] = std::move(clip);
+    }
+    if (firstClipKey.empty()) return "";
+
+    AnimBinding binding;
+    binding.nodeEntities = { target };
+    Transform restLocal{};
+    if (auto* tf = registry_.get<Transform>(target)) restLocal = *tf;
+    binding.restLocal = { restLocal };
+    binding.additive  = true;   // clip's frame is unrelated to target's placement — see AnimBinding::additive
+    animBindings_[target.id] = std::move(binding);
+    animLastSampled_.erase(target.id);   // force a resample even if the old and new clip share a (key,time)
+
+    if (auto* existing = registry_.get<ecs::AnimationPlayer>(target)) {
+        std::strncpy(existing->clip, firstClipKey.c_str(), sizeof(existing->clip) - 1);
+        existing->clip[sizeof(existing->clip) - 1] = '\0';
+        existing->time    = 0.0f;
+        existing->playing = 0;
+    } else {
+        ecs::AnimationPlayer newAp{};
+        std::strncpy(newAp.clip, firstClipKey.c_str(), sizeof(newAp.clip) - 1);
+        registry_.add<ecs::AnimationPlayer>(target, newAp);
+    }
+    return firstClipKey;
+}
+
 ecs::Entity World::addUIText(const char* fontPath, const char* text,
                               math::Vec2 min, math::Vec2 max, int depth) {
     std::lock_guard lk(structureMtx_);
@@ -1609,6 +1872,9 @@ void World::resetPhysics() {
     joints_.clear();
     contactCache_.clear();
     meshToEntity_.clear();
+    animationClips_.clear();
+    animBindings_.clear();
+    animLastSampled_.clear();
 
     // Collision-event state must not survive a scene swap: the fresh registry
     // recycles entity ids from 0, so a stale pair set would fire spurious exits at
@@ -1648,6 +1914,9 @@ void World::cleanup() {
     joints_.clear();
     contactCache_.clear();
     meshToEntity_.clear();
+    animationClips_.clear();
+    animBindings_.clear();
+    animLastSampled_.clear();
     registry_ = ecs::Registry{};
     lightEntities_.clear();
 }
@@ -1912,6 +2181,11 @@ void World::advance(float dt) {
         for (auto& s : springs_)
             s->update(dt, registry_);
     }
+
+    // 6. Rigid animation clips — writes render-only entities' local Transforms;
+    // safe here (before the snapshot) since the physics thread owns the registry
+    // for the whole duration of advance().
+    { YOPE_PROF_SCOPE("animation_update", "physics"); updateAnimations(dt); }
 
     { YOPE_PROF_SCOPE("publish_snapshot", "physics"); publishSnapshot(); }
 }

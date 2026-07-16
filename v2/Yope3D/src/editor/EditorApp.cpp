@@ -289,9 +289,15 @@ void EditorApp::tick() {
         if (engine_.world->newSnapshotReady_.exchange(false, std::memory_order_acquire))
             engine_.world->syncRenderMeshesFromFront();
     } else {
+        // Physics is paused in edit mode (World::advance early-returns), so the
+        // animation-clip preview driven by the Inspector's AnimationPlayer
+        // controls needs its own tick here — otherwise scrubbing/playing a clip
+        // in the viewport would do nothing until Play is pressed.
+        engine_.world->updateAnimations(static_cast<float>(dt));
         engine_.world->publishSnapshot();
         engine_.world->newSnapshotReady_.store(false, std::memory_order_release);
         engine_.world->syncRenderMeshesFromFront();
+
     }
 
     Listener::setPosition(engine_.camera->getPosition());

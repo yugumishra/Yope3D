@@ -94,6 +94,11 @@ struct Ctx {
     std::string                      absPath;
     GltfLoader::RegisterImageFn      registerImage;
 
+    // glTF node index -> LoadedModel::nodes index, filled during traverse().
+    // Needed because animation channels target glTF node indices, not the
+    // depth-first traversal order LoadedModel::nodes ends up in.
+    mutable std::vector<int>         gltfNodeToLocal;
+
     const JsonNode& arr(const char* name) const { return (*root)[name]; }
 
     // Read a vertex-attribute accessor as floats (normalised integers expanded).
@@ -298,10 +303,76 @@ struct Ctx {
 
         int myIdx = static_cast<int>(model.nodes.size());
         model.nodes.push_back(std::move(ln));
+        if (nodeIdx >= 0 && nodeIdx < static_cast<int>(gltfNodeToLocal.size()))
+            gltfNodeToLocal[nodeIdx] = myIdx;
 
         if (node.contains("children"))
             for (const JsonNode& ch : node["children"].asArray())
                 traverse(ch.asInt(), myIdx, model);
+    }
+
+    // Parse the top-level "animations" array into LoadedModel::animations.
+    // Requires gltfNodeToLocal to already be filled (call after node traversal).
+    void loadAnimations(GltfLoader::LoadedModel& model) const {
+        if (!root->contains("animations")) return;
+
+        struct SamplerData {
+            std::vector<float> times;
+            std::vector<float> values;
+            int                 valueComps = 0;
+            std::string         interp     = "LINEAR";
+        };
+
+        for (const JsonNode& animNode : arr("animations").asArray()) {
+            GltfLoader::LoadedAnimation anim;
+            if (animNode.contains("name")) anim.name = animNode["name"].asString();
+
+            std::vector<SamplerData> samplers;
+            if (animNode.contains("samplers")) {
+                for (const JsonNode& s : animNode["samplers"].asArray()) {
+                    SamplerData sd;
+                    int c = 0;
+                    sd.times  = readFloats(s["input"].asInt(), c);
+                    sd.values = readFloats(s["output"].asInt(), sd.valueComps);
+                    if (s.contains("interpolation")) sd.interp = s["interpolation"].asString();
+                    samplers.push_back(std::move(sd));
+                }
+            }
+
+            if (animNode.contains("channels")) {
+                for (const JsonNode& chNode : animNode["channels"].asArray()) {
+                    const JsonNode& target = chNode["target"];
+                    if (!target.contains("node") || !target.contains("path")) continue;
+                    std::string pathStr = target["path"].asString();
+                    if (pathStr == "weights") continue;   // morph targets — out of scope (skinning, M16)
+
+                    int gltfNode = target["node"].asInt();
+                    int localNode = (gltfNode >= 0 && gltfNode < static_cast<int>(gltfNodeToLocal.size()))
+                                        ? gltfNodeToLocal[gltfNode] : -1;
+                    if (localNode < 0) continue;
+
+                    int samplerIdx = chNode.contains("sampler") ? chNode["sampler"].asInt() : -1;
+                    if (samplerIdx < 0 || samplerIdx >= static_cast<int>(samplers.size())) continue;
+                    const SamplerData& sd = samplers[samplerIdx];
+                    if (sd.times.empty()) continue;
+
+                    anim::Channel ch;
+                    ch.targetNode = localNode;
+                    ch.path = (pathStr == "translation") ? anim::Path::Translation
+                            : (pathStr == "scale")       ? anim::Path::Scale
+                                                          : anim::Path::Rotation;
+                    ch.interp = (sd.interp == "STEP")         ? anim::Interp::Step
+                              : (sd.interp == "CUBICSPLINE")  ? anim::Interp::CubicSpline
+                                                               : anim::Interp::Linear;
+                    ch.times  = sd.times;
+                    ch.values = sd.values;
+                    anim.duration = std::max(anim.duration, ch.times.back());
+                    anim.channels.push_back(std::move(ch));
+                }
+            }
+
+            model.animations.push_back(std::move(anim));
+        }
     }
 };
 
@@ -356,12 +427,16 @@ LoadedModel load(const std::string& absPath, const RegisterImageFn& registerImag
 
     LoadedModel out;
 
+    ctx.gltfNodeToLocal.assign(
+        root.contains("nodes") ? root["nodes"].asArray().size() : 0, -1);
+
     // Traverse the default scene's node hierarchy (fallback: each mesh as a root node).
     if (root.contains("scenes")) {
         int sceneIdx = root.contains("scene") ? root["scene"].asInt() : 0;
         const JsonNode& scene = root["scenes"].asArray()[sceneIdx];
         if (scene.contains("nodes"))
             for (const JsonNode& n : scene["nodes"].asArray()) ctx.traverse(n.asInt(), -1, out);
+        ctx.loadAnimations(out);
     } else if (root.contains("meshes")) {
         for (size_t i = 0; i < root["meshes"].asArray().size(); ++i) {
             LoadedNode ln;

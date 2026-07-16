@@ -82,22 +82,7 @@ void bind_math(py::module_& m) {
                 math::Quat qz = math::Quat::fromAxisAngle(math::Vec3{0,0,1}, roll);
                 return qy * qx * qz;
             }, py::arg("pitch"), py::arg("yaw"), py::arg("roll") = 0.f)
-        .def_static("slerp",
-            [](math::Quat a, math::Quat b, float t) {
-                float d = a.x*b.x + a.y*b.y + a.z*b.z + a.w*b.w;
-                if (d < 0.f) { b.x=-b.x; b.y=-b.y; b.z=-b.z; b.w=-b.w; d=-d; }
-                if (d > 0.9995f) {  // nearly parallel — normalized lerp
-                    math::Quat r{a.x+t*(b.x-a.x), a.y+t*(b.y-a.y),
-                                 a.z+t*(b.z-a.z), a.w+t*(b.w-a.w)};
-                    float l = std::sqrt(r.x*r.x + r.y*r.y + r.z*r.z + r.w*r.w);
-                    return math::Quat{r.x/l, r.y/l, r.z/l, r.w/l};
-                }
-                float th0 = std::acos(d), th = th0*t;
-                float s1 = std::sin(th) / std::sin(th0);
-                float s0 = std::cos(th) - d*s1;
-                return math::Quat{a.x*s0+b.x*s1, a.y*s0+b.y*s1,
-                                  a.z*s0+b.z*s1, a.w*s0+b.w*s1};
-            }, py::arg("a"), py::arg("b"), py::arg("t"))
+        .def_static("slerp", &math::Quat::slerp, py::arg("a"), py::arg("b"), py::arg("t"))
         .def("__mul__",
             [](const math::Quat& a, const math::Quat& b) { return a * b; })
         .def("rotate",
