@@ -635,4 +635,23 @@ bool deserializeTextLabel3D(const JsonNode& n, void* comp) {
     return true;
 }
 
+void serializeAnimationPlayer(const void* comp, JsonWriter& w) {
+    auto* a = static_cast<const ecs::AnimationPlayer*>(comp);
+    if (a->clip[0]) w.writeString("clip", a->clip);
+    w.writeFloat("speed", a->speed);
+    w.writeInt  ("loop",  a->loop);
+    // time/playing are live playback state, not authored — always saved at rest
+    // (time=0, playing=0) so a scene never loads mid-clip.
+}
+bool deserializeAnimationPlayer(const JsonNode& n, void* comp) {
+    auto* a = static_cast<ecs::AnimationPlayer*>(comp);
+    if (n.contains("clip"))
+        std::strncpy(a->clip, n["clip"].asString().c_str(), sizeof(a->clip) - 1);
+    if (n.contains("speed")) a->speed = n["speed"].asFloat();
+    if (n.contains("loop"))  a->loop  = n["loop"].asInt();
+    a->time    = 0.0f;
+    a->playing = 0;
+    return true;
+}
+
 } // namespace compser

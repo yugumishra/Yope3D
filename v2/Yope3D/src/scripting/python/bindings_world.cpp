@@ -153,6 +153,12 @@ void bind_world(py::module_& m) {
         // ---- Model loading (.obj / .gltf / .glb) ----
         // Returns the list of created entities (one per glTF primitive).
         .def("add_model", &World::addModel, py::arg("path"))
+        // Attach a clip-only glTF's animation(s) (e.g. a keyframed Empty exported
+        // from Blender, no mesh needed) directly to an existing entity's own
+        // Transform — for reusable clips shared across many objects (see
+        // ecs::AnimationPlayer / World::attachAnimation). Returns the attached
+        // clip's key, or "" on failure.
+        .def("attach_animation", &World::attachAnimation, py::arg("entity"), py::arg("path"))
         // ---- Cubemap skybox: 6 asset-relative faces (+X,-X,+Y,-Y,+Z,-Z) ----
         .def("set_skybox", [](World& w, const std::vector<std::string>& faces) {
             if (faces.size() != 6)

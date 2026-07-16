@@ -819,6 +819,26 @@ class TextLabel3D:
     billboard: int
     """Non-zero = always face the camera."""
 
+class AnimationPlayer:
+    """Rigid (node-TRS) animation playback state — placed on an imported glTF
+    model's root entity by ``World.add_model``/``import_model`` when the source
+    file has ``animations``. The clip's keyframe data lives in a World-side
+    store (not this component); this only carries playback state.
+    """
+
+    clip: str
+    """Key into the model's imported clips (``"<modelStem>:<animName>"``). See
+    ``World.animation_clips()`` for the available keys.
+    """
+    time: float
+    """Current playback position in seconds."""
+    speed: float
+    """Playback rate multiplier (1.0 = authored speed)."""
+    loop: int
+    """Non-zero = wrap ``time`` at the clip's duration instead of clamping."""
+    playing: int
+    """Non-zero = ``time`` advances each tick. Set to 0 to pause at the current frame."""
+
 class Material:
     """PBR metallic-roughness material (pairs with a MeshRenderer).
 
@@ -898,6 +918,7 @@ ComponentName = Literal[
     "UIText",
     "UIButton",
     "TextLabel3D",
+    "AnimationPlayer",
     "AudioSource",
     "Fixed",
 ]
@@ -1638,8 +1659,43 @@ class World:
         :class:`Material` when the source defines one (glTF metallic-roughness or
         OBJ/MTL). ``path`` is relative to the assets directory.
 
+        If the source glTF has ``animations``, an :class:`AnimationPlayer` is
+        attached to one of the returned entities (found via
+        ``reg_has(e, "AnimationPlayer")`` — not always ``entities[0]``: if the
+        model's own root node is itself an animated channel target, a synthetic
+        anchor entity is inserted above it so the root stays freely
+        movable/rotatable without fighting the clip; otherwise the natural root
+        is reused directly).
+
         Returns:
-            The created entities (one per primitive).
+            The created entities (one per primitive, plus the synthesized
+            anchor/holder entity when one was needed).
+        """
+    def attach_animation(self, entity: Entity, path: str) -> str:
+        """Attach a reusable, single-object clip directly to ``entity``'s own Transform.
+
+        Unlike ``add_model``'s clips (tied to the hierarchy imported alongside
+        them), this is for clip-only files authored independently of any
+        specific model — e.g. an Empty keyframed in Blender and exported with
+        Include > Animations (no mesh required). Every channel in the file is
+        bound to ``entity`` regardless of the source file's own node indices,
+        since a clip-only file is expected to animate exactly one object.
+
+        Re-attaching a clip already registered under the same key (path stem +
+        animation name) reuses it instead of re-parsing the file — attaching
+        one "spin" clip to many entities only loads the file once.
+
+        Adds (or repoints) an :class:`AnimationPlayer` on ``entity``, defaulting
+        to the first animation in the file; other animations in the file are
+        registered too and selectable via ``reg_get(entity, "AnimationPlayer").clip``.
+
+        Args:
+            entity: Must already have a Transform.
+            path: Asset-relative path to the clip-only ``.gltf``/``.glb``.
+
+        Returns:
+            The attached clip's key, or ``""`` on failure (invalid entity, no
+            Transform, or the file has no animations).
         """
     def set_skybox(self, faces: list[str]) -> None:
         """Set a cubemap skybox from six asset-relative face images.
@@ -2090,6 +2146,8 @@ def reg_get(e: Entity, name: Literal["UIText"]) -> UIText | None: ...
 def reg_get(e: Entity, name: Literal["UIButton"]) -> UIButton | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["TextLabel3D"]) -> TextLabel3D | None: ...
+@overload
+def reg_get(e: Entity, name: Literal["AnimationPlayer"]) -> AnimationPlayer | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["AudioSource"]) -> AudioSource | None: ...
 @overload

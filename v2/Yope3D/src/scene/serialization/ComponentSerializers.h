@@ -94,4 +94,9 @@ bool deserializeUIButton             (const JsonNode& node, void* comp);
 void serializeTextLabel3D           (const void* comp, JsonWriter& w);
 bool deserializeTextLabel3D          (const JsonNode& node, void* comp);
 
+// AnimationPlayer (clip key + playback state; the clip asset itself is loaded
+// alongside the model, not serialized here)
+void serializeAnimationPlayer       (const void* comp, JsonWriter& w);
+bool deserializeAnimationPlayer      (const JsonNode& node, void* comp);
+
 } // namespace compser

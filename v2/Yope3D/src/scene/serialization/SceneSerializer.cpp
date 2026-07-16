@@ -60,6 +60,7 @@ static std::vector<CompSerEntry> buildSerTable() {
         { ecs::typeId<ecs::UIText>(),                "UIText",                compser::serializeUIText,                compser::deserializeUIText                },
         { ecs::typeId<ecs::UIButton>(),              "UIButton",              compser::serializeUIButton,              compser::deserializeUIButton              },
         { ecs::typeId<ecs::TextLabel3D>(),           "TextLabel3D",           compser::serializeTextLabel3D,           compser::deserializeTextLabel3D           },
+        { ecs::typeId<ecs::AnimationPlayer>(),       "AnimationPlayer",       compser::serializeAnimationPlayer,       compser::deserializeAnimationPlayer       },
     };
 }
 

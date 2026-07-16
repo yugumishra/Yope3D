@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include "RenderMesh.h"
 #include "Transform.h"
+#include "../assets/AnimationClip.h"
 #include "../rendering/Light.h"
 #include "../ecs/Registry.h"
 #include "../ecs/Components.h"
@@ -284,6 +285,47 @@ public:
     // 3D world-space text: Transform (anchor) + ecs::TextLabel3D.
     ecs::Entity addTextLabel3D         (const char* fontPath, const char* text, math::Vec3 pos);
 
+    // ---- Rigid (node-TRS) animation ----
+    // Clips are registered by importModel() (glTF `animations`) and looked up by
+    // name from World::animationClips_ — see AnimationClip.h for why they can't
+    // live in the ecs::AnimationPlayer component itself.
+    const std::unordered_map<std::string, std::unique_ptr<anim::Clip>>& animationClips() const {
+        return animationClips_;
+    }
+    // Advances every playing ecs::AnimationPlayer by dt and samples its clip into
+    // the bound entities' LOCAL Transforms. Called from World::advance() (runtime/
+    // Play) and from the editor's edit-mode tick (in-place viewport preview) —
+    // safe in both: writes only entities registered in animBindings_, which are
+    // always render-only (never Hull roots).
+    void updateAnimations(float dt);
+    // Restores `root`'s bound entities to the local Transform captured at import
+    // time (the glTF-authored rest pose) — used by the editor's Stop-preview
+    // action so scrubbing/playing a clip is never a destructive edit. No-op if
+    // `root` has no animation binding.
+    void resetAnimationPose(ecs::Entity root);
+
+    // Attach a clip-only glTF's animation(s) directly to `target`'s own
+    // Transform — for reusable, single-object clips authored independently of
+    // any model (e.g. an Empty keyframed in Blender and exported with
+    // Include > Animations, no mesh needed), as opposed to importModel()'s
+    // clips which are tied to the hierarchy imported alongside them. Every
+    // channel is remapped onto `target` regardless of the source file's own
+    // node indices — a clip-only file is expected to animate exactly one
+    // object, so which node it names doesn't matter, only its channels do.
+    // Re-attaching a clip already registered under the same key (path stem +
+    // animation name) reuses it instead of re-parsing the file — the common
+    // case of attaching one clip to many entities (e.g. "spin" on N coins).
+    // Adds (or repoints) `target`'s ecs::AnimationPlayer to the first parsed
+    // clip; other animations in the file are registered too, selectable from
+    // the clip dropdown. `path` is asset-relative (mirrors addModel); returns
+    // the attached clip's key, or "" on failure (invalid target / no
+    // Transform / file has no animations).
+    std::string attachAnimation(ecs::Entity target, const std::string& path);
+    // Same as attachAnimation but takes an absolute filesystem path (editor
+    // file-picker / asset-browser drag-drop, which may live outside the
+    // assets tree — mirrors importModel vs. addModel).
+    std::string attachAnimationAbs(ecs::Entity target, const std::string& absPath);
+
     // ---- UI input routing (screen-space pointer -> ECS UI entities) ----
     // Called once per frame by Engine after cursor pos + per-button edge flags
     // are known. Returns this frame's hover/press/release/click events; Engine
@@ -535,6 +577,39 @@ private:
     // Baked compound colliders, keyed by asset-relative path (or in-memory key).
     // Shared/immutable; ecs::CompoundCollider::compiled points into these.
     std::unordered_map<std::string, std::unique_ptr<physics::CompiledCollider>> compoundColliderCache_;
+
+    // Rigid-animation clip store (keyed by "<modelStem>:<animName>", unique per
+    // importModel() call) and the per-root node->entity binding table built
+    // alongside it. `restLocal` is each bound entity's LOCAL Transform as
+    // authored (captured once, at import) — the rest pose resetAnimationPose
+    // restores to. Keyed by root.id (like debugColorOverrides_ above) since
+    // ecs::Entity has no std::hash specialization.
+    // `additive`: importModel() bindings are false — glTF channel semantics
+    // make the sampled value the AUTHORITATIVE absolute local Transform for
+    // whichever paths the clip animates, and it's authored together with the
+    // same hierarchy it's bound to. attachAnimation() bindings are true — the
+    // clip comes from an unrelated file with no relationship to the target's
+    // placement in this scene, so the sampled value must be treated as a
+    // delta from the clip's OWN frame-0 pose and composed onto `restLocal`
+    // (the target's actual pose at attach time) rather than assigned outright
+    // — otherwise attaching a clip would teleport the target to wherever the
+    // clip's raw keyframe values happen to sit in its source file's space.
+    struct AnimBinding {
+        std::vector<ecs::Entity> nodeEntities;
+        std::vector<Transform>   restLocal;
+        bool                      additive = false;
+    };
+    std::unordered_map<std::string, std::unique_ptr<anim::Clip>> animationClips_;
+    std::unordered_map<uint32_t, AnimBinding>                     animBindings_;
+    // (clip key, time) last actually sampled+written for a given root (keyed by
+    // root.id). updateAnimations skips the write entirely when !playing and
+    // neither has changed since — otherwise a paused/stopped clip would
+    // re-stamp its pose every tick and silently undo any gizmo/inspector
+    // Transform edit made on the bound entities in between. Tracking the clip
+    // key too (not just time) forces a resample when the Inspector switches
+    // clips while paused at the same time value in both.
+    struct AnimSampleKey { std::string clip; float time = 0.0f; };
+    std::unordered_map<uint32_t, AnimSampleKey>                   animLastSampled_;
 
     std::vector<std::unique_ptr<physics::Spring>>        springs_;
     // unique_ptr purely for pointer stability across vector growth (same

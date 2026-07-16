@@ -173,6 +173,125 @@ TEST_CASE("glTF real model (ABeautifulGame) imports as a hierarchy", "[gltf][.re
     CHECK(nonZeroLocal > 0);
 }
 
+TEST_CASE("glTF rigid animation: LINEAR translation + CUBICSPLINE scale, node remap", "[gltf][anim]") {
+    // Deliberately mismatches glTF node index vs. LoadedModel traversal index:
+    // scene root is glTF node 1 (no mesh, a bare group), whose only child is
+    // glTF node 0 (the mesh + animation target). Traversal visits node1 first
+    // (LoadedModel index 0) then node0 (LoadedModel index 1) — so this exercises
+    // GltfLoader's gltfNodeToLocal remap table, not just a 1:1 coincidence.
+    auto pushF = [](std::vector<uint8_t>& buf, float f) {
+        uint8_t p[4]; std::memcpy(p, &f, 4);
+        for (int i = 0; i < 4; ++i) buf.push_back(p[i]);
+    };
+
+    std::vector<uint8_t> buf;
+    const float pos[9] = {0,0,0,  1,0,0,  0,1,0};
+    for (float f : pos) pushF(buf, f);                              // [0,36) POSITION
+    const uint16_t idx[3] = {0, 1, 2};
+    for (uint16_t v : idx) { buf.push_back(uint8_t(v & 0xFF)); buf.push_back(uint8_t(v >> 8)); }  // [36,42) indices
+
+    const float times[2] = {0.0f, 1.0f};
+    for (float f : times) pushF(buf, f);                             // [42,50) time
+
+    const float trans[6] = {0,0,0,  2,4,6};
+    for (float f : trans) pushF(buf, f);                             // [50,74) LINEAR translation
+
+    // CUBICSPLINE scale: key0{in=(0,0,0), val=(0,0,0), out=(1,0,0)}, key1{in=(1,0,0), val=(2,0,0), out=(0,0,0)}.
+    // Hand-verified Hermite midpoint (s=0.5, segDur=1): x = 0.5*0 + 0.125*1 + 0.5*2 + (-0.125)*1 = 1.0.
+    const float scaleSpline[18] = {
+        0,0,0,  0,0,0,  1,0,0,
+        1,0,0,  2,0,0,  0,0,0,
+    };
+    for (float f : scaleSpline) pushF(buf, f);                       // [74,146)
+
+    std::string json = std::string(R"({
+      "asset":{"version":"2.0"},
+      "scene":0,
+      "scenes":[{"nodes":[1]}],
+      "nodes":[
+        {"mesh":0},
+        {"children":[0]}
+      ],
+      "meshes":[{"primitives":[{"attributes":{"POSITION":0},"indices":1}]}],
+      "animations":[{
+        "name":"wiggle",
+        "samplers":[
+          {"input":2,"output":3,"interpolation":"LINEAR"},
+          {"input":2,"output":4,"interpolation":"CUBICSPLINE"}
+        ],
+        "channels":[
+          {"sampler":0,"target":{"node":0,"path":"translation"}},
+          {"sampler":1,"target":{"node":0,"path":"scale"}}
+        ]
+      }],
+      "accessors":[
+        {"bufferView":0,"componentType":5126,"count":3,"type":"VEC3"},
+        {"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"},
+        {"bufferView":2,"componentType":5126,"count":2,"type":"SCALAR"},
+        {"bufferView":3,"componentType":5126,"count":2,"type":"VEC3"},
+        {"bufferView":4,"componentType":5126,"count":6,"type":"VEC3"}
+      ],
+      "bufferViews":[
+        {"buffer":0,"byteOffset":0,"byteLength":36},
+        {"buffer":0,"byteOffset":36,"byteLength":6},
+        {"buffer":0,"byteOffset":42,"byteLength":8},
+        {"buffer":0,"byteOffset":50,"byteLength":24},
+        {"buffer":0,"byteOffset":74,"byteLength":72}
+      ],
+      "buffers":[{"byteLength":146,"uri":")") + "data:application/octet-stream;base64," +
+      b64(buf) + R"("}]
+    })";
+
+    GltfLoader::LoadedModel model = loadJson(json);
+
+    REQUIRE(model.nodes.size() == 2);
+    REQUIRE(model.animations.size() == 1);
+    const auto& clip = model.animations[0];
+    CHECK(clip.name == "wiggle");
+    CHECK(approx(clip.duration, 1.0f));
+    REQUIRE(clip.channels.size() == 2);
+
+    const anim::Channel* trCh = nullptr;
+    const anim::Channel* scCh = nullptr;
+    for (const auto& ch : clip.channels) {
+        if (ch.path == anim::Path::Translation) trCh = &ch;
+        if (ch.path == anim::Path::Scale)       scCh = &ch;
+    }
+    REQUIRE(trCh != nullptr);
+    REQUIRE(scCh != nullptr);
+
+    // The remap: glTF node 0 (the mesh) must land on the LoadedModel index that
+    // actually carries a mesh — NOT node index 0 verbatim (traversal visited the
+    // bare group root first).
+    CHECK(trCh->targetNode == scCh->targetNode);
+    REQUIRE(trCh->targetNode >= 0);
+    REQUIRE(trCh->targetNode < static_cast<int>(model.nodes.size()));
+    CHECK(model.nodes[trCh->targetNode].meshes.size() == 1);
+
+    CHECK(trCh->interp == anim::Interp::Linear);
+    CHECK(scCh->interp == anim::Interp::CubicSpline);
+
+    // LINEAR translation: endpoints exact, midpoint is the arithmetic mean.
+    math::Vec3 t0 = anim::sampleVec3Channel(*trCh, 0.0f);
+    math::Vec3 t1 = anim::sampleVec3Channel(*trCh, 1.0f);
+    math::Vec3 tm = anim::sampleVec3Channel(*trCh, 0.5f);
+    CHECK(approx(t0.x, 0.0f)); CHECK(approx(t0.y, 0.0f)); CHECK(approx(t0.z, 0.0f));
+    CHECK(approx(t1.x, 2.0f)); CHECK(approx(t1.y, 4.0f)); CHECK(approx(t1.z, 6.0f));
+    CHECK(approx(tm.x, 1.0f)); CHECK(approx(tm.y, 2.0f)); CHECK(approx(tm.z, 3.0f));
+
+    // CUBICSPLINE scale: endpoints are the authored values; midpoint follows the
+    // Hermite blend of value + tangents (hand-verified above), NOT a linear mean
+    // (which would incorrectly give 1.0 too here — the tangents were chosen so
+    // both formulas coincide at the midpoint; the exact-endpoint checks below are
+    // what actually distinguish Hermite evaluation from a naive lerp fallback).
+    math::Vec3 s0 = anim::sampleVec3Channel(*scCh, 0.0f);
+    math::Vec3 s1 = anim::sampleVec3Channel(*scCh, 1.0f);
+    math::Vec3 sm = anim::sampleVec3Channel(*scCh, 0.5f);
+    CHECK(approx(s0.x, 0.0f));
+    CHECK(approx(s1.x, 2.0f));
+    CHECK(approx(sm.x, 1.0f));
+}
+
 TEST_CASE("glTF node with multiple primitives yields multiple meshes", "[gltf]") {
     std::string json = std::string(R"({
       "asset":{"version":"2.0"},

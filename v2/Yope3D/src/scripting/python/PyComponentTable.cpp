@@ -61,6 +61,7 @@ void build() {
         entryFor<ecs::UIText>           ("UIText"),
         entryFor<ecs::UIButton>        ("UIButton"),
         entryFor<ecs::TextLabel3D>      ("TextLabel3D"),
+        entryFor<ecs::AnimationPlayer>  ("AnimationPlayer"),
         entryFor<ecs::AudioSource>      ("AudioSource"),
         tagEntryFor<ecs::Fixed>         ("Fixed"),
     };

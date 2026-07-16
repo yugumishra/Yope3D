@@ -3,6 +3,7 @@
 #include <vector>
 #include <functional>
 #include "ObjLoader.h"          // LoadedMesh, MaterialData
+#include "AnimationClip.h"      // anim::Channel — rigid node-TRS animation data
 #include "../world/Transform.h" // LoadedNode local TRS (header-only math)
 
 // ---------------------------------------------------------------------------
@@ -17,6 +18,11 @@
 // by ecs::Parent, so imported objects keep their own pivots (see Transform
 // parenting). Tangents are recomputed at upload (RenderMesh / MeshBuild), so a
 // glTF TANGENT accessor is not consumed.
+//
+// Rigid (node-TRS) animations ARE parsed (skins/weights/morph targets are not —
+// that's skinning, M16): each LoadedAnimation's channels target LoadedModel::nodes
+// indices (remapped from glTF node indices during traversal). World::importModel
+// registers each as an anim::Clip and builds the node->entity binding table.
 //
 // Embedded / base64 images are handed to `registerImage` (decode + GPU upload is
 // the caller's job — keeps the loader free of any AssetManager/GPU dependency,
@@ -40,8 +46,17 @@ namespace GltfLoader {
         std::vector<LoadedMesh> meshes;
     };
 
+    // A named glTF animation: channels target `LoadedModel::nodes` indices
+    // (already remapped from glTF's own node indices during traversal).
+    struct LoadedAnimation {
+        std::string           name;
+        float                  duration = 0.f;   // max keyframe time across all channels
+        std::vector<anim::Channel> channels;
+    };
+
     struct LoadedModel {
-        std::vector<LoadedNode> nodes;   // topologically ordered: parent precedes child
+        std::vector<LoadedNode>      nodes;        // topologically ordered: parent precedes child
+        std::vector<LoadedAnimation> animations;
     };
 
     LoadedModel load(const std::string& absPath, const RegisterImageFn& registerImage = {});

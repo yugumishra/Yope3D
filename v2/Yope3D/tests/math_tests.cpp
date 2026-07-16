@@ -178,6 +178,34 @@ TEST_CASE("Quaternion Logic", "[math][quat]") {
 }
 }
 
+TEST_CASE("Quaternion slerp", "[math][quat]") {
+    SECTION("Halfway between identity and a 90 deg Y rotation is 45 deg") {
+        Quat a = Quat{};   // identity
+        Quat b = Quat::fromAxisAngle({0, 1, 0}, toRadians(90.0f));
+        Quat mid = Quat::slerp(a, b, 0.5f);
+        Quat expected = Quat::fromAxisAngle({0, 1, 0}, toRadians(45.0f));
+        CHECK_THAT(mid.w, WithinAbs(expected.w, 0.0001f));
+        CHECK_THAT(mid.y, WithinAbs(expected.y, 0.0001f));
+    }
+    SECTION("Endpoints reproduce the inputs exactly") {
+        Quat a = Quat::fromAxisAngle({1, 0, 0}, toRadians(20.0f));
+        Quat b = Quat::fromAxisAngle({0, 0, 1}, toRadians(133.0f));
+        Quat s0 = Quat::slerp(a, b, 0.0f);
+        Quat s1 = Quat::slerp(a, b, 1.0f);
+        CHECK_THAT(s0.w, WithinAbs(a.w, 0.0001f));
+        CHECK_THAT(s0.x, WithinAbs(a.x, 0.0001f));
+        CHECK_THAT(s1.w, WithinAbs(b.w, 0.0001f));
+        CHECK_THAT(s1.z, WithinAbs(b.z, 0.0001f));
+    }
+    SECTION("Nearly-parallel inputs fall back to normalized lerp without NaNs") {
+        Quat a = Quat::fromAxisAngle({0, 1, 0}, toRadians(10.0f));
+        Quat b = Quat::fromAxisAngle({0, 1, 0}, toRadians(10.0001f));
+        Quat mid = Quat::slerp(a, b, 0.5f);
+        float len = std::sqrt(mid.x*mid.x + mid.y*mid.y + mid.z*mid.z + mid.w*mid.w);
+        CHECK_THAT(len, WithinAbs(1.0f, 0.001f));
+    }
+}
+
 TEST_CASE("Octahedral snorm16 round-trip", "[math][oct]") {
     // Sweep a dense grid of directions over the sphere and verify the worst-case
     // angular error after octEncode -> snorm16 -> decode stays well under the

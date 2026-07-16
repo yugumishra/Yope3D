@@ -56,6 +56,9 @@ struct ComponentSnapshot {
     // 3D world-space text (Transform-anchored, not UI).
     bool hasTextLabel3D          = false;  ecs::TextLabel3D          textLabel3D;
 
+    // Rigid animation playback (clip key + speed/loop; time/playing never persisted)
+    bool hasAnimationPlayer      = false;  ecs::AnimationPlayer      animationPlayer;
+
     // Reconstruct the entity in the world and return the new entity handle.
     ecs::Entity restore(World& world) const;
 };
