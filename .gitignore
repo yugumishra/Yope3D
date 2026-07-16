@@ -12,7 +12,7 @@ claude.md
 graphics_pipeline_time_analysis
 
 #ignore logo animations (large files)
-v2/Yope3D/assets/logo/logo_part*.csv
+v2/Yope3D/assets/logo/logo_part*
 
 #ignore all profile csvs (huge files)
 yope_profile_*.csv
