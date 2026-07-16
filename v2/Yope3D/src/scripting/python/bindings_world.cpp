@@ -460,7 +460,15 @@ void bind_world(py::module_& m) {
         .def("load_sound", &AudioSystem::loadSound, py::arg("path"),
              py::return_value_policy::reference)
         .def("create_source", &AudioSystem::createSource, py::arg("buffer"),
-             py::return_value_policy::reference);
+             py::return_value_policy::reference)
+        .def("set_bus_gain", [](AudioSystem& a, int bus, float gain) {
+                a.setBusGain(static_cast<Source::Bus>(bus), gain);
+             }, py::arg("bus"), py::arg("gain"))
+        .def("set_master_gain", &AudioSystem::setMasterGain, py::arg("gain"))
+        .def("fade_gain", [](AudioSystem& a, Source* src, float target, float duration, int ease) {
+                a.fadeGain(src, target, duration, static_cast<ui::Ease>(ease));
+             }, py::arg("source"), py::arg("target"), py::arg("duration"),
+                py::arg("ease") = static_cast<int>(ui::Ease::Linear));
 
     // AudioSystem::SoundBuffer — opaque handle returned by load_sound
     py::class_<AudioSystem::SoundBuffer>(m, "SoundBuffer");
@@ -477,7 +485,10 @@ void bind_world(py::module_& m) {
         .def("set_velocity", &Source::setVelocity, py::arg("vel"))
         .def("set_reference_distance", &Source::setReferenceDistance, py::arg("dist"))
         .def("enable_looping", &Source::enableLooping, py::arg("loop"))
-        .def("is_playing", &Source::isPlaying);
+        .def("is_playing", &Source::isPlaying)
+        .def("set_relative", &Source::setRelative, py::arg("relative"))
+        .def("set_bus", [](Source& s, int bus) { s.setBus(static_cast<Source::Bus>(bus)); },
+             py::arg("bus"));
 
     // CollisionLayers — named 32-bit layer registry (yope3d.world.layers)
     py::class_<physics::CollisionLayers>(m, "CollisionLayers")
@@ -528,6 +539,11 @@ void bind_world(py::module_& m) {
     m.attr("EASE_CUBIC_OUT")    = static_cast<int>(ui::Ease::CubicOut);
     m.attr("EASE_CUBIC_IN_OUT") = static_cast<int>(ui::Ease::CubicInOut);
 
+    // Mixer bus tags for AudioSource.bus / audio.set_bus_gain.
+    m.attr("BUS_MUSIC") = static_cast<int>(Source::Bus::Music);
+    m.attr("BUS_SFX")   = static_cast<int>(Source::Bus::SFX);
+    m.attr("BUS_VOICE") = static_cast<int>(Source::Bus::Voice);
+
     // One-shot audio convenience: load + create + play in a single call.
     // Returns the Source (reuse it to stop/reposition) or None if audio isn't bound.
     m.def("play_sound",
@@ -546,6 +562,20 @@ void bind_world(py::module_& m) {
             return s;
         }, py::arg("path"), py::arg("pos") = py::none(),
            py::arg("gain") = 1.0f, py::arg("loop") = false,
+           py::return_value_policy::reference);
+
+    // Non-spatial ("2D") stereo music playback — a soundtrack path distinct
+    // from play_sound's mono/pooled/positional one-shots.
+    // stream=True: incremental decode (MusicStream), for long tracks.
+    // stream=False: full-decode stereo buffer, for short stingers/jingles.
+    m.def("play_music",
+        [](const std::string& path, bool loop, float fade_in, bool stream) -> Source* {
+            auto audioObj = py::module_::import("yope3d").attr("audio");
+            if (audioObj.is_none()) return nullptr;
+            auto* audio = audioObj.cast<AudioSystem*>();
+            return audio->playMusic(path, loop, fade_in, stream);
+        }, py::arg("path"), py::arg("loop") = false,
+           py::arg("fade_in") = 0.0f, py::arg("stream") = true,
            py::return_value_policy::reference);
 
     // Capsule overlap test against all tangible world geometry.

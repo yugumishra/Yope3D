@@ -492,6 +492,9 @@ void Engine::update() {
     Listener::setPosition(camera->getPosition());
     Listener::setOrientation(camera->getForward(), {0.0f, 1.0f, 0.0f});
 
+    // Advances gain fades and refills streaming music buffers.
+    audio->update(dt);
+
     // Sync AudioSource positions from their entity Transforms so 3D audio follows
     // the editor's spatial layout. Source* may be null for unbound audio entities.
     for (auto [e, tf, as] : world->getRegistry().view<Transform, ecs::AudioSource>()) {
