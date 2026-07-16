@@ -432,18 +432,29 @@ void bind_world(py::module_& m) {
         }, py::arg("locked"))
         .def("is_cursor_locked", [](Window& w) {
             return glfwGetInputMode(w.getHandle(), GLFW_CURSOR) == GLFW_CURSOR_DISABLED;
-        });
+        })
+        // Opt out of the built-in ESC/TAB/F11 hotkeys so a script-side action
+        // map can bind them to gameplay actions instead (pause menu, scoreboard,
+        // custom fullscreen UI). The key still reaches Input either way.
+        .def("set_escape_closes",  &Window::setEscapeCloses,  py::arg("enabled"))
+        .def("set_tab_pauses",     &Window::setTabPauses,     py::arg("enabled"))
+        .def("set_f11_fullscreen", &Window::setF11Fullscreen, py::arg("enabled"))
+        .def("get_escape_closes",  &Window::getEscapeCloses)
+        .def("get_tab_pauses",     &Window::getTabPauses)
+        .def("get_f11_fullscreen", &Window::getF11Fullscreen);
 
     // Input
     py::class_<Input>(m, "Input")
         .def("is_key_down",     &Input::isKeyDown)
         .def("is_key_pressed",  &Input::isKeyPressed)
         .def("is_key_released", &Input::isKeyReleased)
+        .def("get_key_name",    &Input::getKeyName, py::arg("key"))
         .def("is_lmb_down",     &Input::isLMBDown)
         .def("is_rmb_down",     &Input::isRMBDown)
         .def("is_mmb_down",     &Input::isMMBDown)
         .def("is_forward_mb_down",  &Input::isForwardMBDown)
         .def("is_backward_mb_down", &Input::isBackwardMBDown)
+        .def("is_mouse_down",     &Input::isMouseDown, py::arg("button"))
         .def("is_mouse_pressed",  &Input::isMousePressed,  py::arg("button"))
         .def("is_mouse_released", &Input::isMouseReleased, py::arg("button"))
         .def("get_scroll_x", &Input::getScrollX)
@@ -531,6 +542,79 @@ void bind_world(py::module_& m) {
     m.attr("KEY_LEFT_CONTROL") = GLFW_KEY_LEFT_CONTROL;
     m.attr("KEY_V")            = GLFW_KEY_V;
     m.attr("KEY_BACKSPACE")    = GLFW_KEY_BACKSPACE;
+
+    // Remaining letters (full A-Z now available — needed for a script-side
+    // action-map layer and its keyboard-layout remap generators, §6 of
+    // limitations.md, which must be able to bind/rebind any letter key).
+    m.attr("KEY_B") = GLFW_KEY_B;
+    m.attr("KEY_C") = GLFW_KEY_C;
+    m.attr("KEY_G") = GLFW_KEY_G;
+    m.attr("KEY_I") = GLFW_KEY_I;
+    m.attr("KEY_J") = GLFW_KEY_J;
+    m.attr("KEY_K") = GLFW_KEY_K;
+    m.attr("KEY_L") = GLFW_KEY_L;
+    m.attr("KEY_M") = GLFW_KEY_M;
+    m.attr("KEY_N") = GLFW_KEY_N;
+    m.attr("KEY_O") = GLFW_KEY_O;
+    m.attr("KEY_T") = GLFW_KEY_T;
+    m.attr("KEY_U") = GLFW_KEY_U;
+    m.attr("KEY_X") = GLFW_KEY_X;
+    m.attr("KEY_Y") = GLFW_KEY_Y;
+    m.attr("KEY_Z") = GLFW_KEY_Z;
+
+    // Digit row.
+    m.attr("KEY_0") = GLFW_KEY_0;
+    m.attr("KEY_1") = GLFW_KEY_1;
+    m.attr("KEY_2") = GLFW_KEY_2;
+    m.attr("KEY_3") = GLFW_KEY_3;
+    m.attr("KEY_4") = GLFW_KEY_4;
+    m.attr("KEY_5") = GLFW_KEY_5;
+    m.attr("KEY_6") = GLFW_KEY_6;
+    m.attr("KEY_7") = GLFW_KEY_7;
+    m.attr("KEY_8") = GLFW_KEY_8;
+    m.attr("KEY_9") = GLFW_KEY_9;
+
+    // Punctuation row (the three physical rows below are what the Dvorak/
+    // Colemak layout tables in behaviors/_actions.py remap between).
+    m.attr("KEY_SEMICOLON")     = GLFW_KEY_SEMICOLON;
+    m.attr("KEY_APOSTROPHE")    = GLFW_KEY_APOSTROPHE;
+    m.attr("KEY_COMMA")         = GLFW_KEY_COMMA;
+    m.attr("KEY_PERIOD")        = GLFW_KEY_PERIOD;
+    m.attr("KEY_SLASH")         = GLFW_KEY_SLASH;
+    m.attr("KEY_MINUS")         = GLFW_KEY_MINUS;
+    m.attr("KEY_EQUAL")         = GLFW_KEY_EQUAL;
+    m.attr("KEY_LEFT_BRACKET")  = GLFW_KEY_LEFT_BRACKET;
+    m.attr("KEY_RIGHT_BRACKET") = GLFW_KEY_RIGHT_BRACKET;
+    m.attr("KEY_BACKSLASH")     = GLFW_KEY_BACKSLASH;
+    m.attr("KEY_GRAVE_ACCENT")  = GLFW_KEY_GRAVE_ACCENT;
+
+    // Remaining modifiers, whitespace, and navigation keys.
+    m.attr("KEY_TAB")            = GLFW_KEY_TAB;
+    m.attr("KEY_CAPS_LOCK")      = GLFW_KEY_CAPS_LOCK;
+    m.attr("KEY_RIGHT_SHIFT")    = GLFW_KEY_RIGHT_SHIFT;
+    m.attr("KEY_RIGHT_CONTROL")  = GLFW_KEY_RIGHT_CONTROL;
+    m.attr("KEY_LEFT_ALT")       = GLFW_KEY_LEFT_ALT;
+    m.attr("KEY_RIGHT_ALT")      = GLFW_KEY_RIGHT_ALT;
+    m.attr("KEY_INSERT")         = GLFW_KEY_INSERT;
+    m.attr("KEY_DELETE")         = GLFW_KEY_DELETE;
+    m.attr("KEY_HOME")           = GLFW_KEY_HOME;
+    m.attr("KEY_END")            = GLFW_KEY_END;
+    m.attr("KEY_PAGE_UP")        = GLFW_KEY_PAGE_UP;
+    m.attr("KEY_PAGE_DOWN")      = GLFW_KEY_PAGE_DOWN;
+
+    // Function keys F1-F12.
+    m.attr("KEY_F1")  = GLFW_KEY_F1;
+    m.attr("KEY_F2")  = GLFW_KEY_F2;
+    m.attr("KEY_F3")  = GLFW_KEY_F3;
+    m.attr("KEY_F4")  = GLFW_KEY_F4;
+    m.attr("KEY_F5")  = GLFW_KEY_F5;
+    m.attr("KEY_F6")  = GLFW_KEY_F6;
+    m.attr("KEY_F7")  = GLFW_KEY_F7;
+    m.attr("KEY_F8")  = GLFW_KEY_F8;
+    m.attr("KEY_F9")  = GLFW_KEY_F9;
+    m.attr("KEY_F10") = GLFW_KEY_F10;
+    m.attr("KEY_F11") = GLFW_KEY_F11;
+    m.attr("KEY_F12") = GLFW_KEY_F12;
 
     // Mouse button constants (for is_mouse_pressed / is_mouse_released)
     m.attr("MOUSE_LEFT")   = GLFW_MOUSE_BUTTON_LEFT;

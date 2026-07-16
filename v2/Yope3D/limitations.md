@@ -450,6 +450,36 @@ score counter requires a Python global and a prayer.
 
 ## 6. Input: keyboard/mouse only, hardcoded, no action layer
 
+> **Status: action-map layer + configurable engine hotkeys shipped
+> (2026-07-15).** `behaviors/_actions.py` is a pure-Python `ActionMap` layer
+> over `Input` — named actions with multiple key/mouse bindings,
+> `down/pressed/released/axis/vector2` queries, JSON save/load for rebinding,
+> four ready-to-use presets (`PRESET_FPS`/`PLATFORMER`/`TOP_DOWN`/`MENU_NAV`),
+> and `remap_for_layout(preset, "dvorak"|"colemak")` generators that
+> translate letter/punctuation bindings to whichever physical key produces
+> the same character under that layout (GLFW key tokens are physical-position
+> codes, so WASD *movement* already works identically on every layout without
+> remapping — the generator matters for character/mnemonic-preserving
+> bindings like reload=R or a digit hotbar; see the module docstring for the
+> distinction). `Input::isMouseDown(button)` (generic, bounds-checked) backs
+> `ActionMap.down()` for mouse bindings; `Input::getKeyName(key)` (thin
+> `glfwGetKeyName` wrapper, layout-aware for printable keys) backs
+> `_actions.label(binding)` for rendering an accurate "Press ___" rebind-UI
+> string — raw `KEY_*` codes are layout-*independent* (physical position), so
+> this is a display-only concern, never something gameplay logic needs to
+> care about. The window-level hotkeys are now
+> opt-out: `Window::setEscapeCloses/setTabPauses/setF11Fullscreen`, each
+> configurable via `yope3d.cfg` (`escapeCloses`/`tabPauses`/`f11Fullscreen`,
+> default `true`) or from Python on `yope3d.window` — the physical key still
+> reaches `Input` regardless of the flag, so a script can bind ESC/TAB/F11 to
+> its own action once the built-in behavior is disabled. The full A-Z/digit/
+> punctuation/function-key `yope3d.KEY_*` set is now bound (previously ~20
+> keys). **Gamepad support remains out of scope** — excluded on request
+> (not reliably testable in the current dev setup), so §6.1/§6.4's gamepad
+> items below are still open; text input (§6.3, listed missing below) was
+> actually already shipped by the UI overhaul (§2) before this audit item was
+> written and is stale in the "What's missing" list.
+
 ### What exists today
 
 - `Input` (`src/platform/Input.h`) is polling-based keyboard + 5 mouse buttons +

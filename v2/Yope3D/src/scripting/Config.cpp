@@ -2,6 +2,12 @@
 #include <fstream>
 #include <sstream>
 
+namespace {
+bool parseBool(const std::string& val) {
+    return val == "1" || val == "true" || val == "True" || val == "TRUE";
+}
+}
+
 Config Config::load(const std::string& path) {
     Config cfg;
     std::ifstream file(path);
@@ -17,6 +23,9 @@ Config Config::load(const std::string& path) {
         if (key == "startupScene") cfg.startupScene = val;
         else if (key == "width")   cfg.width  = std::stoi(val);
         else if (key == "height")  cfg.height = std::stoi(val);
+        else if (key == "escapeCloses")  cfg.escapeCloses  = parseBool(val);
+        else if (key == "tabPauses")     cfg.tabPauses     = parseBool(val);
+        else if (key == "f11Fullscreen") cfg.f11Fullscreen = parseBool(val);
     }
     return cfg;
 }
