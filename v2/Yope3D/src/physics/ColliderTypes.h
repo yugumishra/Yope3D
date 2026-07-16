@@ -77,7 +77,7 @@ namespace ColliderDiscrete {
         "nphase_gjk_other",
     };
 
-#ifndef NDEBUG
+#ifdef YOPE_PROF_ENABLED
     struct NarrowphaseTiming {
         double us[NP_BUCKETS] = {};
         int    n [NP_BUCKETS] = {};

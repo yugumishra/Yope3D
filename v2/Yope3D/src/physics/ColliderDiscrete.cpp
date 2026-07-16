@@ -6,6 +6,7 @@
 #include "../ecs/Components.h"
 #include "../world/Transform.h"
 #include "../debug/Profiler.h"
+#include <atomic>
 #include <cmath>
 #include <algorithm>
 #include <limits>
@@ -14,6 +15,14 @@
 #include <type_traits>
 
 namespace physics::ColliderDiscrete {
+
+// Read once per solveIsland call on every pool worker; written from the main
+// thread (script/editor toggle). Relaxed is enough — a tick either sees the old
+// or the new value, and both are valid simulations.
+std::atomic<bool> g_warmStart{ true };
+
+void setWarmStartEnabled(bool on) { g_warmStart.store(on, std::memory_order_relaxed); }
+bool warmStartEnabled()           { return g_warmStart.load(std::memory_order_relaxed); }
 
 namespace {
 
@@ -680,7 +689,7 @@ void solvePositionJoint(Joint& j, ecs::Registry& reg, float dt) {
 // Per-shape-pair narrowphase timing (A4).
 // Each detect() call falls into one of 6 buckets (sph_sph, sph_aabb, sph_obb,
 // aabb_aabb, aabb_obb, obb_obb). NPHASE_TIME(bucket) creates a thread-local
-// RAII timer in debug builds; in release it expands to nothing.
+// RAII timer when YOPE_PROF_ENABLED; otherwise it expands to nothing.
 // emitNarrowphaseProfile() pushes 6 records (even at count==0) so the CSV
 // has a stable 6-row footprint per step for easy pandas pivot.
 // (PairBucket/kBucketStage/NPHASE_TIME live in ColliderTypes.h — shared with
@@ -688,13 +697,13 @@ void solvePositionJoint(Joint& j, ecs::Registry& reg, float dt) {
 // ============================================================================
 
 void resetNarrowphaseTiming() {
-#ifndef NDEBUG
+#ifdef YOPE_PROF_ENABLED
     g_npTiming = {};
 #endif
 }
 
 void emitNarrowphaseProfile() {
-#ifndef NDEBUG
+#ifdef YOPE_PROF_ENABLED
     for (int i = 0; i < NP_BUCKETS; ++i)
         YOPE_PROF_EMIT(kBucketStage[i], "physics", g_npTiming.us[i], g_npTiming.n[i]);
 #endif
@@ -788,7 +797,13 @@ void solveIsland(std::vector<ActiveContact>& contacts, std::vector<Joint*>& join
     for (Joint* jp : joints) precomputeJoint(*jp, reg);
 
     // ---- Warm start ----
+    // Gated by the global switch (see setWarmStartEnabled). With it off the
+    // lambdas stay at zero here and the velocity loop below starts from scratch;
+    // the cache is still *written* at the end of the step, so flipping the
+    // switch back on picks straight up from the current impulses.
+    const bool warmStart = warmStartEnabled();
     for (auto& c : contacts) {
+        if (!warmStart) break;
         auto* ha = getH(c.a); auto* hb = getH(c.b);
         if (!ha || !hb) continue;
         math::Vec3 n = c.manifold.normal;

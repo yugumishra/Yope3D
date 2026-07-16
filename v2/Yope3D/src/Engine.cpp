@@ -160,7 +160,11 @@ void Engine::startPhysicsThread() {
             double now = glfwGetTime();
             float  dt  = std::min(static_cast<float>(now - last), 0.05f);
             last = now;
-            accum = std::min(accum + dt, physics::MAX_PHYSICS_ACCUMULATOR);
+            // Time scale bends wall-clock dt only — the step handed to advance()
+            // below is still PHYSICS_DT, so slow-mo replays the same deterministic
+            // sim more slowly instead of simulating a different one.
+            accum = std::min(accum + dt * world->getTimeScale(),
+                             physics::MAX_PHYSICS_ACCUMULATOR);
             while (accum >= physics::PHYSICS_DT) {
                 world->advance(physics::PHYSICS_DT);
                 accum -= physics::PHYSICS_DT;
@@ -598,6 +602,10 @@ void Engine::updateScripts(float dt) {
         // During the async load, the splash logo owns the debug lines (set in
         // updateSplash, which runs in pumpSceneLoad before this) — don't wipe them.
         if (isSceneLoaded()) world->clearDebugLines();
+
+        // Contact-point overlay, drawn before scripts so a script's own
+        // draw_line() calls layer on top of it. No-op unless world->debugContacts.
+        if (isSceneLoaded() && world->debugContacts) world->emitContactDebugLines();
 
         // Collect under the structure lock: view iteration on the render thread
         // would race with archetype migrations (e.g. Fixed-tag toggles) on the physics thread.

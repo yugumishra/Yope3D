@@ -1348,6 +1348,39 @@ void World::addDebugLine(math::Vec3 a, math::Vec3 b, math::Vec3 color) {
     debugLines_.push_back({ b.x, b.y, b.z, color.x, color.y, color.z, 1.0f });
 }
 
+void World::emitContactDebugLines(float crossSize, float normalLen) {
+    std::vector<ContactDebugPoint> pts;
+    {
+        std::lock_guard lk(contactDebugMtx_);
+        pts = contactDebug_;
+    }
+    if (pts.empty()) return;
+
+    // Normalize the impulse heat against the frame's own peak. An absolute scale
+    // would need re-tuning per scene (a 1 kg ball and a 40-body stack differ by
+    // orders of magnitude); relative shows the load path, which is the point.
+    float peak = 0.0f;
+    for (const auto& p : pts) peak = std::max(peak, p.impulse);
+    if (peak <= 0.0f) peak = 1.0f;
+
+    for (const auto& p : pts) {
+        float t = std::min(1.0f, p.impulse / peak);
+        math::Vec3 color{ t, 0.25f * (1.0f - t), 1.0f - t };   // blue -> red
+
+        addDebugLine({ p.point.x - crossSize, p.point.y, p.point.z },
+                     { p.point.x + crossSize, p.point.y, p.point.z }, color);
+        addDebugLine({ p.point.x, p.point.y - crossSize, p.point.z },
+                     { p.point.x, p.point.y + crossSize, p.point.z }, color);
+        addDebugLine({ p.point.x, p.point.y, p.point.z - crossSize },
+                     { p.point.x, p.point.y, p.point.z + crossSize }, color);
+
+        // Normal, drawn from the point along the manifold normal (a->b). Length
+        // carries the impulse too, so a heavily-loaded contact is both red and long.
+        float len = normalLen * (0.35f + 0.65f * t);
+        addDebugLine(p.point, p.point + p.normal * len, color);
+    }
+}
+
 // Order-independent 64-bit key for an entity pair (generation ignored — adequate
 // for frame-to-frame event matching).
 static uint64_t pairKey(ecs::Entity a, ecs::Entity b) {
@@ -1976,6 +2009,7 @@ void World::advance(float dt) {
         YOPE_PROF_SCOPE("broadphase_sap", "physics");
         sap_.collectPairs(advanceEntities_, registry_, sapPairs_);
     }
+    lastPairCount_ = static_cast<int>(sapPairs_.size());
 
     // 1b. Wheel raycast refresh — SuspensionJoint's ground-contact geometry is
     // produced by a real raycast, not narrowphase detect(), so it must run
@@ -2021,6 +2055,10 @@ void World::advance(float dt) {
         physics::ColliderDiscrete::emitNarrowphaseProfile();
     }
     YOPE_PROF_SET_CONTACT_COUNT(advanceContacts_.size());
+    lastContactCount_      = static_cast<int>(advanceContacts_.size());
+    lastContactPointCount_ = 0;
+    for (const auto& c : advanceContacts_)
+        lastContactPointCount_ += c.manifold.numContacts;
 
     // 2b. Collision enter/exit events (only when a behavior is listening). Uses the
     // freshly-built advanceContacts_ + triggerContacts_ — runs even when empty so
@@ -2030,6 +2068,11 @@ void World::advance(float dt) {
 
     // 3. Island-partitioned PGS solve.
     lastIslandCount_ = 0;
+    // Filled from the islands after the solve (that's where the converged
+    // lambdas live — the solver mutates the islands' copies, not advanceContacts_).
+    // Declared out here so the "no contacts this tick" path still publishes an
+    // empty snapshot and the overlay clears instead of freezing on stale points.
+    std::vector<ContactDebugPoint> debugPts;
     // Joints (like contacts) can require a solve even with zero geometric
     // contact — e.g. two joint-connected bodies hanging in the air — so the
     // guard must not be contacts-only.
@@ -2085,6 +2128,21 @@ void World::advance(float dt) {
             }
         }
         physics::IslandDetector::mergeCache(islands, contactCache_);
+
+        if (debugContacts) {
+            debugPts.reserve(static_cast<size_t>(lastContactPointCount_));
+            for (const auto& island : islands)
+                for (const auto& c : island.contacts)
+                    for (int i = 0; i < c.manifold.numContacts; i++)
+                        debugPts.push_back({ c.manifold.contactPoints[i],
+                                             c.manifold.normal,
+                                             c.manifold.penetration,
+                                             c.lambda[i] });
+        }
+    }
+    if (debugContacts) {
+        std::lock_guard lk2(contactDebugMtx_);
+        contactDebug_ = std::move(debugPts);
     }
 
     // 4. Integration + sleep check.

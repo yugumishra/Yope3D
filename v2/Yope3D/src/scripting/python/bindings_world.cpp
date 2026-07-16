@@ -370,6 +370,13 @@ void bind_world(py::module_& m) {
         .def_readwrite("shadow_point_near",        &World::shadowPointNear)
         .def_readwrite("shadow_point_far",         &World::shadowPointFar)
         .def_readwrite("debug_physics", &World::debugPhysics)
+        // ---- Solver instrumentation ----
+        .def_readwrite("debug_contacts", &World::debugContacts)
+        .def_property("warm_start", &World::getWarmStart, &World::setWarmStart)
+        .def_property("time_scale", &World::getTimeScale, &World::setTimeScale)
+        .def("get_pair_count",          &World::getPairCount)
+        .def("get_contact_count",       &World::getContactCount)
+        .def("get_contact_point_count", &World::getContactPointCount)
         .def("set_paused", &World::setPaused, py::arg("paused"))
         .def_property("paused",
             [](World& w) { return w.paused_.load(std::memory_order_acquire); },

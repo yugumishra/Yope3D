@@ -28,6 +28,18 @@ namespace ColliderDiscrete {
     void solveIsland(std::vector<ActiveContact>& contacts, std::vector<Joint*>& joints,
                      float dt, ecs::Registry& reg, EntityContactCache& cache);
 
+    // Global warm-start switch (World::setWarmStart is the public face of it;
+    // solveIsland runs on pool workers with no World access, hence a global).
+    // OFF makes every contact start each substep from a zero impulse instead of
+    // last substep's converged one — the textbook PGS failure demo: a stack that
+    // stood still starts sinking and jittering, because PGS_VELOCITY_ITERATIONS
+    // sweeps from scratch can't rebuild the impulse that was holding it up.
+    // Joints are unaffected: SuspensionJoint applies its *entire* impulse inside
+    // warmStartSuspension (it isn't iterative), so gating that would silently
+    // delete vehicle suspension rather than demonstrate anything.
+    void setWarmStartEnabled(bool on);
+    bool warmStartEnabled();
+
     // Casts a SuspensionJoint's wheel ray and refreshes its grounded/hitPoint/
     // hitNormal/currentLength/worldUp fields. Must run BEFORE solveIsland (its
     // precompute pass only consumes these, it doesn't cast the ray itself) —

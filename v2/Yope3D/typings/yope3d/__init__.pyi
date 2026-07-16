@@ -987,6 +987,40 @@ class World:
     """Whether the physics simulation is paused (same as ``set_paused``)."""
 
     # ------------------------------------------------------------------ #
+    # Solver instrumentation (mirrors World Settings → Solver in the editor)
+    # ------------------------------------------------------------------ #
+
+    warm_start: bool
+    """Whether contacts reuse last step's converged impulses as this step's initial
+    guess (default ``True``). Turning it off is a demo of what warm-starting buys,
+    not an optimization: a stack that stood still starts sinking and jittering,
+    because the solver's iteration budget can't reconverge from zero each step.
+    Joints are unaffected."""
+
+    debug_contacts: bool
+    """Draw every solved manifold point as a cross plus its normal (default ``False``).
+    Color and normal length encode the converged normal impulse *relative to the
+    frame's peak* — blue = barely loaded, red = carrying the most force — so it shows
+    the load path through a stack, not absolute newtons. Uses the same debug-line
+    channel as ``draw_line`` (they compose; the engine clears it each frame)."""
+
+    time_scale: float
+    """Multiplier on wall-clock time fed to the physics accumulator (default ``1.0``,
+    ``0.0`` freezes the sim). The step size is unchanged — the sim still runs at a
+    fixed 240 Hz — so slow motion is a slowed replay of the same deterministic
+    simulation, not a softer one. Values above 1 saturate against the substep clamp
+    rather than exploding."""
+
+    def get_pair_count(self) -> int:
+        """Broadphase candidate pairs from the last tick (SAP output, pre-narrowphase)."""
+    def get_contact_count(self) -> int:
+        """Contact *manifolds* surviving narrowphase last tick (one per colliding pair;
+        matches the profiler CSV's ``contact_count``)."""
+    def get_contact_point_count(self) -> int:
+        """Individual contact *points* inside those manifolds — what the PGS loop
+        actually iterates. A box-box pair is one manifold but up to four points."""
+
+    # ------------------------------------------------------------------ #
     # World Settings: rendering / shadow tuning (mirror the editor panel)
     # ------------------------------------------------------------------ #
 
