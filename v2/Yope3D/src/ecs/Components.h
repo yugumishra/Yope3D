@@ -142,6 +142,7 @@ struct AudioSource {
     float   pitch     = 1.0f;
     bool    loop      = false;
     bool    autoplay  = false;
+    int     bus       = 1;             // Source::Bus (0=Music, 1=SFX, 2=Voice)
 };
 
 // ---- Spring constraint ----

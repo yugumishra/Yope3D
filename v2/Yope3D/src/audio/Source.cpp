@@ -1,8 +1,9 @@
 #include "Source.h"
+#include "AudioSystem.h"
 
-Source::Source(ALuint bufferId) {
+Source::Source(ALuint bufferId, AudioSystem* owner) : owner_(owner) {
     alGenSources(1, &id_);
-    alSourcei(id_, AL_BUFFER,           static_cast<ALint>(bufferId));
+    if (bufferId) alSourcei(id_, AL_BUFFER, static_cast<ALint>(bufferId));
     alSourcei(id_, AL_SOURCE_RELATIVE,  AL_FALSE);   // absolute world-space position
     alSourcef(id_, AL_REFERENCE_DISTANCE, 1.0f);     // full volume within 1 unit
     alSourcef(id_, AL_ROLLOFF_FACTOR,     1.0f);
@@ -21,8 +22,20 @@ void Source::pause()  { alSourcePause(id_);  }
 void Source::stop()   { alSourceStop(id_);   }
 void Source::rewind() { alSourceRewind(id_); }
 
-void Source::setGain(float gain)   { alSourcef(id_, AL_GAIN,  gain);  }
+void Source::setGain(float gain)   { baseGain_ = gain; refreshGain(); }
 void Source::setPitch(float pitch) { alSourcef(id_, AL_PITCH, pitch); }
+
+void Source::setRelative(bool relative) {
+    alSourcei(id_, AL_SOURCE_RELATIVE, relative ? AL_TRUE : AL_FALSE);
+    if (relative) alSource3f(id_, AL_POSITION, 0.0f, 0.0f, 0.0f);
+}
+
+void Source::setBus(Bus bus) { bus_ = bus; refreshGain(); }
+
+void Source::refreshGain() {
+    float gain = owner_ ? owner_->effectiveGainFor(bus_, baseGain_) : baseGain_;
+    alSourcef(id_, AL_GAIN, gain);
+}
 
 void Source::setPosition(math::Vec3 pos) {
     alSource3f(id_, AL_POSITION, pos.x, pos.y, pos.z);

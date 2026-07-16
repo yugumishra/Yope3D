@@ -29,6 +29,7 @@ void drawAudioSourceComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
                 as->source->setGain(as->gain);
                 as->source->setPitch(as->pitch);
                 as->source->enableLooping(as->loop);
+                as->source->setBus(static_cast<Source::Bus>(as->bus));
             }
             ctx.history->execute(ctx,
                 std::make_unique<SetAudioSourceCommand>(e, before, rel));
@@ -61,6 +62,10 @@ void drawAudioSourceComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
     if (ImGui::DragFloat("Pitch", &as->pitch, 0.01f, 0.1f, 4.f) && as->source) as->source->setPitch(as->pitch);
     if (ImGui::Checkbox("Loop",   &as->loop) && as->source)                     as->source->enableLooping(as->loop);
     ImGui::Checkbox("Autoplay (load/play)", &as->autoplay);
+
+    static const char* kBusNames[] = { "Music", "SFX", "Voice" };
+    if (ImGui::Combo("Bus", &as->bus, kBusNames, 3) && as->source)
+        as->source->setBus(static_cast<Source::Bus>(as->bus));
 
     ImGui::Spacing();
     if (!as->source) {

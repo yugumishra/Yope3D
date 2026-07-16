@@ -1,11 +1,15 @@
 #pragma once
 #include <AL/al.h>
 #include <AL/alc.h>
+#include <array>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include "Source.h"
+#include "../ui/Tween.h"
+
+class MusicStream;
 
 // ---------------------------------------------------------------------------
 // AudioSystem
@@ -36,8 +40,13 @@ public:
         ~SoundBuffer() { if (id) alDeleteBuffers(1, &id); }
     };
 
-    AudioSystem() = default;
-    ~AudioSystem() { cleanup(); }
+    // Both defined in the .cpp, not defaulted here: an inline-defaulted
+    // special member is instantiated at first ODR-use (e.g. Engine.cpp's
+    // make_unique<AudioSystem>()), which would need MusicStream's complete
+    // type for musicStreams_'s exception-safety/destruction paths — but
+    // MusicStream.h is only forward-declared in this header.
+    AudioSystem();
+    ~AudioSystem();
     AudioSystem(const AudioSystem&) = delete;
     AudioSystem& operator=(const AudioSystem&) = delete;
 
@@ -71,12 +80,56 @@ public:
     // Stop and remove a specific source. The pointer becomes invalid after this call.
     void removeSource(Source* src);
 
+    // ---- Mixer buses (Music/SFX/Voice) + master ----
+    // Effective AL gain for a source = baseGain * busGain[bus] * masterGain.
+    // Source::setGain/refreshGain call this to recompute their live AL_GAIN.
+    float effectiveGainFor(Source::Bus bus, float baseGain) const {
+        return baseGain * busGain_[static_cast<size_t>(bus)] * masterGain_;
+    }
+    void setBusGain(Source::Bus bus, float gain);
+    void setMasterGain(float gain);
+
+    // ---- Gain fades (used by playMusic's fade_in and manual fade-outs) ----
+    void fadeGain(Source* src, float target, float durationSeconds,
+                  ui::Ease ease = ui::Ease::Linear);
+
+    // Advances gain fades and refills streaming music buffers. Call once per
+    // frame (Engine::update) — there is no other per-frame audio tick.
+    void update(float dt);
+
+    // Decode + upload an OGG file without down-mixing to mono (stereo stays
+    // stereo); cached separately from loadSound's mono buffers_ cache so the
+    // same path can't collide between the two gamma^H^H^H mix modes.
+    // For short stereo one-shots; long tracks should use playMusic(stream=true).
+    SoundBuffer* loadMusicBuffer(const std::string& path);
+
+    // Non-spatial ("2D") music playback, tagged to the Music bus.
+    //   stream=true  -> incremental decode via MusicStream (low memory, for
+    //                    long tracks).
+    //   stream=false -> full-decode stereo SoundBuffer (loadMusicBuffer), for
+    //                    short stingers/jingles where streaming is overkill.
+    // fadeInSeconds > 0 ramps gain from 0 to 1 instead of starting at full volume.
+    Source* playMusic(const std::string& path, bool loop = false,
+                       float fadeInSeconds = 0.0f, bool stream = true);
+
 private:
     ALCdevice*  device_  = nullptr;
     ALCcontext* context_ = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<SoundBuffer>> buffers_;
+    std::unordered_map<std::string, std::unique_ptr<SoundBuffer>> musicBuffers_;
     std::vector<std::unique_ptr<Source>>                          sources_;
+    std::vector<std::unique_ptr<MusicStream>>                     musicStreams_;
+
+    struct GainFade {
+        Source* src;
+        float from, to, duration, elapsed;
+        ui::Ease ease;
+    };
+    std::vector<GainFade> fades_;
+
+    float masterGain_ = 1.0f;
+    std::array<float, 3> busGain_ = {1.0f, 1.0f, 1.0f};  // indexed by Source::Bus
 
     bool initialised_ = false;
 };

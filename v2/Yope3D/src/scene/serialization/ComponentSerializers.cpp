@@ -411,6 +411,7 @@ void serializeAudioSource(const void* comp, JsonWriter& w) {
     w.writeFloat("pitch", as->pitch);
     w.writeBool ("loop",  as->loop);
     w.writeBool ("autoplay", as->autoplay);
+    w.writeInt  ("bus", as->bus);
 }
 
 bool deserializeAudioSource(const JsonNode& n, void* comp) {
@@ -420,6 +421,7 @@ bool deserializeAudioSource(const JsonNode& n, void* comp) {
     if (n.contains("pitch"))    as->pitch    = n["pitch"].asFloat();
     if (n.contains("loop"))     as->loop     = n["loop"].asBool();
     if (n.contains("autoplay")) as->autoplay = n["autoplay"].asBool();
+    if (n.contains("bus"))      as->bus      = n["bus"].asInt();
     // Source* is rebuilt by SceneSerializer after the entity is created.
     return true;
 }

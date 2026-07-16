@@ -890,6 +890,9 @@ class AudioSource:
     loop: bool
     autoplay: bool
     """Fires only in play mode (not on scene load)."""
+    bus: int
+    """Mixer bus tag: one of ``yope3d.BUS_MUSIC``/``BUS_SFX``/``BUS_VOICE``
+    (default ``BUS_SFX``). See ``audio.set_bus_gain``."""
     @property
     def source(self) -> Source | None:
         """The live OpenAL voice once bound/playing, else ``None``. Read-only."""
@@ -1997,6 +2000,13 @@ class Source:
         """Enable or disable looping."""
     def is_playing(self) -> bool:
         """Return ``True`` while the voice is actively playing."""
+    def set_relative(self, relative: bool) -> None:
+        """Toggle non-spatial ("2D") playback. When ``True``, position/distance
+        attenuation/Doppler are ignored (music, UI sounds); position resets to
+        the origin. ``yope3d.play_music`` sets this automatically."""
+    def set_bus(self, bus: int) -> None:
+        """Tag this voice with a mixer bus (``yope3d.BUS_MUSIC``/``BUS_SFX``/
+        ``BUS_VOICE``) and immediately recompute its live gain."""
 
 class AudioSystem:
     """Global audio control + asset loading. Singleton ``yope3d.audio``."""
@@ -2026,6 +2036,23 @@ class AudioSystem:
             A ``Source`` you own (not pooled). Prefer ``yope3d.play_sound`` for
             one-shots.
         """
+    def set_bus_gain(self, bus: int, gain: float) -> None:
+        """Set a mixer bus's linear gain multiplier (default 1.0).
+
+        Args:
+            bus: One of ``yope3d.BUS_MUSIC``/``BUS_SFX``/``BUS_VOICE``.
+            gain: Linear multiplier applied on top of each source's own gain.
+        """
+    def set_master_gain(self, gain: float) -> None:
+        """Set the global linear gain multiplier applied to every voice
+        regardless of bus (default 1.0)."""
+    def fade_gain(
+        self, source: Source, target: float, duration: float, ease: int = EASE_LINEAR
+    ) -> None:
+        """Ramp a source's gain to ``target`` over ``duration`` seconds
+        (replaces any in-progress fade already targeting ``source``).
+        ``ease`` is one of the ``yope3d.EASE_*`` constants. Ticked once per
+        frame internally — no per-frame calls needed from the caller."""
 
 class CollisionLayers:
     """Named 32-bit collision-layer registry. Access via ``yope3d.world.layers``."""
@@ -2391,6 +2418,29 @@ def play_sound(
         manage yourself, use ``yope3d.audio.create_source(...)`` instead.
     """
 
+def play_music(
+    path: str, loop: bool = False, fade_in: float = 0.0, stream: bool = True
+) -> Source | None:
+    """Play non-spatial ("2D") stereo music — the soundtrack counterpart to
+    ``play_sound``'s mono/positional one-shots. Not pooled: the returned
+    ``Source`` is yours until you stop/remove it.
+
+    Args:
+        path: Asset-relative sound path (e.g. ``"audios/theme.ogg"``).
+        loop: Whether to loop (seeks back to the start seamlessly).
+        fade_in: If > 0, ramps gain from 0 to 1 over this many seconds instead
+            of starting at full volume.
+        stream: ``True`` (default) incrementally decodes the track a chunk at
+            a time — use for full-length tracks, only the compressed file
+            stays resident in memory. ``False`` fully decodes to a stereo
+            buffer up front — fine for short stingers/jingles, wasteful for
+            anything longer.
+
+    Returns:
+        The ``Source`` (tagged ``BUS_MUSIC``), or ``None`` if audio isn't
+        available.
+    """
+
 def set_text(entity: Entity, text: str) -> None:
     """Set the string of whichever text component the entity has (UIText or TextLabel3D)."""
 
@@ -2523,3 +2573,11 @@ EASE_QUAD_IN_OUT: Final[int]
 EASE_CUBIC_IN: Final[int]
 EASE_CUBIC_OUT: Final[int]
 EASE_CUBIC_IN_OUT: Final[int]
+
+# ==============================================================================
+# Audio mixer bus constants (for AudioSource.bus / audio.set_bus_gain)
+# ==============================================================================
+
+BUS_MUSIC: Final[int]
+BUS_SFX: Final[int]
+BUS_VOICE: Final[int]

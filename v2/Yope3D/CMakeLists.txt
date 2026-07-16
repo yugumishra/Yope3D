@@ -262,6 +262,7 @@ set(ENGINE_SOURCES
     src/assets/Primitives.cpp
     src/audio/AudioSystem.cpp
     src/audio/Source.cpp
+    src/audio/MusicStream.cpp
     src/audio/Listener.cpp
     src/rendering/CameraController.cpp
     src/scripting/ScriptFactory.cpp
