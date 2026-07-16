@@ -2,6 +2,7 @@
 #include "../gpu/GpuDevice.h"
 #include "../gpu/Buffer.h"
 #include "../assets/ImageLoader.h"
+#include "../assets/AssetResolve.h"
 #include "../debug/Console.h"
 #include <filesystem>
 #include <cstring>
@@ -60,8 +61,9 @@ bool Skybox::init(GpuDevice& gpu, VkCommandPool commandPool,
     int W = 0, H = 0;
     for (int i = 0; i < 6; ++i) {
         try {
-            std::string full = (std::filesystem::path(YOPE_ASSETS_DIR) / faces[i]).string();
-            imgs[i] = ImageLoader::load(full);
+            std::vector<uint8_t> bytes = assets::readBytes(faces[i]);
+            if (bytes.empty()) throw std::runtime_error("not found");
+            imgs[i] = ImageLoader::loadFromMemory(bytes.data(), static_cast<int>(bytes.size()));
         } catch (const std::exception& e) {
             Console::log(std::string("[Skybox] failed to load face: ") + faces[i], LogSeverity::Error);
             return false;

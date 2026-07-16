@@ -11,6 +11,7 @@
 #include "audio/AudioSystem.h"
 #include "audio/Source.h"
 #include "scene/SceneManager.h"
+#include "platform/BundlePaths.h"
 #include "physics/CollisionLayers.h"
 #include "rendering/Light.h"
 #include "assets/Primitives.h"
@@ -21,6 +22,7 @@
 #include <GLFW/glfw3.h>
 #include <unordered_set>
 #include <atomic>
+#include <filesystem>
 
 namespace py = pybind11;
 
@@ -639,5 +641,17 @@ void bind_world(py::module_& m) {
         if (sm.is_none()) throw std::runtime_error("scene_manager not bound");
         sm.cast<SceneManager*>()->queueLoad(path);
     });
+    // Resolve a writable path for `name` inside the sanctioned per-platform
+    // save directory, creating any needed subdirectories. Throws if no
+    // writable directory could be resolved (e.g. HOME/APPDATA unset).
+    m.def("save_path", [](const std::string& name) -> std::string {
+        std::string base = writableDataDir();
+        if (base.empty())
+            throw std::runtime_error("save_path: could not resolve a writable data directory");
+        std::filesystem::path full = std::filesystem::path(base) / name;
+        std::error_code ec;
+        std::filesystem::create_directories(full.parent_path(), ec);
+        return full.string();
+    }, py::arg("name"));
 }
 #endif // YOPE_PYTHON

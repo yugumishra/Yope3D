@@ -1,14 +1,10 @@
 #include "Window.h"
 #include "Input.h"
 #include "../assets/ImageLoader.h"
+#include "../assets/AssetResolve.h"
 
 #include <filesystem>
 #include <iostream>
-
-#ifdef YOPE_EMBED_ASSETS
-#include "generated/embedded_assets.h"
-#endif
-
 #include <stdexcept>
 
 // ---------------------------------------------------------------------------
@@ -222,18 +218,10 @@ void Window::setIcon(const std::string& assetPath) {
     LoadedImage image;
 
     try {
-#ifdef YOPE_EMBED_ASSETS
-        EmbeddedAsset asset = getEmbeddedAsset(assetPath.c_str());
-        if (asset.data) {
-            image = ImageLoader::loadFromMemory(asset.data, static_cast<int>(asset.size));
-        } else {
+        std::vector<uint8_t> bytes = assets::readBytes(assetPath);
+        if (bytes.empty())
             return;  // Icon is cosmetic — missing file is not fatal.
-        }
-#else
-        // This handles "/" vs "\" automatically for Mac and Windows builds
-        std::string fullPath = (std::filesystem::path(YOPE_ASSETS_DIR) / assetPath).string();
-        image = ImageLoader::load(fullPath);
-#endif
+        image = ImageLoader::loadFromMemory(bytes.data(), static_cast<int>(bytes.size()));
     } catch (...) {
         // Icon is cosmetic — missing file is not fatal.
         return;

@@ -1,5 +1,6 @@
 #include "GltfLoader.h"
 #include "../scene/serialization/JsonParser.h"
+#include "AssetResolve.h"
 #include <fstream>
 #include <filesystem>
 #include <stdexcept>
@@ -12,13 +13,12 @@ namespace {
 using Bytes = std::vector<uint8_t>;
 using Mat16 = std::array<float, 16>;   // column-major 4x4
 
+// path is a full filesystem path (already resolved against YOPE_ASSETS_DIR by
+// the caller, or a sibling of one via gltfDir/uri) — normalize it back to an
+// assets/-relative key so embedded models/buffers are found too.
 Bytes readFile(const std::string& path) {
-    std::ifstream f(path, std::ios::binary | std::ios::ate);
-    if (!f) throw std::runtime_error("GltfLoader: cannot open " + path);
-    std::streamsize n = f.tellg();
-    f.seekg(0);
-    Bytes b(static_cast<size_t>(n));
-    f.read(reinterpret_cast<char*>(b.data()), n);
+    Bytes b = assets::readBytes(assets::normalizeToAssetsRelative(path));
+    if (b.empty()) throw std::runtime_error("GltfLoader: cannot open " + path);
     return b;
 }
 

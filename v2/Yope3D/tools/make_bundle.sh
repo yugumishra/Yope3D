@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
 # make_bundle.sh — assemble a standalone Yope3D.app from a compiled release binary.
 #
-# Usage:  tools/make_bundle.sh <binary_path> [output_dir]
-# Example: tools/make_bundle.sh build/mac-release/yope3d dist
+# Usage:  tools/make_bundle.sh <binary_path> [output_dir] [embed_scope]
+# Example: tools/make_bundle.sh build/mac-release/yope3d dist PARTIAL
+#
+# embed_scope: OFF | PARTIAL | FULL (see CMakeLists.txt YOPE_EMBED_SCOPE).
+#   FULL    — everything is baked into the binary; assets/ is not copied.
+#   PARTIAL — only tools/embed_manifest.txt is baked in; everything else under
+#             assets/ ships loose in Contents/Resources/assets.
+#   OFF     — nothing is embedded; the whole assets/ tree ships loose (dev/
+#             experimentation use of the bundle — not the normal case).
 #
 # Requires: otool, install_name_tool, rsync (all standard on macOS)
 
 set -euo pipefail
 
-BINARY="${1:?Usage: make_bundle.sh <binary_path> [output_dir]}"
+BINARY="${1:?Usage: make_bundle.sh <binary_path> [output_dir] [embed_scope]}"
 OUTDIR="${2:-.}"
+EMBED_SCOPE="${3:-OFF}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 APP="$OUTDIR/Yope3D.app"
@@ -246,6 +254,26 @@ cp -r "$REPO_ROOT/scripts" "$RESOURCES_DIR/scripts"
 
 echo "  Copying yope3d.cfg..."
 cp "$REPO_ROOT/yope3d.cfg" "$RESOURCES_DIR/yope3d.cfg"
+
+# ---------------------------------------------------------------------------
+# Loose assets (skipped entirely for FULL scope — everything's in the binary)
+# ---------------------------------------------------------------------------
+
+if [ "$EMBED_SCOPE" = "FULL" ]; then
+    echo "  Embed scope FULL — assets/ baked into binary, nothing to copy."
+elif [ "$EMBED_SCOPE" = "PARTIAL" ]; then
+    MANIFEST="$REPO_ROOT/tools/embed_manifest.txt"
+    echo "  Embed scope PARTIAL — copying non-manifest assets/ into bundle..."
+    EXCLUDE_FILE="$(mktemp)"
+    grep -v '^\s*#' "$MANIFEST" | grep -v '^\s*$' > "$EXCLUDE_FILE" || true
+    mkdir -p "$RESOURCES_DIR/assets"
+    rsync -a --quiet --exclude-from="$EXCLUDE_FILE" "$REPO_ROOT/assets/" "$RESOURCES_DIR/assets/"
+    rm -f "$EXCLUDE_FILE"
+else
+    echo "  Embed scope OFF — copying full assets/ into bundle..."
+    mkdir -p "$RESOURCES_DIR/assets"
+    rsync -a --quiet "$REPO_ROOT/assets/" "$RESOURCES_DIR/assets/"
+fi
 
 # ---------------------------------------------------------------------------
 

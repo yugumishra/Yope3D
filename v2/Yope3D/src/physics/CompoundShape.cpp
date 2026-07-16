@@ -1,7 +1,9 @@
 #include "CompoundShape.h"
+#include "../assets/AssetResolve.h"
 #include <algorithm>
 #include <limits>
 #include <fstream>
+#include <sstream>
 #include <type_traits>
 
 namespace physics {
@@ -141,8 +143,14 @@ namespace {
 }
 
 bool readBcbvh(const std::string& absPath, CompiledCollider& out) {
-    std::ifstream is(absPath, std::ios::binary);
-    if (!is) return false;
+    // Goes through the shared embedded/filesystem resolver (see AssetResolve.h)
+    // so .bcbvh participates in YOPE_EMBED_SCOPE like every other asset type —
+    // it's linked into the headless physics tests too, where YOPE_EMBED_ASSETS
+    // is simply never defined, so this collapses to a plain file read there.
+    std::vector<uint8_t> bytes = assets::readBytes(assets::normalizeToAssetsRelative(absPath));
+    if (bytes.empty()) return false;
+    std::istringstream is(std::string(reinterpret_cast<const char*>(bytes.data()), bytes.size()),
+                          std::ios::binary);
     uint32_t magic = 0, version = 0;
     if (!readPod(is, magic) || !readPod(is, version)) return false;
     if (magic != BCBVH_MAGIC) return false;
