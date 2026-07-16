@@ -17,6 +17,7 @@
 #include "world/Transform.h"
 #include "ecs/Components.h"
 #include <memory>
+#include <string>
 #include <vector>
 
 // Clipboard reuses ComponentSnapshot so copy/paste and delete/undo share the same restore logic.
@@ -24,7 +25,7 @@ using ClipboardEntry = ComponentSnapshot;
 
 class EditorApp {
 public:
-    bool init();
+    bool init(const std::string& sceneOverride = "");
     void run();
     void cleanup();
 

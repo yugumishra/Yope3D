@@ -25,8 +25,8 @@ struct SetFixedCommand : ICommand {
                 h->gravity        = false;
                 h->velocity       = {};
                 h->omega          = {};
+                h->asleep         = false;
             }
-            if (ctx.registry->has<ecs::Sleeping>(entity)) ctx.registry->remove<ecs::Sleeping>(entity);
         } else {
             if (ctx.registry->has<ecs::Fixed>(entity)) ctx.registry->remove<ecs::Fixed>(entity);
             if (auto* h = ctx.registry->get<ecs::Hull>(entity)) {

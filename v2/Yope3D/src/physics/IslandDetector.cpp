@@ -29,13 +29,12 @@ void IslandDetector::build(
     if (allContacts.empty() && springPairs.empty() && jointPairs.empty()) return;
 
     auto isFixed = [&](ecs::Entity e) -> bool { return reg.has<ecs::Fixed>(e); };
-    auto isSleeping = [&](ecs::Entity e) -> bool { return reg.has<ecs::Sleeping>(e); };
+    auto isSleeping = [&](ecs::Entity e) -> bool {
+        auto* hc = reg.get<ecs::Hull>(e);
+        return hc && hc->asleep;
+    };
     auto wakeUp = [&](ecs::Entity e) {
-        if (reg.has<ecs::Sleeping>(e)) {
-            reg.remove<ecs::Sleeping>(e);
-            if (auto* hc = reg.get<ecs::Hull>(e))
-                hc->sleepFrames = 0;
-        }
+        if (auto* hc = reg.get<ecs::Hull>(e)) { hc->asleep = false; hc->sleepFrames = 0; }
     };
 
     // 1. Assign union-find IDs to dynamic (non-fixed) entities only.

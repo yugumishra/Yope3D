@@ -30,6 +30,7 @@ struct Hull {
     bool       tangible       = true;
     bool       sleepingEnabled = true;
     bool       isTrigger      = false;
+    bool       asleep         = false;   // physics: body has entered sleep state
 
     // Phase D fields: solve accumulators + cached tensors (populated by factory methods / publishSnapshot)
     math::Vec3 pseudoVel          {};
@@ -219,7 +220,6 @@ struct ScriptComponent {
 };
 
 // ---- Tag components (zero-content; presence encodes the condition) ----
-struct Sleeping         {};   // physics: body has entered sleep state
 struct Fixed            {};   // physics: body is stationary / infinite mass
 struct EditorSelectable {};   // editor: show in hierarchy panel (Phase D)
 struct EditorPickable   {};   // editor: render in ID buffer pass (Phase D)

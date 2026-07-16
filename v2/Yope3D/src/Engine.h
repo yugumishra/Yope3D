@@ -101,6 +101,16 @@ struct Engine {
     void render();
     void cleanup();
 
+    // The script-facing half of update(): scene-swap flush, UI input routing +
+    // callback dispatch, ticking every live Script::update(), collision-event
+    // dispatch, ui_update (hover/blink), pending UI texture uploads, and tweens.
+    // Factored out of update() so EditorApp can drive it during Play — the
+    // editor doesn't call Engine::update() (it drives its own render loop), so
+    // without this call scripts were instantiated + init()'d by doTogglePlay()
+    // but never ticked, an editor-only gap that's existed since Python
+    // scripting landed. dt is wall-clock seconds, already clamped by the caller.
+    void updateScripts(float dt);
+
     // Drive the asynchronous startup-scene load one step. Call once per frame,
     // before render(), from both the runtime and editor loops. No-op once the
     // scene is fully loaded.
@@ -113,6 +123,12 @@ struct Engine {
     // Startup-load progress (for the editor's window-level loading overlay).
     int  loadCommitted() const { return committedEntities_; }
     int  loadTotal()     const { return totalEntities_; }
+
+    // Resolved path of the scene passed to init() (cfg startupScene or --scene
+    // override), absolute or asset-relative per beginAsyncLoad's resolution.
+    // Lets EditorApp mirror this into its own currentSceneFile_ tracking after
+    // a cfg-driven startup load, same as it does for the Open Scene menu.
+    const std::string& startupScenePath() const { return scenePath_; }
 
 private:
     // Kick off the background parse of scenePath and build the loading splash.

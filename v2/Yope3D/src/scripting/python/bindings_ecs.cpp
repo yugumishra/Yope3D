@@ -49,6 +49,7 @@ void bind_ecs(py::module_& m) {
         .def_readwrite("gravity",         &ecs::Hull::gravity)
         .def_readwrite("tangible",        &ecs::Hull::tangible)
         .def_readwrite("is_trigger",      &ecs::Hull::isTrigger)
+        .def_readwrite("asleep",          &ecs::Hull::asleep)
         .def_readwrite("collision_layer", &ecs::Hull::collisionLayer)
         .def_readwrite("collision_mask",  &ecs::Hull::collisionMask);
 
@@ -344,7 +345,7 @@ void bind_ecs(py::module_& m) {
         }
         auto* world = worldObj.cast<World*>();
         // Lock for the whole build: getRaw walks archetype arrays the physics thread
-        // may be migrating (Sleeping-tag adds) during advance().
+        // may be migrating during advance() (e.g. a script-triggered Fixed-tag toggle).
         auto lock = world->lockStructure();
         auto& reg = world->getRegistry();
 
@@ -399,12 +400,13 @@ void bind_ecs(py::module_& m) {
         return world->getRegistry().valid(e);
     });
 
-    // Tag queries (the question wake() / fix_entity answer). Also reachable via
-    // reg_has(e, "Sleeping") / reg_has(e, "Fixed").
+    // Tag/flag queries (the question wake() / fix_entity answer). Fixed is a tag,
+    // also reachable via reg_has(e, "Fixed"); asleep is a plain Hull field.
     m.def("is_sleeping", [](ecs::Entity e) -> bool {
         auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
-        return world->getRegistry().has<ecs::Sleeping>(e);
+        auto* h = world->getRegistry().get<ecs::Hull>(e);
+        return h && h->asleep;
     }, py::arg("entity"));
     m.def("is_fixed", [](ecs::Entity e) -> bool {
         auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
