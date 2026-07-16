@@ -2287,6 +2287,18 @@ def raycast(
 
 def load_scene(path: str) -> None:
     """Shorthand for ``yope3d.scene_manager.load_scene(path)``."""
+def save_path(name: str) -> str:
+    """Resolve a writable path for `name` in the per-platform save directory.
+
+    Creates any needed parent directories. Use this instead of a bare relative
+    path — bundled builds can't write next to the app binary.
+
+    Args:
+        name: Filename or relative subpath (e.g. ``"slot1.json"``).
+
+    Returns:
+        Absolute path suitable for ``open(..., "w")``.
+    """
 
 # ==============================================================================
 # Convenience helpers

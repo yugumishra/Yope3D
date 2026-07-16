@@ -5,6 +5,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <vector>
 
 // Zero-copy reader for the packed loading-logo binary (tools/logo_pack.py).
 //
@@ -43,7 +44,20 @@ struct LogoBundle {
         size_t rd = std::fread(buf.get(), 1, static_cast<size_t>(sz), f);
         std::fclose(f);
         if (rd != static_cast<size_t>(sz)) return false;
+        return parseBuf(static_cast<size_t>(sz));
+    }
 
+    // Same format, but bytes already resolved (embedded asset or filesystem —
+    // see assets::readBytes). Takes ownership of a copy in the 16-aligned buf.
+    bool loadFromMemory(const std::vector<uint8_t>& bytes) {
+        if (bytes.size() < 64) return false;
+        buf.reset(new uint8_t[bytes.size()]);   // operator new[] => 16-aligned
+        std::memcpy(buf.get(), bytes.data(), bytes.size());
+        return parseBuf(bytes.size());
+    }
+
+private:
+    bool parseBuf(size_t sz) {
         const uint8_t* p = buf.get();
         uint32_t magic = 0, clipCount = 0;
         std::memcpy(&magic, p + 0, 4);
@@ -76,6 +90,7 @@ struct LogoBundle {
         return valid;
     }
 
+public:
     void clear() {
         buf.reset();
         part1 = LogoClipView{};

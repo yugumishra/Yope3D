@@ -3,6 +3,7 @@
 #include "../assets/Primitives.h"
 #include "../assets/GltfLoader.h"
 #include "../assets/AssetManager.h"
+#include "../assets/AssetResolve.h"
 #include <cstring>
 #include <cstdio>
 #include <cctype>
@@ -368,9 +369,11 @@ physics::CompiledCollider* World::loadCompoundCollider(const std::string& assetR
     auto it = compoundColliderCache_.find(assetRelPath);
     if (it != compoundColliderCache_.end() && !forceReload) return it->second.get();
 
-    std::string fullPath = (std::filesystem::path(YOPE_ASSETS_DIR) / assetRelPath).string();
+    // readBcbvh resolves assetRelPath itself via the shared embedded/filesystem
+    // resolver (see CompoundShape.cpp / AssetResolve.h) — participates in
+    // YOPE_EMBED_SCOPE like every other asset type.
     physics::CompiledCollider loaded;
-    if (!physics::readBcbvh(fullPath, loaded)) return nullptr;
+    if (!physics::readBcbvh(assetRelPath, loaded)) return nullptr;
 
     if (it != compoundColliderCache_.end()) {
         // In-place update: keep the object's address stable so pointers already
@@ -570,8 +573,7 @@ static math::Vec3 recenterMesh(LoadedMesh& m) {
 }
 
 std::vector<ecs::Entity> World::addModel(const std::string& path) {
-    std::string fullPath = (std::filesystem::path(YOPE_ASSETS_DIR) / path).string();
-    return importModel(fullPath);
+    return importModel(assets::resolveFilesystemPath(path));
 }
 
 std::vector<ecs::Entity> World::importModel(const std::string& absPath) {

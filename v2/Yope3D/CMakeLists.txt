@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(Yope3D VERSION 0.1.0 LANGUAGES CXX)
+project(Yope3D VERSION 0.1.0 LANGUAGES CXX ASM)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -113,36 +113,82 @@ if(YOPE_BAKE_FONTS)
 endif()
 
 # ---------------------------------------------------------------------------
-# Embed option — must be declared before the block that uses it
+# Embed scope — must be declared before the block that uses it
+#   OFF      no embedding, everything read from assets/ on disk (dev default)
+#   PARTIAL  embed only tools/embed_manifest.txt (core/engine assets); the
+#            rest ships as loose files next to the binary (Steam-style dist)
+#   FULL     embed everything under assets/ + compiled_shaders/ (single
+#            portable executable, e.g. for local experimentation)
 # ---------------------------------------------------------------------------
 
-option(YOPE_EMBED_ASSETS "Embed assets into the binary" OFF)
+set(YOPE_EMBED_SCOPE "OFF" CACHE STRING "Asset embed scope: OFF, PARTIAL, FULL")
+set_property(CACHE YOPE_EMBED_SCOPE PROPERTY STRINGS OFF PARTIAL FULL)
+
+if(NOT YOPE_EMBED_SCOPE STREQUAL "OFF" AND NOT YOPE_EMBED_SCOPE STREQUAL "PARTIAL" AND NOT YOPE_EMBED_SCOPE STREQUAL "FULL")
+    message(FATAL_ERROR "YOPE_EMBED_SCOPE must be one of OFF, PARTIAL, FULL (got '${YOPE_EMBED_SCOPE}')")
+endif()
+
+if(NOT YOPE_EMBED_SCOPE STREQUAL "OFF")
+    set(YOPE_EMBED_ASSETS ON)
+else()
+    set(YOPE_EMBED_ASSETS OFF)
+endif()
+
+# Record the resolved scope for tools/make_bundle.sh (it needs to know whether
+# to also copy loose assets/ into the .app bundle's Resources/).
+file(WRITE "${CMAKE_BINARY_DIR}/embed_scope.txt" "${YOPE_EMBED_SCOPE}\n")
 
 # ---------------------------------------------------------------------------
-# Embed mode: run tools/embed_assets.py to bake assets/ into a .cpp
+# Embed mode: run tools/embed_assets.py to bake assets/ into a linked object
 # ---------------------------------------------------------------------------
 
 if(YOPE_EMBED_ASSETS)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
     set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+    set(EMBED_ASM     "${GENERATED_DIR}/embedded_assets.s")
     set(EMBED_CPP     "${GENERATED_DIR}/embedded_assets.cpp")
     set(EMBED_H       "${GENERATED_DIR}/embedded_assets.h")
 
     file(GLOB_RECURSE ASSET_FILES "${CMAKE_SOURCE_DIR}/assets/*")
 
+    set(EMBED_MANIFEST_ARGS "")
+    set(EMBED_MANIFEST_DEPENDS "")
+    if(YOPE_EMBED_SCOPE STREQUAL "PARTIAL")
+        set(EMBED_MANIFEST_FILE "${CMAKE_SOURCE_DIR}/tools/embed_manifest.txt")
+        set(EMBED_MANIFEST_ARGS "--manifest" "${EMBED_MANIFEST_FILE}")
+        set(EMBED_MANIFEST_DEPENDS "${EMBED_MANIFEST_FILE}")
+    endif()
+
+    # MSVC's assembler (ml/ml64) doesn't understand GAS .incbin syntax, so it
+    # falls back to the old hex-array codegen (slower to compile, but correct).
+    # Clang/GCC (mac + Windows-via-clang) get the fast linker-embed backend.
+    if(MSVC)
+        set(EMBED_BACKEND "hexarray")
+    else()
+        set(EMBED_BACKEND "incbin")
+    endif()
+
     add_custom_command(
-        OUTPUT  "${EMBED_CPP}" "${EMBED_H}"
+        OUTPUT  "${EMBED_ASM}" "${EMBED_CPP}" "${EMBED_H}"
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_SOURCE_DIR}/tools/embed_assets.py"
                 "${CMAKE_SOURCE_DIR}/assets"
                 "${CMAKE_SOURCE_DIR}/compiled_shaders"
                 "${GENERATED_DIR}"
-        DEPENDS "${CMAKE_SOURCE_DIR}/tools/embed_assets.py" ${ASSET_FILES} ${COMPILED_SHADERS}
-        COMMENT "Embedding assets and shaders into binary"
+                "--backend" "${EMBED_BACKEND}"
+                ${EMBED_MANIFEST_ARGS}
+        DEPENDS "${CMAKE_SOURCE_DIR}/tools/embed_assets.py" ${ASSET_FILES} ${COMPILED_SHADERS} ${EMBED_MANIFEST_DEPENDS}
+        COMMENT "Embedding assets and shaders into binary (scope: ${YOPE_EMBED_SCOPE}, backend: ${EMBED_BACKEND})"
     )
 
-    add_library(embedded_assets STATIC "${EMBED_CPP}")
+    if(EMBED_BACKEND STREQUAL "incbin")
+        add_library(embedded_assets STATIC "${EMBED_ASM}" "${EMBED_CPP}")
+        set_source_files_properties("${EMBED_ASM}" PROPERTIES LANGUAGE ASM)
+    else()
+        add_library(embedded_assets STATIC "${EMBED_CPP}")
+        set_source_files_properties("${EMBED_ASM}" PROPERTIES HEADER_FILE_ONLY TRUE)
+    endif()
     target_include_directories(embedded_assets PUBLIC "${GENERATED_DIR}")
 endif()
 
@@ -206,6 +252,7 @@ set(ENGINE_SOURCES
     src/world/RenderMesh.cpp
     src/world/ColliderBaker.cpp
     src/assets/AssetManager.cpp
+    src/assets/AssetResolve.cpp
     src/assets/ObjLoader.cpp
     src/assets/GltfLoader.cpp
     src/assets/ImageLoader.cpp
@@ -419,8 +466,9 @@ if(APPLE)
         COMMAND "${CMAKE_SOURCE_DIR}/tools/make_bundle.sh"
                 "${CMAKE_BINARY_DIR}/yope3d"
                 "${CMAKE_BINARY_DIR}"
+                "${YOPE_EMBED_SCOPE}"
         DEPENDS yope3d
-        COMMENT "Assembling Yope3D.app"
+        COMMENT "Assembling Yope3D.app (embed scope: ${YOPE_EMBED_SCOPE})"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
 endif()
@@ -445,11 +493,14 @@ add_executable(yope_physics_tests
     tests/physics_tests.cpp
     src/math/MathImpl.cpp
     src/debug/Profiler.cpp
+    src/assets/AssetResolve.cpp
+    src/platform/BundlePaths.cpp
     ${PHYSICS_SOURCES}
 )
 
 target_include_directories(yope_physics_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_compile_definitions(yope_physics_tests PRIVATE
+    YOPE_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
     $<$<BOOL:${YOPE_ENABLE_PROFILER}>:YOPE_PROF_ENABLED>
 )
 target_link_libraries(yope_physics_tests PRIVATE Catch2::Catch2WithMain)
@@ -462,6 +513,8 @@ target_link_libraries(yope_physics_tests PRIVATE Catch2::Catch2WithMain)
 add_executable(yope_gltf_tests
     tests/gltf_tests.cpp
     src/assets/GltfLoader.cpp
+    src/assets/AssetResolve.cpp
+    src/platform/BundlePaths.cpp
     src/scene/serialization/JsonParser.cpp
     src/math/MathImpl.cpp
 )

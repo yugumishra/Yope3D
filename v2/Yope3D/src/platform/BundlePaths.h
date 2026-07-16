@@ -5,3 +5,8 @@
 // .app bundle. Returns an empty string on all other platforms or when the
 // process is not inside a bundle (e.g. running from a build directory).
 std::string bundleResourcesDir();
+
+// Returns (creating if necessary) a per-platform writable app-data directory,
+// e.g. ~/Library/Application Support/Yope3D on macOS. Empty string if the
+// relevant env var isn't set.
+std::string writableDataDir();

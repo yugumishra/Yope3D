@@ -3,6 +3,7 @@
 #include "../gpu/GpuDevice.h"
 #include "../world/RenderMesh.h"
 #include "../debug/TaskProgress.h"
+#include "AssetResolve.h"
 #include "ObjLoader.h"
 #include "ImageLoader.h"
 #include <filesystem>
@@ -13,10 +14,6 @@
 namespace {
 constexpr const char* kTextureStreamTaskLabel = "Streaming textures";
 }
-
-#ifdef YOPE_EMBED_ASSETS
-#include "generated/embedded_assets.h"
-#endif
 
 AssetManager::~AssetManager() {
     // Cleanup is handled by the caller (Engine) explicitly.
@@ -136,20 +133,10 @@ Texture* AssetManager::loadTextureSrgb(const std::string& path, bool srgb)
     // Load image data (supports embedded + filesystem modes).
     // ---------------------------------------------------------------------------
 
-    LoadedImage image;
-
-#ifdef YOPE_EMBED_ASSETS
-    EmbeddedAsset asset = getEmbeddedAsset(path.c_str());
-    if (asset.data) {
-        image = ImageLoader::loadFromMemory(asset.data, static_cast<int>(asset.size));
-    } else {
-        throw std::runtime_error("Failed to load embedded texture: " + path);
-    }
-#else
-    // Filesystem mode: handle "/" vs "\" automatically for cross-platform paths.
-    std::string fullPath = (std::filesystem::path(YOPE_ASSETS_DIR) / path).string();
-    image = ImageLoader::load(fullPath);
-#endif
+    std::vector<uint8_t> bytes = assets::readBytes(path);
+    if (bytes.empty())
+        throw std::runtime_error("Failed to load texture: " + path);
+    LoadedImage image = ImageLoader::loadFromMemory(bytes.data(), static_cast<int>(bytes.size()));
 
     // ---------------------------------------------------------------------------
     // Create Vulkan texture from pixel data.
@@ -262,8 +249,7 @@ RenderMesh* AssetManager::loadMesh(GpuDevice& gpu, const std::string& path)
     // Load and parse OBJ file.
     // ---------------------------------------------------------------------------
 
-    std::string fullPath = (std::filesystem::path(YOPE_ASSETS_DIR) / path).string();
-    LoadedMesh loaded = ObjLoader::load(fullPath);
+    LoadedMesh loaded = ObjLoader::load(assets::resolveFilesystemPath(path));
 
     // ---------------------------------------------------------------------------
     // Create Vulkan mesh from loaded data.

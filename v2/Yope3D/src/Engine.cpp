@@ -14,6 +14,7 @@
 #include "ecs/Components.h"
 #include "world/Transform.h"
 #include "audio/Source.h"
+#include "assets/AssetResolve.h"
 #include <GLFW/glfw3.h>
 #include <string>
 #include <chrono>
@@ -211,7 +212,7 @@ void Engine::beginAsyncLoad(const std::string& scenePath, bool initScripts) {
     // ~ms). Both clips live in it, so the reveal + tumble are available at once.
     logoReady_.store(false, std::memory_order_release);
     logoLoadThread_ = std::thread([this] {
-        if (logo_.load(std::string(YOPE_ASSETS_DIR) + "/logo/logo.bin"))
+        if (logo_.loadFromMemory(assets::readBytes("logo/logo.bin")))
             logoReady_.store(true, std::memory_order_release);
     });
 #endif

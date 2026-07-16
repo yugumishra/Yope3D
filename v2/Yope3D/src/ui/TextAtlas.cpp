@@ -1,6 +1,7 @@
 #include "TextAtlas.h"
 #include "gpu/GpuDevice.h"
 #include "scene/serialization/JsonParser.h"
+#include "assets/AssetResolve.h"
 #include <stb_image.h>
 #include <filesystem>
 #include <iostream>
@@ -30,17 +31,17 @@ bool TextAtlas::init(GpuDevice& gpu, VkCommandPool commandPool,
 
     std::string pngRel, jsonRel;
     resolveBakedPaths(fontPath, pngRel, jsonRel);
-    std::string pngPath  = std::string(YOPE_ASSETS_DIR) + "/" + pngRel;
-    std::string jsonPath = std::string(YOPE_ASSETS_DIR) + "/" + jsonRel;
 
     // ---------------------------------------------------------------------------
     // 1. Parse glyph layout JSON
     // ---------------------------------------------------------------------------
     JsonNode root;
     try {
-        root = parseJsonFile(jsonPath.c_str());
+        std::string json = assets::readText(jsonRel);
+        if (json.empty()) throw std::runtime_error("cannot open: " + jsonRel);
+        root = parseJson(json.c_str());
     } catch (const std::exception& e) {
-        std::cerr << "[TextAtlas] Failed to parse '" << jsonPath << "': " << e.what()
+        std::cerr << "[TextAtlas] Failed to parse '" << jsonRel << "': " << e.what()
                   << "\n  (did you run the 'bake_fonts' target? see CMakeLists / tools/msdf_bake.cpp)\n";
         return false;
     }
@@ -83,9 +84,11 @@ bool TextAtlas::init(GpuDevice& gpu, VkCommandPool commandPool,
     // 2. Load MSDF PNG and upload as a LINEAR (non-sRGB), no-mipmap texture
     // ---------------------------------------------------------------------------
     int w = 0, h = 0, ch = 0;
-    stbi_uc* pixels = stbi_load(pngPath.c_str(), &w, &h, &ch, 4);   // force RGBA
+    std::vector<uint8_t> pngBytes = assets::readBytes(pngRel);
+    stbi_uc* pixels = pngBytes.empty() ? nullptr
+        : stbi_load_from_memory(pngBytes.data(), static_cast<int>(pngBytes.size()), &w, &h, &ch, 4);
     if (!pixels) {
-        std::cerr << "[TextAtlas] Failed to load MSDF PNG '" << pngPath << "'\n";
+        std::cerr << "[TextAtlas] Failed to load MSDF PNG '" << pngRel << "'\n";
         return false;
     }
 
