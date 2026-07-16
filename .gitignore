@@ -26,3 +26,9 @@ old_src_java/
 # milestone-report script output
 major_updates/
 releases/
+
+# OS / editor / python junk
+.DS_Store
+__pycache__/
+*.pyc
+imgui.ini
