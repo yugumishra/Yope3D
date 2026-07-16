@@ -2176,11 +2176,15 @@ class CollisionLayers:
 class SceneManager:
     """Deferred scene loading. Singleton ``yope3d.scene_manager``."""
 
-    def load_scene(self, path: str) -> None:
+    def load_scene(self, path: str, payload: Any | None = None) -> None:
         """Queue a scene load (applied safely between frames).
 
         Args:
             path: Asset-relative scene path (e.g. ``"scenes/sandbox.json"``).
+            payload: Optional value carried across the swap, readable via
+                ``scene_payload()`` from the newly-loaded scene's ``init()``
+                (e.g. score, inventory, spawn-point id). Passing ``None``
+                (the default) clears any previously stashed payload.
         """
 
 world: World
@@ -2499,8 +2503,17 @@ def raycast(
         Coverage is sphere / AABB / OBB / capsule bodies (cylinder not yet).
     """
 
-def load_scene(path: str) -> None:
-    """Shorthand for ``yope3d.scene_manager.load_scene(path)``."""
+def load_scene(path: str, payload: Any | None = None) -> None:
+    """Shorthand for ``yope3d.scene_manager.load_scene(path, payload)``."""
+
+def scene_payload() -> Any | None:
+    """Return whatever was last passed as ``load_scene()``'s ``payload`` arg.
+
+    Read this from the newly-loaded scene's ``init()`` to carry state (score,
+    inventory, spawn-point id, ...) across a scene swap. Returns ``None`` if
+    no payload was passed (or the game hasn't called ``load_scene`` yet).
+    """
+
 def save_path(name: str) -> str:
     """Resolve a writable path for `name` in the per-platform save directory.
 

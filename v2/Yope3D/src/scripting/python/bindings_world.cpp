@@ -392,7 +392,10 @@ void bind_world(py::module_& m) {
 
     // SceneManager — scene loading / transitions
     py::class_<SceneManager>(m, "SceneManager")
-        .def("load_scene", &SceneManager::queueLoad);
+        .def("load_scene", [](SceneManager& sm, const std::string& path, py::object payload) {
+            py::module_::import("yope3d").attr("_scene_payload") = payload;
+            sm.queueLoad(path);
+        }, py::arg("path"), py::arg("payload") = py::none());
 
     // Camera
     py::class_<Camera>(m, "Camera")
@@ -764,12 +767,27 @@ void bind_world(py::module_& m) {
     m.attr("scene_manager") = py::none();
     m.attr("window")        = py::none();
 
-    // Convenience: yope3d.load_scene(path) → scene_manager.load_scene(path)
-    m.def("load_scene", [](const std::string& path) {
+    // Holds whatever `payload` was last passed to load_scene(), readable via
+    // scene_payload() from the newly-loaded scene's init(). Not tied to
+    // SceneManager (a plain header included by non-Python TUs) — lives here
+    // since the yope3d extension module is embedded and never reloaded.
+    m.attr("_scene_payload") = py::none();
+
+    // Convenience: yope3d.load_scene(path, payload) → scene_manager.load_scene(path, payload)
+    m.def("load_scene", [](const std::string& path, py::object payload) {
         auto sm = py::module_::import("yope3d").attr("scene_manager");
         if (sm.is_none()) throw std::runtime_error("scene_manager not bound");
+        py::module_::import("yope3d").attr("_scene_payload") = payload;
         sm.cast<SceneManager*>()->queueLoad(path);
+    }, py::arg("path"), py::arg("payload") = py::none());
+
+    // Returns whatever was last passed as load_scene()'s payload (or None).
+    // Read from the newly-loaded scene's init() to carry state (score,
+    // inventory, spawn point, ...) across a scene swap.
+    m.def("scene_payload", []() {
+        return py::module_::import("yope3d").attr("_scene_payload");
     });
+
     // Resolve a writable path for `name` inside the sanctioned per-platform
     // save directory, creating any needed subdirectories. Throws if no
     // writable directory could be resolved (e.g. HOME/APPDATA unset).
