@@ -125,8 +125,9 @@ struct LightSource {
     float innerConeAngle = 0.2f;
     float outerConeAngle = 0.5f;
     // "Scene Shadow Caster": single-caster enforced by World::setShadowCaster (radio
-    // behavior — checking one light's flag clears the previous caster's). Point lights
-    // are not a supported caster type (would need a cubemap).
+    // behavior — checking one light's flag clears the previous caster's). Point
+    // lights render via a 6-face cube shadow map (see PointShadowMap.h) instead of
+    // the single 2D map spot/directional casters use.
     bool  castsShadow    = false;
 };
 

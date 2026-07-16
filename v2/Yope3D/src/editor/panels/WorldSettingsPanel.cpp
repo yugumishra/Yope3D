@@ -52,6 +52,16 @@ void WorldSettingsPanel::draw(EditorContext& ctx) {
         ImGui::SameLine();
         if (ImGui::SmallButton("Reset##shadowSpotFar")) ctx.world->shadowSpotFar = 30.0f;
         ImGui::TextDisabled("Spot caster's far plane; no larger than the light's actual reach");
+
+        ImGui::SliderFloat("Point Near", &ctx.world->shadowPointNear, 0.01f, 5.0f, "%.2f");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reset##shadowPointNear")) ctx.world->shadowPointNear = 0.05f;
+        ImGui::TextDisabled("Point caster's near plane (all 6 cube faces); same precision tradeoff as Spot Near");
+
+        ImGui::SliderFloat("Point Far", &ctx.world->shadowPointFar, 1.0f, 200.0f, "%.1f");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reset##shadowPointFar")) ctx.world->shadowPointFar = 25.0f;
+        ImGui::TextDisabled("Point caster's far plane; no larger than the light's actual reach");
     }
 
     if (ctx.engine) {

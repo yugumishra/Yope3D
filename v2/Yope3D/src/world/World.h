@@ -427,6 +427,10 @@ public:
     //   perspective depth precision is dominated by their ratio, and a too-small
     //   near (or too-large far) crushes all occluder depths toward 1.0, producing
     //   unstable, detached ("peter-panned") blob shadows.
+    //   shadowPointNear/shadowPointFar: near/far planes of a point-caster's 6
+    //   per-face 90-degree perspective frustums (see PointShadowMap.h /
+    //   computeShadowLightViewProjPointFaces) — same precision tradeoff as
+    //   shadowSpotNear/Far, just symmetric in all 6 directions instead of one cone.
     float shadowBias             = 0.0006f;
     float shadowNormalBias       = 0.035f;
     float shadowPcfRadius        = 1.0f;
@@ -434,6 +438,8 @@ public:
     float shadowOrthoFar         = 40.0f;
     float shadowSpotNear         = 1.0f;
     float shadowSpotFar          = 30.0f;
+    float shadowPointNear        = 0.05f;
+    float shadowPointFar         = 25.0f;
 
     physics::CollisionLayers layers;
 

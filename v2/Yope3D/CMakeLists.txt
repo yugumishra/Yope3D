@@ -244,6 +244,7 @@ set(ENGINE_SOURCES
     src/rendering/MaterialCache.cpp
     src/rendering/Skybox.cpp
     src/rendering/ShadowMap.cpp
+    src/rendering/PointShadowMap.cpp
     src/rendering/Camera.cpp
     src/rendering/Light.cpp
     src/gpu/StorageImage.cpp

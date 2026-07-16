@@ -9,9 +9,11 @@ layout(set = 0, binding = 0) uniform GlobalUBO {
     int   shadowLightIndex;  // ordinal of the shadow-casting light in the loop below; -1 = none
     float shadowBias;        // depth-compare bias (NDC-space), safety margin on top of the below
     float shadowTexel;       // 1 / shadow map resolution, for the 3x3 PCF offsets
-    mat4  lightViewProj;     // shadow caster's proj * view
+    mat4  lightViewProj;     // shadow caster's proj * view (spot / directional caster)
     float shadowNormalBias;  // world-space offset along the surface normal before the light transform
     float shadowPcfRadius;   // PCF kernel spread, in shadowTexel multiples
+    mat4  lightViewProjPoint[6]; // per-face proj * view (point caster only), +X,-X,+Y,-Y,+Z,-Z order
+    float shadowTexelPoint;      // 1 / point shadow map resolution, for the 3x3 PCF offsets
 } ubo;
 
 layout(std430, set = 0, binding = 1) readonly buffer LightBuffer {
@@ -22,6 +24,12 @@ layout(std430, set = 0, binding = 1) readonly buffer LightBuffer {
 // rather than via hardware PCF, since MoltenVK's portability subset only
 // supports comparison samplers with an optional feature that isn't guaranteed.
 layout(set = 0, binding = 2) uniform sampler2D shadowMap;
+
+// Point-light shadow: 6-layer 2D array (one layer per cube face) instead of a
+// true samplerCube — see PointShadowMap.h. The fragment shader picks the face
+// by major axis of (fragPos - lightPos) and re-projects with that face's
+// lightViewProjPoint entry, reusing the same manual-PCF machinery as shadowMap.
+layout(set = 0, binding = 3) uniform sampler2DArray shadowMapPoint;
 
 // Set 1 — PBR material maps.
 layout(set = 1, binding = 0) uniform sampler2D albedoMap;
@@ -106,6 +114,9 @@ void main() {
 
         vec3 L        = vec3(0.0);
         vec3 radiance = vec3(0.0);
+        // World-space light position, set by the Point/Spot branches below; used
+        // only by the point-shadow face-select test further down (Point caster).
+        vec3 lightWorldPos = vec3(0.0);
 
         if (lightType == 3) {
             // FlashLight: [r,g,b, kC,kL,kQ, cosInner,cosOuter] (8)
@@ -129,15 +140,15 @@ void main() {
         } else if (lightType == 0) {
             // PointLight: [r,g,b, pos.xyz, kC,kL,kQ] (9)
             vec3 col = vec3(lightData[cursor], lightData[cursor+1], lightData[cursor+2]);
-            vec3 pos = vec3(lightData[cursor+3], lightData[cursor+4], lightData[cursor+5]);
+            lightWorldPos = vec3(lightData[cursor+3], lightData[cursor+4], lightData[cursor+5]);
             float kC = lightData[cursor+6];
             float kL = lightData[cursor+7];
             float kQ = lightData[cursor+8];
             cursor += 9;
 
-            float dist = length(pos - fragPos);
+            float dist = length(lightWorldPos - fragPos);
             float atten = 1.0 / (kC + kL * dist + kQ * dist * dist);
-            L = normalize(pos - fragPos);
+            L = normalize(lightWorldPos - fragPos);
             radiance = atten * col;
 
         } else if (lightType == 1) {
@@ -152,7 +163,7 @@ void main() {
         } else if (lightType == 2) {
             // SpotLight: [r,g,b, pos.xyz, dir.xyz, kC,kL,kQ, cosInner,cosOuter] (14)
             vec3 col = vec3(lightData[cursor], lightData[cursor+1], lightData[cursor+2]);
-            vec3 pos = vec3(lightData[cursor+3], lightData[cursor+4], lightData[cursor+5]);
+            lightWorldPos = vec3(lightData[cursor+3], lightData[cursor+4], lightData[cursor+5]);
             vec3 spotDir = vec3(lightData[cursor+6], lightData[cursor+7], lightData[cursor+8]);
             float kC = lightData[cursor+9];
             float kL = lightData[cursor+10];
@@ -161,9 +172,9 @@ void main() {
             float cosOuter = lightData[cursor+13];
             cursor += 14;
 
-            float dist = length(pos - fragPos);
+            float dist = length(lightWorldPos - fragPos);
             float atten = 1.0 / (kC + kL * dist + kQ * dist * dist);
-            L = normalize(pos - fragPos);
+            L = normalize(lightWorldPos - fragPos);
             float dotAngle = dot(-L, spotDir);
             float e = cosInner - cosOuter;
             float intensity = clamp((dotAngle - cosOuter) / e, 0.0, 1.0);
@@ -187,22 +198,54 @@ void main() {
             // misaligning box corners. Offsetting the sample point along N instead
             // scales naturally with the angle, so shadowBias below can stay small.
             vec3 offsetPos = fragPos + N * ubo.shadowNormalBias;
-            vec4 lightClip = ubo.lightViewProj * vec4(offsetPos, 1.0);
-            vec3 lightNdc  = lightClip.xyz / lightClip.w;
-            vec2 shadowUV  = lightNdc.xy * 0.5 + 0.5;
-            // Outside the light's frustum (UV or far-plane) -> fully lit.
-            if (shadowUV.x >= 0.0 && shadowUV.x <= 1.0 &&
-                shadowUV.y >= 0.0 && shadowUV.y <= 1.0 && lightNdc.z <= 1.0) {
-                float compareDepth = lightNdc.z - ubo.shadowBias;
-                float sum = 0.0;
-                float texel = ubo.shadowTexel * ubo.shadowPcfRadius;
-                for (int sx = -1; sx <= 1; ++sx) {
-                    for (int sy = -1; sy <= 1; ++sy) {
-                        float occluderDepth = texture(shadowMap, shadowUV + vec2(sx, sy) * texel).r;
-                        sum += (occluderDepth < compareDepth) ? 0.0 : 1.0;
+
+            if (lightType == 0) {
+                // Point caster: pick the cube face by major axis of the direction
+                // from the light to the fragment (matches the CPU face order in
+                // PointShadowMap/computeShadowLightViewProjPointFaces: +X,-X,+Y,-Y,+Z,-Z),
+                // then re-project into that face and PCF-sample its array layer.
+                vec3 dirToFrag = offsetPos - lightWorldPos;
+                vec3 absDir    = abs(dirToFrag);
+                int face;
+                if (absDir.x >= absDir.y && absDir.x >= absDir.z) face = dirToFrag.x > 0.0 ? 0 : 1;
+                else if (absDir.y >= absDir.z)                    face = dirToFrag.y > 0.0 ? 2 : 3;
+                else                                               face = dirToFrag.z > 0.0 ? 4 : 5;
+
+                vec4 lightClip = ubo.lightViewProjPoint[face] * vec4(offsetPos, 1.0);
+                vec3 lightNdc  = lightClip.xyz / lightClip.w;
+                vec2 shadowUV  = lightNdc.xy * 0.5 + 0.5;
+                if (shadowUV.x >= 0.0 && shadowUV.x <= 1.0 &&
+                    shadowUV.y >= 0.0 && shadowUV.y <= 1.0 && lightNdc.z <= 1.0) {
+                    float compareDepth = lightNdc.z - ubo.shadowBias;
+                    float sum = 0.0;
+                    float texel = ubo.shadowTexelPoint * ubo.shadowPcfRadius;
+                    for (int sx = -1; sx <= 1; ++sx) {
+                        for (int sy = -1; sy <= 1; ++sy) {
+                            float occluderDepth = texture(shadowMapPoint,
+                                vec3(shadowUV + vec2(sx, sy) * texel, float(face))).r;
+                            sum += (occluderDepth < compareDepth) ? 0.0 : 1.0;
+                        }
                     }
+                    shadow = sum / 9.0;
                 }
-                shadow = sum / 9.0;
+            } else {
+                vec4 lightClip = ubo.lightViewProj * vec4(offsetPos, 1.0);
+                vec3 lightNdc  = lightClip.xyz / lightClip.w;
+                vec2 shadowUV  = lightNdc.xy * 0.5 + 0.5;
+                // Outside the light's frustum (UV or far-plane) -> fully lit.
+                if (shadowUV.x >= 0.0 && shadowUV.x <= 1.0 &&
+                    shadowUV.y >= 0.0 && shadowUV.y <= 1.0 && lightNdc.z <= 1.0) {
+                    float compareDepth = lightNdc.z - ubo.shadowBias;
+                    float sum = 0.0;
+                    float texel = ubo.shadowTexel * ubo.shadowPcfRadius;
+                    for (int sx = -1; sx <= 1; ++sx) {
+                        for (int sy = -1; sy <= 1; ++sy) {
+                            float occluderDepth = texture(shadowMap, shadowUV + vec2(sx, sy) * texel).r;
+                            sum += (occluderDepth < compareDepth) ? 0.0 : 1.0;
+                        }
+                    }
+                    shadow = sum / 9.0;
+                }
             }
         }
 

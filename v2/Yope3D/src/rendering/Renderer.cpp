@@ -2,6 +2,7 @@
 #include "Raytracer.h"
 #include "Camera.h"
 #include "ShadowMap.h"
+#include "PointShadowMap.h"
 #ifdef YOPE_EDITOR
 #include "rendering/ViewportTarget.h"
 #endif
@@ -90,7 +91,15 @@ static std::vector<float> packLightSource(const ecs::LightSource& ls) {
 // exposure and lightViewProj — this exactly fills std140's implicit padding up to
 // the next 16-byte boundary (144+4+4+4+4=160), so lightViewProj needs no manual
 // padding float on either side. Keep the declaration order below and in
-// triangle.vert/triangle.frag/shadow_depth.vert's GlobalUBO block identical.
+// triangle.vert/triangle.frag's GlobalUBO block identical (shadow_depth.vert no
+// longer reads this UBO — its lightViewProj rides a push constant instead, so it
+// can be re-supplied per cube face without touching this buffer mid-pass).
+//
+// shadowNormalBias/shadowPcfRadius (232 bytes) leave a 8-byte std140 gap before
+// lightViewProjPoint's mandatory 16-byte alignment (240) — _pad0 makes that
+// implicit padding explicit on the C++ side, matching what the GLSL compiler
+// inserts automatically. lightViewProjPoint is otherwise self-aligned (mat4
+// array stride is already 16-byte), so shadowTexelPoint needs no leading pad.
 struct GlobalUBO {
     math::Mat4 view;             // 64 bytes
     math::Mat4 proj;             // 64 bytes
@@ -100,11 +109,15 @@ struct GlobalUBO {
     int        shadowLightIndex; //  4 bytes — ordinal in the light loop; -1 = no shadow caster
     float      shadowBias;       //  4 bytes — depth-compare bias, safety margin on top of the below
     float      shadowTexel;      //  4 bytes — 1/shadow map resolution, for manual PCF offsets
-    math::Mat4 lightViewProj;    // 64 bytes — the shadow caster's proj * view
+    math::Mat4 lightViewProj;    // 64 bytes — the shadow caster's proj * view (spot/directional)
     float      shadowNormalBias; //  4 bytes — world-space offset along the surface normal
     float      shadowPcfRadius;  //  4 bytes — PCF kernel spread, in shadowTexel multiples
+    float      _pad0[2];         //  8 bytes — std140 implicit pad up to lightViewProjPoint's 16-byte boundary
+    math::Mat4 lightViewProjPoint[6]; // 384 bytes — per-face proj*view (point caster only)
+    float      shadowTexelPoint; //  4 bytes — 1/point shadow map resolution, for manual PCF offsets
+    float      _pad1[3];         // 12 bytes — round struct size to a 16-byte multiple
 };
-static_assert(sizeof(GlobalUBO) == 232, "GlobalUBO size must match std140 layout");
+static_assert(sizeof(GlobalUBO) == 640, "GlobalUBO size must match std140 layout");
 
 // ---------------------------------------------------------------------------
 // Default quad (normals pointing toward camera at +Z)
@@ -253,6 +266,7 @@ void Renderer::waitIdle(GpuDevice& gpu) {
     // Shadow map cleanup
     vkDestroyPipeline(gpu.device(), shadowPipeline_, nullptr);
     vkDestroyPipelineLayout(gpu.device(), shadowPipelineLayout_, nullptr);
+    pointShadowMap_.reset();
     shadowMap_.reset();
     shadowPass_.reset();
 
@@ -427,7 +441,16 @@ void Renderer::createUBOLayout(VkDevice device) {
     shadowBinding.descriptorCount = 1;
     shadowBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-    uboLayout = std::make_unique<DescriptorSetLayout>(device, std::vector{uboBinding, ssboBinding, shadowBinding});
+    // Binding 3: point shadow map (sampler2DArray, one layer per cube face,
+    // fragment stage only — see PointShadowMap.h).
+    VkDescriptorSetLayoutBinding pointShadowBinding{};
+    pointShadowBinding.binding         = 3;
+    pointShadowBinding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    pointShadowBinding.descriptorCount = 1;
+    pointShadowBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    uboLayout = std::make_unique<DescriptorSetLayout>(device,
+        std::vector{uboBinding, ssboBinding, shadowBinding, pointShadowBinding});
 }
 
 void Renderer::createTextureSetLayout(VkDevice device) {
@@ -534,6 +557,7 @@ void Renderer::createShadowPass(GpuDevice& gpu) {
     shadowPass_ = std::make_unique<RenderPass>(
         RenderPass::createShadowPass(gpu.device(), VK_FORMAT_D32_SFLOAT));
     shadowMap_ = std::make_unique<ShadowMap>(gpu, shadowPass_->get());
+    pointShadowMap_ = std::make_unique<PointShadowMap>(gpu, shadowPass_->get());
 }
 
 void Renderer::createShadowPipeline(VkDevice device) {
@@ -614,12 +638,13 @@ void Renderer::createShadowPipeline(VkDevice device) {
     depthStencil.depthBoundsTestEnable = VK_FALSE;
     depthStencil.stencilTestEnable     = VK_FALSE;
 
-    // Push constant: mat4 model only (64 bytes). Reads lightViewProj from GlobalUBO
-    // (set 0, binding 0 — already bound; no separate descriptor set needed).
+    // Push constant: mat4 lightViewProj + mat4 model (128 bytes — see ShadowPush).
+    // lightViewProj rides the push constant (not GlobalUBO) so a point caster's
+    // per-face matrix can be re-supplied without a mid-pass UBO write.
     VkPushConstantRange pushRange{};
     pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pushRange.offset     = 0;
-    pushRange.size       = 64;
+    pushRange.size       = 128;
 
     VkDescriptorSetLayout setLayouts[1] = { uboLayout->get() };
     VkPipelineLayoutCreateInfo layoutInfo{};
@@ -682,9 +707,9 @@ void Renderer::createLightBuffers(GpuDevice& gpu) {
 }
 
 void Renderer::createDescriptorPool(VkDevice device) {
-    // Pool sizes for UBO (binding 0), SSBO (binding 1), and the shadow sampler
-    // (binding 2) per frame.
-    VkDescriptorPoolSize poolSizes[3]{};
+    // Pool sizes for UBO (binding 0), SSBO (binding 1), and the shadow (binding 2)
+    // + point shadow (binding 3) samplers per frame.
+    VkDescriptorPoolSize poolSizes[4]{};
 
     poolSizes[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = MAX_FRAMES;  // one UBO per frame
@@ -695,8 +720,11 @@ void Renderer::createDescriptorPool(VkDevice device) {
     poolSizes[2].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[2].descriptorCount = MAX_FRAMES;  // one shadow sampler per frame
 
+    poolSizes[3].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[3].descriptorCount = MAX_FRAMES;  // one point shadow sampler per frame
+
     descriptorPool = std::make_unique<DescriptorPool>(
-        device, std::vector{poolSizes[0], poolSizes[1], poolSizes[2]}, MAX_FRAMES);
+        device, std::vector{poolSizes[0], poolSizes[1], poolSizes[2], poolSizes[3]}, MAX_FRAMES);
 }
 
 void Renderer::createDescriptorSets(VkDevice device) {
@@ -752,8 +780,22 @@ void Renderer::createDescriptorSets(VkDevice device) {
         shadowWrite.descriptorCount = 1;
         shadowWrite.pImageInfo      = &shadowImg;
 
-        VkWriteDescriptorSet writes[3] = {uboWrite, ssboWrite, shadowWrite};
-        vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
+        // Write binding 3: point shadow map (shared single resource, same for both frames)
+        VkDescriptorImageInfo pointShadowImg{};
+        pointShadowImg.sampler     = pointShadowMap_->sampler();
+        pointShadowImg.imageView   = pointShadowMap_->arrayView();
+        pointShadowImg.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet pointShadowWrite{};
+        pointShadowWrite.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        pointShadowWrite.dstSet          = descriptorSets[i];
+        pointShadowWrite.dstBinding      = 3;
+        pointShadowWrite.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        pointShadowWrite.descriptorCount = 1;
+        pointShadowWrite.pImageInfo      = &pointShadowImg;
+
+        VkWriteDescriptorSet writes[4] = {uboWrite, ssboWrite, shadowWrite, pointShadowWrite};
+        vkUpdateDescriptorSets(device, 4, writes, 0, nullptr);
     }
 }
 
@@ -1007,19 +1049,24 @@ struct PBRPush {
 };
 static_assert(sizeof(PBRPush) == 112, "PBRPush must match pushRange size");
 
-// Push constant for shadow_depth.vert — model matrix only.
+// Push constant for shadow_depth.vert — lightViewProj + model, so a point
+// caster's 6-face loop can re-supply the matrix per face without touching
+// GlobalUBO (which keeps holding the single spot/directional matrix triangle.frag
+// reads). 64+64=128 bytes, exactly the guaranteed-minimum Vulkan push constant
+// budget — do not grow this struct further.
 struct ShadowPush {
-    math::Mat4 model;  // 64
+    math::Mat4 lightViewProj;  // 64
+    math::Mat4 model;          // 64
 };
-static_assert(sizeof(ShadowPush) == 64, "ShadowPush must match shadow pipeline push range");
+static_assert(sizeof(ShadowPush) == 128, "ShadowPush must match shadow pipeline push range");
 
-// Computes lightViewProj (proj * view) for the flagged shadow caster. Spot lights
-// get a perspective frustum from position/direction/outerConeAngle; directional
-// lights get an orthographic box centered on the camera, sized by World's
-// shadowOrthoHalfExtent/shadowOrthoFar (World Settings — coarse fixed-extent fit,
-// not scene-AABB-fitted; cascades are future work). Point lights aren't a
-// supported caster type (World::setShadowCaster only flags spot/directional in
-// the inspector).
+// Computes lightViewProj (proj * view) for a spot/directional shadow caster. Spot
+// lights get a perspective frustum from position/direction/outerConeAngle;
+// directional lights get an orthographic box centered on the camera, sized by
+// World's shadowOrthoHalfExtent/shadowOrthoFar (World Settings — coarse
+// fixed-extent fit, not scene-AABB-fitted; cascades are future work). Point
+// casters use computeShadowLightViewProjPointFaces below instead (6 matrices,
+// one per cube face).
 math::Mat4 computeShadowLightViewProj(const ecs::LightSource& ls, const math::Vec3& cameraPos,
                                       float orthoHalfExtent, float orthoFar,
                                       float spotNear, float spotFar) {
@@ -1048,6 +1095,32 @@ math::Mat4 computeShadowLightViewProj(const ecs::LightSource& ls, const math::Ve
     math::Mat4 view = math::Mat4::lookAt(eye, cameraPos, up);
     math::Mat4 proj = math::Mat4::ortho(-he, he, -he, he, 0.1f, far);
     return proj * view;
+}
+
+// Computes the 6 per-face proj*view matrices for a point-light shadow caster, one
+// 90-degree-FOV frustum per cube direction, in the exact order PointShadowMap's
+// framebuffers and triangle.frag's face-select logic assume (+X,-X,+Y,-Y,+Z,-Z).
+std::array<math::Mat4, 6> computeShadowLightViewProjPointFaces(const math::Vec3& lightPos,
+                                                                float near, float far) {
+    struct FaceDir { math::Vec3 dir, up; };
+    static const FaceDir kFaces[6] = {
+        {{ 1.0f,  0.0f,  0.0f}, {0.0f, -1.0f,  0.0f}},
+        {{-1.0f,  0.0f,  0.0f}, {0.0f, -1.0f,  0.0f}},
+        {{ 0.0f,  1.0f,  0.0f}, {0.0f,  0.0f,  1.0f}},
+        {{ 0.0f, -1.0f,  0.0f}, {0.0f,  0.0f, -1.0f}},
+        {{ 0.0f,  0.0f,  1.0f}, {0.0f, -1.0f,  0.0f}},
+        {{ 0.0f,  0.0f, -1.0f}, {0.0f, -1.0f,  0.0f}},
+    };
+    float n = std::max(near, 0.01f);
+    float f = std::max(far, n + 0.1f);
+    math::Mat4 proj = math::Mat4::perspective(math::PI * 0.5f, 1.0f, n, f);  // 90 degrees, square aspect
+
+    std::array<math::Mat4, 6> out{};
+    for (int i = 0; i < 6; ++i) {
+        math::Mat4 view = math::Mat4::lookAt(lightPos, lightPos + kFaces[i].dir, kFaces[i].up);
+        out[i] = proj * view;
+    }
+    return out;
 }
 }
 
@@ -1109,55 +1182,88 @@ void Renderer::recordSceneMeshes(VkCommandBuffer cmd, World& world, AssetManager
 }
 
 void Renderer::recordShadowPass(VkCommandBuffer cmd, World& world) {
-    // triangle.frag statically declares the shadow sampler binding, so the main
-    // pipeline's validation-expected layout for it is fixed regardless of whether
-    // a caster is active this frame. The render pass must therefore always run
-    // (clearing the map to "far" and transitioning it to
+    // triangle.frag statically declares both the spot/directional and point
+    // shadow sampler bindings, so the main pipeline's validation-expected layout
+    // for them is fixed regardless of which (if any) caster is active this frame.
+    // Both shadowMap_'s single pass and pointShadowMap_'s 6 face passes must
+    // therefore always run (clearing to "far" and transitioning to
     // DEPTH_STENCIL_READ_ONLY_OPTIMAL) — only the mesh draws are conditional on a
-    // caster existing. Skipping the whole pass when there's no caster is what
-    // left the image in UNDEFINED and tripped validation on the very first
-    // main-pipeline draw of any scene with no shadow caster set.
+    // caster of the matching type existing. Skipping a pass when there's no
+    // matching caster is what left an image in UNDEFINED and tripped validation
+    // on the very first main-pipeline draw of any scene with no shadow caster set.
     ecs::Entity caster = world.getShadowCaster();
+    ecs::LightSource* casterLs =
+        (caster != ecs::NullEntity && world.getRegistry().has<ecs::LightSource>(caster))
+            ? world.getRegistry().get<ecs::LightSource>(caster) : nullptr;
+    bool isPointCaster = casterLs && casterLs->type == 0;
 
-    VkClearValue clear{};
-    clear.depthStencil = {1.0f, 0};
-
-    VkRenderPassBeginInfo rpbi{};
-    rpbi.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    rpbi.renderPass        = shadowPass_->get();
-    rpbi.framebuffer       = shadowMap_->framebuffer();
-    rpbi.renderArea.offset = {0, 0};
-    rpbi.renderArea.extent = {shadowMap_->resolution(), shadowMap_->resolution()};
-    rpbi.clearValueCount   = 1;
-    rpbi.pClearValues      = &clear;
-
-    vkCmdBeginRenderPass(cmd, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
-
-    if (caster != ecs::NullEntity) {
+    auto& reg = world.getRegistry();
+    // Binds the shadow pipeline/desc-set/viewport once, then draws every visible
+    // mesh with lightViewProj (this face's matrix) + that mesh's model pushed
+    // together (see ShadowPush). Shared by the 2D pass and each of the 6 point
+    // cube faces below.
+    auto drawCasterMeshes = [&](const math::Mat4& lightViewProj, uint32_t resolution) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipelineLayout_,
             0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-        float res = static_cast<float>(shadowMap_->resolution());
+        float res = static_cast<float>(resolution);
         VkViewport vp{};
         vp.width = res; vp.height = res;
         vp.minDepth = 0.0f; vp.maxDepth = 1.0f;
         vkCmdSetViewport(cmd, 0, 1, &vp);
-        VkRect2D scissor{{0, 0}, {shadowMap_->resolution(), shadowMap_->resolution()}};
+        VkRect2D scissor{{0, 0}, {resolution, resolution}};
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-        auto& reg = world.getRegistry();
         for (auto [entity, tf, mr] : reg.view<Transform, ecs::MeshRenderer>()) {
             if (!mr.mesh || !mr.mesh->transformReady || !mr.mesh->visible) continue;
             ShadowPush push{};
-            push.model = mr.mesh->modelMatrix;
+            push.lightViewProj = lightViewProj;
+            push.model         = mr.mesh->modelMatrix;
             vkCmdPushConstants(cmd, shadowPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
                 0, sizeof(ShadowPush), &push);
             mr.mesh->draw(cmd);
         }
+    };
+
+    VkClearValue clear{};
+    clear.depthStencil = {1.0f, 0};
+
+    // ---- Spot / directional (single 2D map) ----
+    {
+        VkRenderPassBeginInfo rpbi{};
+        rpbi.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rpbi.renderPass        = shadowPass_->get();
+        rpbi.framebuffer       = shadowMap_->framebuffer();
+        rpbi.renderArea.offset = {0, 0};
+        rpbi.renderArea.extent = {shadowMap_->resolution(), shadowMap_->resolution()};
+        rpbi.clearValueCount   = 1;
+        rpbi.pClearValues      = &clear;
+
+        vkCmdBeginRenderPass(cmd, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
+        if (casterLs && !isPointCaster) {
+            drawCasterMeshes(shadowLightViewProjCPU_, shadowMap_->resolution());
+        }
+        vkCmdEndRenderPass(cmd);
     }
 
-    vkCmdEndRenderPass(cmd);
+    // ---- Point (6-face cube array) ----
+    for (int face = 0; face < 6; ++face) {
+        VkRenderPassBeginInfo rpbi{};
+        rpbi.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rpbi.renderPass        = shadowPass_->get();
+        rpbi.framebuffer       = pointShadowMap_->framebuffer(face);
+        rpbi.renderArea.offset = {0, 0};
+        rpbi.renderArea.extent = {pointShadowMap_->resolution(), pointShadowMap_->resolution()};
+        rpbi.clearValueCount   = 1;
+        rpbi.pClearValues      = &clear;
+
+        vkCmdBeginRenderPass(cmd, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
+        if (isPointCaster) {
+            drawCasterMeshes(shadowLightViewProjPointCPU_[face], pointShadowMap_->resolution());
+        }
+        vkCmdEndRenderPass(cmd);
+    }
 }
 
 void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, World& world,
@@ -2092,6 +2198,7 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, W
     std::vector<float> packedLights;
     int numLights = 0;
     int shadowIdx = -1;
+    shadowCasterIsPoint_ = false;
     {
         YOPE_PROF_SCOPE("view_lightsource", "render");
         for (auto [entity, ls] : world.getRegistry().view<ecs::LightSource>()) {
@@ -2100,9 +2207,18 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, W
             packedLights.insert(packedLights.end(), lightData.begin(), lightData.end());
             if (entity == shadowCaster) {
                 shadowIdx = numLights;
-                uboData.lightViewProj = computeShadowLightViewProj(
-                    ls, pos, world.shadowOrthoHalfExtent, world.shadowOrthoFar,
-                    world.shadowSpotNear, world.shadowSpotFar);
+                if (ls.type == 0) {
+                    shadowCasterIsPoint_ = true;
+                    math::Vec3 lightPos{ls.position[0], ls.position[1], ls.position[2]};
+                    shadowLightViewProjPointCPU_ = computeShadowLightViewProjPointFaces(
+                        lightPos, world.shadowPointNear, world.shadowPointFar);
+                    for (int f = 0; f < 6; ++f) uboData.lightViewProjPoint[f] = shadowLightViewProjPointCPU_[f];
+                } else {
+                    shadowLightViewProjCPU_ = computeShadowLightViewProj(
+                        ls, pos, world.shadowOrthoHalfExtent, world.shadowOrthoFar,
+                        world.shadowSpotNear, world.shadowSpotFar);
+                    uboData.lightViewProj = shadowLightViewProjCPU_;
+                }
             }
             ++numLights;
         }
@@ -2111,6 +2227,7 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, W
     uboData.exposure         = world.exposure;
     uboData.shadowLightIndex = shadowIdx;
     uboData.shadowBias       = world.shadowBias;
+    uboData.shadowTexelPoint = 1.0f / static_cast<float>(PointShadowMap::RESOLUTION);
     uboData.shadowTexel      = 1.0f / static_cast<float>(ShadowMap::RESOLUTION);
     uboData.shadowNormalBias = world.shadowNormalBias;
     uboData.shadowPcfRadius  = world.shadowPcfRadius;
@@ -2301,15 +2418,25 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
     std::vector<float> packedLights;
     int numLights = 0;
     int shadowIdx = -1;
+    shadowCasterIsPoint_ = false;
     for (auto [entity, ls] : world.getRegistry().view<ecs::LightSource>()) {
         if (numLights >= static_cast<int>(YOPE_MAX_LIGHTS)) break;
         auto d = packLightSource(ls);
         packedLights.insert(packedLights.end(), d.begin(), d.end());
         if (entity == shadowCaster) {
             shadowIdx = numLights;
-            uboData.lightViewProj = computeShadowLightViewProj(
-                ls, pos, world.shadowOrthoHalfExtent, world.shadowOrthoFar,
-                world.shadowSpotNear, world.shadowSpotFar);
+            if (ls.type == 0) {
+                shadowCasterIsPoint_ = true;
+                math::Vec3 lightPos{ls.position[0], ls.position[1], ls.position[2]};
+                shadowLightViewProjPointCPU_ = computeShadowLightViewProjPointFaces(
+                    lightPos, world.shadowPointNear, world.shadowPointFar);
+                for (int f = 0; f < 6; ++f) uboData.lightViewProjPoint[f] = shadowLightViewProjPointCPU_[f];
+            } else {
+                shadowLightViewProjCPU_ = computeShadowLightViewProj(
+                    ls, pos, world.shadowOrthoHalfExtent, world.shadowOrthoFar,
+                    world.shadowSpotNear, world.shadowSpotFar);
+                uboData.lightViewProj = shadowLightViewProjCPU_;
+            }
         }
         ++numLights;
     }
@@ -2320,6 +2447,7 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
     uboData.shadowTexel      = 1.0f / static_cast<float>(ShadowMap::RESOLUTION);
     uboData.shadowNormalBias = world.shadowNormalBias;
     uboData.shadowPcfRadius  = world.shadowPcfRadius;
+    uboData.shadowTexelPoint = 1.0f / static_cast<float>(PointShadowMap::RESOLUTION);
     if (!packedLights.empty())
         lightBuffers[currentFrame].write(packedLights.data(), packedLights.size() * sizeof(float));
     uniformBuffers[currentFrame].write(&uboData, sizeof(GlobalUBO));
@@ -2423,7 +2551,7 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
         float uw = static_cast<float>(vt.width());
         float uh = static_cast<float>(vt.height());
         // Build UI geometry under the structure lock so concurrent archetype
-        // migrations in the physics thread (Sleeping tag additions) don't race
+        // migrations in the physics thread (e.g. Fixed-tag toggles) don't race
         // with the view iterator reading archetypes_ during play mode.
         {
             auto _lk = world.lockStructure();
