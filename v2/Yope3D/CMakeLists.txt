@@ -270,6 +270,7 @@ set(ENGINE_SOURCES
     src/scripting/EmptyScript.cpp
     src/scene/ComponentSnapshot.cpp
     src/scene/SceneManager.cpp
+    src/scene/TemplateSpawner.cpp
     src/scene/serialization/JsonWriter.cpp
     src/scene/serialization/JsonParser.cpp
     src/scene/serialization/ComponentSerializers.cpp
@@ -322,6 +323,7 @@ set(EDITOR_SOURCES
     src/editor/inspectors/CompoundColliderInspector.cpp
     src/editor/inspectors/LightSourceInspector.cpp
     src/editor/inspectors/NameInspector.cpp
+    src/editor/inspectors/TemplateInstanceInspector.cpp
     src/editor/inspectors/AudioSourceInspector.cpp
     src/editor/inspectors/SpringConstraintInspector.cpp
     src/editor/inspectors/PointJointInspector.cpp

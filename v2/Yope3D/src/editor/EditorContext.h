@@ -31,4 +31,5 @@ struct EditorContext {
     std::function<void(bool)>                   onViewportMaximize;
     std::function<void()>                       onNewScene;
     std::function<void(ecs::Entity)>            onDeleteEntity;
+    std::function<void()>                       onSaveAsTemplate;   // acts on the current selection
 };

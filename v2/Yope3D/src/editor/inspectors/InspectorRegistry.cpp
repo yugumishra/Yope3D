@@ -7,6 +7,7 @@
 
 // Forward declarations of per-component draw functions.
 void drawNameComponent                   (void*, EditorContext&, ecs::Entity);
+void drawTemplateInstanceComponent       (void*, EditorContext&, ecs::Entity);
 void drawTransformComponent              (void*, EditorContext&, ecs::Entity);
 void drawHullComponent                   (void*, EditorContext&, ecs::Entity);
 void drawSphereFormComponent             (void*, EditorContext&, ecs::Entity);
@@ -40,6 +41,7 @@ std::vector<ComponentDrawer> g_drawers;
 void registerAllInspectors() {
     g_drawers = {
         { ecs::typeId<ecs::Name>(),                  drawNameComponent                  },
+        { ecs::typeId<ecs::TemplateInstance>(),      drawTemplateInstanceComponent      },
         { ecs::typeId<Transform>(),                  drawTransformComponent             },
         { ecs::typeId<ecs::Hull>(),                  drawHullComponent                  },
         { ecs::typeId<ecs::SphereForm>(),            drawSphereFormComponent            },

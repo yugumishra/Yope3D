@@ -71,6 +71,24 @@ private:
     std::vector<ecs::Entity> created_;
 };
 
+// Instantiates a .ytemplated file's entity subtree at the world origin/identity
+// rotation (mirrors ImportModelCommand's no-raycast, spawn-then-reposition-by-hand
+// convention). No script init in edit mode (TemplateSpawner::spawn's
+// sceneManager/ctx are null here) — Play's instantiateAndInitAllScripts picks
+// spawned ScriptComponents up like any other scene entity. Used by the Asset
+// Browser drag-to-viewport drop.
+struct SpawnTemplateCommand : ICommand {
+    explicit SpawnTemplateCommand(std::string absPath) : absPath_(std::move(absPath)) {}
+
+    void        redo(EditorContext& ctx) override;
+    void        undo(EditorContext& ctx) override;
+    const char* label() const override { return "Spawn Template"; }
+
+private:
+    std::string absPath_;
+    ecs::Entity created_ = ecs::NullEntity;
+};
+
 // Deletes an entity and its whole subtree. redo() snapshots the subtree (parent
 // before child) then removes the root (removeEntity cascades). undo() restores the
 // subtree, remapping Parent links back onto the recreated entities.

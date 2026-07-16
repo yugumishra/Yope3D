@@ -23,6 +23,7 @@ const char* AssetBrowserPanel::fileTypeBadge(const std::string& ext) const {
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp") return "[PNG]";
     if (ext == ".wav" || ext == ".ogg" || ext == ".mp3")                    return "[WAV]";
     if (ext == ".py")                                                        return " [PY]";
+    if (ext == ".ytemplated")                                                return "[TPL]";
     if (ext == ".json" || ext == ".cfg")                                     return "[CFG]";
     return "[---]";
 }
@@ -84,10 +85,12 @@ void AssetBrowserPanel::drawDirectory(const std::string& dirPath, EditorContext&
             if (isModified) ImGui::PopStyleColor();
 
             // Drag source: model files (mesh swap / viewport import), .wav/.ogg
-            // for AudioSource. Payload "ASSET_PATH"; targets disambiguate by extension.
+            // for AudioSource, .ytemplated for template spawn. Payload
+            // "ASSET_PATH"; targets disambiguate by extension.
             bool draggable = (ext == ".obj" || ext == ".fbx" ||
                               ext == ".gltf" || ext == ".glb" ||
-                              ext == ".wav" || ext == ".ogg" || ext == ".mp3");
+                              ext == ".wav" || ext == ".ogg" || ext == ".mp3" ||
+                              ext == ".ytemplated");
             if (draggable && ImGui::BeginDragDropSource()) {
                 ImGui::SetDragDropPayload("ASSET_PATH", absPath.c_str(), absPath.size() + 1);
                 ImGui::Text("Drag: %s", filename.c_str());

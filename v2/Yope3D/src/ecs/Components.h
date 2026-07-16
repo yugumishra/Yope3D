@@ -207,6 +207,19 @@ struct Name {
     char value[64] = {};    // fixed buffer — satisfies trivially-relocatable mandate
 };
 
+// ---- Template provenance ----
+// Marks the ROOT of a subtree that was instantiated from a .ytemplated file —
+// set by TemplateSpawner::spawn (runtime + editor drag-drop) and by nested
+// template-ref expansion during parseScene (so a template-of-a-template's own
+// nested root is transitively marked too). "Save as Template"/"Save Scene"
+// uses this to emit a templateRef node (+ computed overrides) instead of
+// inlining the subtree; the editor Inspector shows it read-only with an
+// "Unpack" button (just removes this component) for hand-editing an
+// instance's structure beyond what field-level overrides support.
+struct TemplateInstance {
+    char sourcePath[128] = {};   // assets-relative path to the .ytemplated this subtree came from
+};
+
 // ---- Behavior script attachment ----
 // scriptClass:  registered name (YOPE_REGISTER_SCRIPT). Authoritative, persists across save/load.
 // paramsBlob:   raw JSON snippet for the script's per-instance params. "{}" by default.

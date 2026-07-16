@@ -2,12 +2,15 @@
 #ifdef YOPE_EDITOR
 #include "editor/EditorContext.h"
 #include "editor/Selection.h"
+#include "Engine.h"
 #include "world/World.h"
 #include "world/Transform.h"
 #include "world/TransformHierarchy.h"
 #include "assets/Primitives.h"
 #include "ecs/Registry.h"
 #include "ecs/Components.h"
+#include "scene/TemplateSpawner.h"
+#include "math/Quat.h"
 #include <vector>
 
 // ----- CreateEntityCommand -----
@@ -165,6 +168,25 @@ void ImportModelCommand::undo(EditorContext& ctx) {
     for (ecs::Entity e : created_)
         if (ctx.world->getRegistry().valid(e)) ctx.world->removeEntity(e);
     created_.clear();
+}
+
+// ----- SpawnTemplateCommand -----
+
+void SpawnTemplateCommand::redo(EditorContext& ctx) {
+    // Edit mode: no sceneManager/ctx, so no script instantiation here — matches
+    // the existing invariant that ScriptComponent.instance stays null until Play.
+    created_ = TemplateSpawner::spawn(absPath_, *ctx.world,
+                                      math::Vec3{0.f, 0.f, 0.f}, math::Quat{},
+                                      ctx.engine->audio.get(), ctx.engine->assets.get(),
+                                      /*sceneManager=*/nullptr, /*ctx=*/nullptr);
+    if (ctx.selection && ctx.world->getRegistry().valid(created_))
+        ctx.selection->set(created_);
+}
+
+void SpawnTemplateCommand::undo(EditorContext& ctx) {
+    if (ctx.selection && ctx.selection->primary() == created_) ctx.selection->clear();
+    if (ctx.world->getRegistry().valid(created_)) ctx.world->removeEntity(created_);
+    created_ = ecs::NullEntity;
 }
 
 // ----- DeleteEntityCommand -----

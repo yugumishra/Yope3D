@@ -270,6 +270,11 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
         if (auto* n = reg.get<ecs::Name>(e)) *n = name;
     }
 
+    if (hasTemplateInstance) {
+        if (!reg.has<ecs::TemplateInstance>(e)) reg.add<ecs::TemplateInstance>(e, templateInstance);
+        else if (auto* ti = reg.get<ecs::TemplateInstance>(e)) *ti = templateInstance;
+    }
+
     if (hasAudio) {
         // The entity may have been created with an empty AudioSource (audio-only path)
         // or may not have one yet (mesh-only / physics path) — add it if missing.
@@ -396,6 +401,7 @@ ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world
     }
     if (auto* ls = reg.get<ecs::LightSource>(e)) { s.hasLight = true;    s.light = *ls; }
     if (auto* n  = reg.get<ecs::Name>(e))        { s.hasName = true;     s.name = *n; }
+    if (auto* ti = reg.get<ecs::TemplateInstance>(e)) { s.hasTemplateInstance = true; s.templateInstance = *ti; }
     if (auto* as = reg.get<ecs::AudioSource>(e)) {
         s.hasAudio = true;
         s.audio    = *as;
@@ -491,6 +497,57 @@ std::vector<ecs::Entity> restoreSubtree(World& world,
         if (it != oldToNew.end())        p->parent = it->second;   // internal
         else if (!keepExternalParents)   reg.remove<ecs::Parent>(out[i]);   // paste → root
         // else keep external handle as-is (delete-undo re-attaches in place)
+    }
+
+    // Remap Spring/Joint target handles the same way SceneSerializer::commitFinalize
+    // resolves cross-references: internal targets point at the new entities, external
+    // targets are kept (undo) or dropped (paste) — mirroring the Parent remap above.
+    // ComponentSnapshot::restore() only saw each snapshot's pre-remap (stale) target
+    // id, so the physics-side constraint must be (re)created here now that targets
+    // are resolved, exactly as commitFinalize's final reconstruction pass does.
+    for (size_t i = 0; i < out.size(); ++i) {
+        if (!reg.valid(out[i])) continue;
+
+        if (snaps[i].hasSpring) {
+            if (auto* sp = reg.get<ecs::SpringConstraint>(out[i])) {
+                auto it = oldToNew.find(sp->target.id);
+                if (it != oldToNew.end())      sp->target = it->second;
+                else if (!keepExternalParents) sp->target = ecs::NullEntity;
+                if (reg.valid(sp->target))
+                    world.addSpringPhysics(out[i], sp->target, sp->k, sp->restLength);
+            }
+        }
+        if (snaps[i].hasPointJoint) {
+            if (auto* pj = reg.get<ecs::PointJointConstraint>(out[i])) {
+                auto it = oldToNew.find(pj->target.id);
+                if (it != oldToNew.end())      pj->target = it->second;
+                else if (!keepExternalParents) pj->target = ecs::NullEntity;
+                if (reg.valid(pj->target))
+                    world.addPointJointPhysics(out[i], pj->target, pj->localAnchorA, pj->localAnchorB);
+            }
+        }
+        if (snaps[i].hasHingeJoint) {
+            if (auto* hj = reg.get<ecs::HingeJointConstraint>(out[i])) {
+                auto it = oldToNew.find(hj->target.id);
+                if (it != oldToNew.end())      hj->target = it->second;
+                else if (!keepExternalParents) hj->target = ecs::NullEntity;
+                if (reg.valid(hj->target))
+                    world.addHingeJointPhysics(out[i], hj->target, hj->localAnchorA, hj->localAnchorB,
+                                               hj->localAxisA, hj->localAxisB,
+                                               hj->limitEnabled, hj->lowerAngle, hj->upperAngle);
+            }
+        }
+        if (snaps[i].hasConeTwistJoint) {
+            if (auto* cj = reg.get<ecs::ConeTwistJointConstraint>(out[i])) {
+                auto it = oldToNew.find(cj->target.id);
+                if (it != oldToNew.end())      cj->target = it->second;
+                else if (!keepExternalParents) cj->target = ecs::NullEntity;
+                if (reg.valid(cj->target))
+                    world.addConeTwistJointPhysics(out[i], cj->target, cj->localAnchorA, cj->localAnchorB,
+                                                   cj->localTwistAxisA, cj->localTwistAxisB,
+                                                   cj->swingLimit, cj->twistLimit);
+            }
+        }
     }
     return out;
 }
