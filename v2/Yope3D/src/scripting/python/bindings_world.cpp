@@ -104,7 +104,7 @@ void bind_world(py::module_& m) {
         // Make an entity static (pins it in place for spring cloth anchors, etc.)
         .def("fix_entity", [](World& w, ecs::Entity e) {
             // Mutates entity composition (adds Fixed tag) → take the structure lock
-            // so it can't race a Sleeping-tag migration on the physics thread.
+            // so this migration can't race the physics thread's registry iteration.
             auto lock = w.lockStructure();
             auto& reg = w.getRegistry();
             if (auto* h = reg.get<ecs::Hull>(e)) {

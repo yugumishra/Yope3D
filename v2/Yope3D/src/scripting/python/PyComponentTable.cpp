@@ -23,7 +23,7 @@ static PyCompEntry entryFor(const char* name) {
     };
 }
 
-// Zero-size tag components (Sleeping/Fixed) aren't bound py::class_es, so their wrap
+// Zero-size tag components (Fixed) aren't bound py::class_es, so their wrap
 // just returns True (presence) — reg_get(e, "Fixed") is True/None; reg_has is the idiom.
 template <class T>
 static PyCompEntry tagEntryFor(const char* name) {
@@ -62,7 +62,6 @@ void build() {
         entryFor<ecs::UIButton>        ("UIButton"),
         entryFor<ecs::TextLabel3D>      ("TextLabel3D"),
         entryFor<ecs::AudioSource>      ("AudioSource"),
-        tagEntryFor<ecs::Sleeping>      ("Sleeping"),
         tagEntryFor<ecs::Fixed>         ("Fixed"),
     };
 }

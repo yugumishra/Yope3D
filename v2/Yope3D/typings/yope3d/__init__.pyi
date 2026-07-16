@@ -54,8 +54,9 @@ also carries a ``Warning:`` block in its own docstring.
     that can change entity composition:
 
         reg_add, reg_remove, remove_entity, the attach_*_collider /
-        detach_physics_body helpers, fix_entity, wake, or anything that
-        adds/removes a tag.
+        detach_physics_body helpers, fix_entity, or anything that adds/removes
+        a tag. (``wake`` is *not* on this list — sleep state is a plain
+        ``Hull.asleep`` field, not a tag.)
 
     Re-fetch after such calls, or use the re-resolving helpers ``get_position``
     / ``set_position`` / ``set_velocity``, which look the component up per call.
@@ -536,6 +537,12 @@ class Hull:
     do not set both. Overlapping sleeping bodies are kept awake-checked so a
     trigger doesn't miss an exit event when the other body falls asleep inside it.
     """
+    asleep: bool
+    """``True`` once the physics thread has parked this body (see the Hull
+    Warning above). A plain field, not a tag — reading/writing it is not a
+    composition change. Prefer ``world.wake`` over setting it directly, since
+    ``wake`` also zeros ``sleepFrames`` so the body doesn't immediately re-sleep.
+    """
     collision_layer: int
     """Bitmask of layers this body belongs to (see ``yope3d.world.layers``)."""
     collision_mask: int
@@ -892,14 +899,14 @@ ComponentName = Literal[
     "UIButton",
     "TextLabel3D",
     "AudioSource",
-    "Sleeping",
     "Fixed",
 ]
 """Component names accepted by ``view()`` / ``reg_get()`` / ``reg_has()``.
 
-``"Sleeping"`` and ``"Fixed"`` are zero-size tags: ``reg_has`` / ``is_sleeping``
-/ ``is_fixed`` report presence, and ``reg_get`` returns ``True`` / ``None``.
-Prefer ``fix_entity`` / ``wake`` over ``reg_add``-ing them.
+``"Fixed"`` is a zero-size tag: ``reg_has`` / ``is_fixed`` report presence, and
+``reg_get`` returns ``True`` / ``None``. Prefer ``fix_entity`` over ``reg_add``-ing
+it. Sleep state is a plain ``Hull.asleep`` field, not a tag — read it directly
+or via ``is_sleeping`` / ``wake``.
 """
 
 # ==============================================================================
@@ -1294,7 +1301,7 @@ class World:
             Composition change — see Hazard #1.
         """
     def detach_physics_body(self, entity: Entity) -> None:
-        """Remove all physics components (Hull + shape + Fixed/Sleeping tags).
+        """Remove all physics components (Hull + shape + Fixed tag).
 
         Warning:
             Composition change — see Hazard #1.
@@ -1736,10 +1743,11 @@ class World:
             point: World-space application point.
         """
     def wake(self, entity: Entity) -> None:
-        """Remove the Sleeping tag so direct velocity writes take effect again.
+        """Clear the Hull's ``asleep`` flag so direct velocity writes take effect
+        again, and zero ``sleepFrames`` so the body doesn't immediately re-sleep.
 
-        Warning:
-            Composition change (removes a tag) — see Hazard #1.
+        Not a composition change — ``asleep`` is a plain ``Hull`` field, so
+        references held across this call stay valid.
         """
     def set_paused(self, paused: bool) -> None:
         """Pause/resume the physics simulation (``advance()`` becomes a no-op while paused)."""
@@ -2078,7 +2086,7 @@ def reg_get(e: Entity, name: Literal["TextLabel3D"]) -> TextLabel3D | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["AudioSource"]) -> AudioSource | None: ...
 @overload
-def reg_get(e: Entity, name: Literal["Sleeping", "Fixed"]) -> bool | None: ...
+def reg_get(e: Entity, name: Literal["Fixed"]) -> bool | None: ...
 @overload
 def reg_get(e: Entity, name: str) -> Any: ...
 def reg_get(e: Entity, name: str) -> Any:
@@ -2090,8 +2098,7 @@ def reg_get(e: Entity, name: str) -> Any:
 
     Returns:
         A **live reference** into engine memory (edits apply immediately), or
-        ``None``. Tag components (``"Sleeping"`` / ``"Fixed"``) return ``True``
-        / ``None``.
+        ``None``. The ``"Fixed"`` tag component returns ``True`` / ``None``.
 
     Warning:
         Don't cache the result across a composition change (Hazard #1).
@@ -2106,7 +2113,7 @@ def reg_valid(e: Entity) -> bool:
 def is_sleeping(entity: Entity) -> bool:
     """Return ``True`` if the body is asleep (physics has parked it).
 
-    ``wake(e)`` clears it. Also reachable via ``reg_has(e, "Sleeping")``.
+    ``wake(e)`` clears it. Equivalent to ``reg_get(e, "Hull").asleep``.
     """
 
 def is_fixed(entity: Entity) -> bool:

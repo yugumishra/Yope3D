@@ -33,8 +33,12 @@
 #include <vector>
 #include <cstdio>
 
-bool EditorApp::init() {
-    if (!engine_.init()) return false;
+bool EditorApp::init(const std::string& sceneOverride) {
+    if (!engine_.init(sceneOverride)) return false;
+    // Mirror the cfg/--scene-resolved startup scene into currentSceneFile_ so
+    // the header bar and Save Scene reflect it, same as the Open Scene menu
+    // does at the pendingLoadScenePath_ handler below.
+    currentSceneFile_ = engine_.startupScenePath();
     engine_.world->setPaused(true);
 
     const Swapchain& sc = engine_.renderer->getSwapchain();
@@ -274,6 +278,14 @@ void EditorApp::tick() {
     }
 
     if (playMode_) {
+        // The editor drives its own loop instead of Engine::update(), so without
+        // this call Play instantiated + init()'d every ScriptComponent (in
+        // doTogglePlay) but never ticked update() on any of them — scripts sat
+        // inert for the entire session. updateScripts also owns UI input
+        // routing/callbacks, collision-event dispatch, ui_update, and the
+        // contact-debug-line clear+emit, so the standalone block below is only
+        // needed in edit mode (no scripts running there to clobber).
+        engine_.updateScripts(static_cast<float>(dt));
         if (engine_.world->newSnapshotReady_.exchange(false, std::memory_order_acquire))
             engine_.world->syncRenderMeshesFromFront();
     } else {

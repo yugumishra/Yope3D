@@ -434,7 +434,6 @@ void World::detachPhysicsBody(ecs::Entity e) {
     if (registry_.has<ecs::CylinderForm>(e)) registry_.remove<ecs::CylinderForm>(e);
     if (registry_.has<ecs::CompoundCollider>(e)) registry_.remove<ecs::CompoundCollider>(e);
     if (registry_.has<ecs::Fixed>(e))        registry_.remove<ecs::Fixed>(e);
-    if (registry_.has<ecs::Sleeping>(e))     registry_.remove<ecs::Sleeping>(e);
     // Stale ContactCache entries are harmless — entity is no longer in Hull view
     if (debugPhysics) rebuildDebugMeshes();
 }
@@ -768,7 +767,7 @@ RenderMesh* World::attachMesh(ecs::Entity e, const LoadedMesh& mesh) {
 RenderMesh* World::getMesh(ecs::Entity e) {
     // Scripts call this from collision-event callbacks, which run outside
     // Engine's structure lock (see Engine.cpp dispatch). registry_.get() races
-    // the physics thread's archetype migrations (e.g. a Sleeping-tag swap can
+    // the physics thread's archetype migrations (e.g. a Fixed-tag toggle can
     // relocate another entity's MeshRenderer row mid-lookup) without this lock.
     // The returned RenderMesh* itself stays valid after unlocking -- it's a
     // heap-stable meshPool_ entry, not registry-owned memory.
@@ -1219,10 +1218,7 @@ void World::setWheelSteer(physics::Joint* wheel, float steerAngleRad) {
 
 void World::wake(ecs::Entity e) {
     std::lock_guard lk(structureMtx_);
-    // Zero sleepFrames BEFORE removing the tag — remove<Sleeping> migrates the
-    // archetype and memcpy-moves the Hull, invalidating any prior pointer.
-    if (auto* h = registry_.get<ecs::Hull>(e)) h->sleepFrames = 0;
-    if (registry_.has<ecs::Sleeping>(e)) registry_.remove<ecs::Sleeping>(e);
+    if (auto* h = registry_.get<ecs::Hull>(e)) { h->asleep = false; h->sleepFrames = 0; }
 }
 
 void World::applyImpulse(ecs::Entity e, math::Vec3 impulse) {
@@ -1741,8 +1737,8 @@ void World::advance(float dt) {
             bool isTriggerPair = (ha && ha->isTrigger) || (hb && hb->isTrigger);
 
             if (!isTriggerPair) {
-                bool aSleep = registry_.has<ecs::Sleeping>(ea);
-                bool bSleep = registry_.has<ecs::Sleeping>(eb);
+                bool aSleep = ha && ha->asleep;
+                bool bSleep = hb && hb->asleep;
                 if (aSleep && bSleep) continue;
                 if (aSleep && bFixed) continue;
                 if (aFixed && bSleep) continue;
@@ -1843,10 +1839,9 @@ void World::advance(float dt) {
         sink = acc;
     }
     YOPE_PROF_SCOPE("integration", "physics");
-    std::vector<ecs::Entity> toSleep;
     for (auto [e, hc, tf] : registry_.view<ecs::Hull, Transform>()) {
         if (!hc.tangible) continue;
-        if (registry_.has<ecs::Fixed>(e) || registry_.has<ecs::Sleeping>(e)) {
+        if (registry_.has<ecs::Fixed>(e) || hc.asleep) {
             hc.pseudoVel   = {};
             hc.pseudoOmega = {};
             continue;
@@ -1901,17 +1896,13 @@ void World::advance(float dt) {
                 if (++hc.sleepFrames >= physics::SLEEP_FRAMES_REQUIRED) {
                     hc.velocity = {};
                     hc.omega    = {};
-                    toSleep.push_back(e);
+                    hc.asleep   = true;
                 }
             } else {
                 hc.sleepFrames = 0;
             }
         }
     }
-    // Add Sleeping tags outside view iteration (archetype mutation not safe inside).
-    for (ecs::Entity e : toSleep)
-        if (!registry_.has<ecs::Sleeping>(e))
-            registry_.add<ecs::Sleeping>(e);
 
     // 5. Springs.
     {

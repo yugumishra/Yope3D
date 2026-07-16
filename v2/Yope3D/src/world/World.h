@@ -125,7 +125,7 @@ public:
                                        const std::string& assetPath,
                                        float mass = 0.0f, bool isStatic = true,
                                        float density = 1.0f);
-    // Remove all physics components (Hull + shape + Fixed/Sleeping tags).
+    // Remove all physics components (Hull + shape + Fixed tag).
     void detachPhysicsBody(ecs::Entity e);
 
     // Call once per editor tick, before the Vulkan command buffer is opened.
@@ -251,7 +251,7 @@ public:
 
     // Returns a scoped lock on the structure mutex. Use to synchronize registry
     // iteration on the main thread against concurrent archetype migrations
-    // (e.g. Sleeping-tag additions) in World::advance().
+    // (e.g. Fixed-tag toggles) racing World::advance().
     std::unique_lock<std::recursive_mutex> lockStructure() {
         return std::unique_lock<std::recursive_mutex>(structureMtx_);
     }
@@ -377,7 +377,7 @@ public:
     void applyImpulse  (ecs::Entity e, math::Vec3 impulse);
     // Apply an impulse at a world-space point — yields both linear and angular change.
     void applyImpulseAt(ecs::Entity e, math::Vec3 impulse, math::Vec3 worldPoint);
-    // Remove the Sleeping tag (and zero sleepFrames) so direct velocity writes take effect.
+    // Clear the Hull's asleep flag (and zero sleepFrames) so direct velocity writes take effect.
     void wake          (ecs::Entity e);
     // Monotonic physics-tick counter (incremented once per advance()).
     uint64_t getTickCount() const { return tickCount_.load(std::memory_order_relaxed); }

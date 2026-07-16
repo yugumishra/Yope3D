@@ -70,9 +70,9 @@ void drawTransformComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
     bool isCylinder   = ctx.registry && ctx.registry->has<ecs::CylinderForm>(e);
 
     auto wakeIfSleeping = [&]() {
-        if (ctx.registry->has<ecs::Fixed>(e) || !ctx.registry->has<ecs::Sleeping>(e)) return;
-        ctx.registry->remove<ecs::Sleeping>(e);
-        if (auto* h = ctx.registry->get<ecs::Hull>(e)) { h->sleepFrames = 0; h->velocity = {}; h->omega = {}; }
+        if (ctx.registry->has<ecs::Fixed>(e)) return;
+        auto* h = ctx.registry->get<ecs::Hull>(e);
+        if (h && h->asleep) { h->asleep = false; h->sleepFrames = 0; h->velocity = {}; h->omega = {}; }
     };
 
     if (uniformScale) {

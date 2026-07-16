@@ -485,6 +485,24 @@ void Engine::update() {
                                 static_cast<float>(window->getHeight()));
     }
 
+    updateScripts(dt);
+
+    // Listener tracks camera (updated after script may have moved it).
+    Listener::setPosition(camera->getPosition());
+    Listener::setOrientation(camera->getForward(), {0.0f, 1.0f, 0.0f});
+
+    // Sync AudioSource positions from their entity Transforms so 3D audio follows
+    // the editor's spatial layout. Source* may be null for unbound audio entities.
+    for (auto [e, tf, as] : world->getRegistry().view<Transform, ecs::AudioSource>()) {
+        if (as.source) as.source->setPosition(tf.position);
+    }
+
+    // Profile-sweep auto-exit. main loop checks window->shouldClose().
+    if (profileEndTime_ > 0.0 && now >= profileEndTime_)
+        glfwSetWindowShouldClose(window->getHandle(), GLFW_TRUE);
+}
+
+void Engine::updateScripts(float dt) {
     // Route the pointer to ECS UI entities BEFORE scripts run this frame's
     // update() — otherwise a script polling ui_consumed_click()/ui_hovered()/
     // ui_hit_test() (or reacting to an on_ui_press/release callback fired
@@ -578,7 +596,7 @@ void Engine::update() {
         if (isSceneLoaded()) world->clearDebugLines();
 
         // Collect under the structure lock: view iteration on the render thread
-        // would race with Sleeping-tag archetype migrations on the physics thread.
+        // would race with archetype migrations (e.g. Fixed-tag toggles) on the physics thread.
         // Scripts execute outside the lock — they call World methods that acquire
         // it themselves, and may freely create/destroy entities (two-pass pattern).
         std::vector<std::pair<ecs::Entity, Script*>> active;
@@ -600,7 +618,7 @@ void Engine::update() {
             auto& reg = world->getRegistry();
             auto dispatch = [&](ecs::Entity self, ecs::Entity other, bool enter) {
                 // Resolve the behavior under the structure lock (the reg.get races
-                // Sleeping-tag migrations on the physics thread), then release it
+                // archetype migrations on the physics thread), then release it
                 // before running Python — the Script* is a stable heap pointer.
                 Script* inst = nullptr;
                 {
@@ -621,20 +639,6 @@ void Engine::update() {
     { YOPE_PROF_SCOPE("ui_update",     "render"); uiManager->update(dt); }
     world->resolvePendingUITextures();
     world->updateTweens(dt);
-
-    // Listener tracks camera (updated after script may have moved it).
-    Listener::setPosition(camera->getPosition());
-    Listener::setOrientation(camera->getForward(), {0.0f, 1.0f, 0.0f});
-
-    // Sync AudioSource positions from their entity Transforms so 3D audio follows
-    // the editor's spatial layout. Source* may be null for unbound audio entities.
-    for (auto [e, tf, as] : world->getRegistry().view<Transform, ecs::AudioSource>()) {
-        if (as.source) as.source->setPosition(tf.position);
-    }
-
-    // Profile-sweep auto-exit. main loop checks window->shouldClose().
-    if (profileEndTime_ > 0.0 && now >= profileEndTime_)
-        glfwSetWindowShouldClose(window->getHandle(), GLFW_TRUE);
 }
 
 void Engine::render() {
