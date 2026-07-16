@@ -17,7 +17,7 @@ namespace physics {
     // Global PGS: all contacts detected first, then iterated globally each frame.
     // PGS_VELOCITY_ITERATIONS: passes over the full contact list for velocity correction.
     // PGS_POSITION_ITERATIONS: passes for the split-impulse pseudo-velocity (position) pass.
-    inline constexpr int   PGS_VELOCITY_ITERATIONS       = 24;
+    inline constexpr int   PGS_VELOCITY_ITERATIONS       = 12;
     inline constexpr int   PGS_POSITION_ITERATIONS       = 5;
 
     // Split impulse (SI) — position correction via pseudo-velocity, no energy injection.

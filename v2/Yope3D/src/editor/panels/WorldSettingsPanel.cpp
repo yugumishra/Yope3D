@@ -76,5 +76,33 @@ void WorldSettingsPanel::draw(EditorContext& ctx) {
             ctx.world->rebuildDebugMeshes();
     }
 
+    if (ImGui::CollapsingHeader("Solver", ImGuiTreeNodeFlags_DefaultOpen)) {
+        bool warm = ctx.world->getWarmStart();
+        if (ImGui::Checkbox("Warm Start", &warm)) ctx.world->setWarmStart(warm);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Reuse last step's contact impulses as this step's initial guess.\n"
+                              "Off: stacks sink and jitter — PGS can't reconverge from zero\n"
+                              "in one step's iteration budget.");
+
+        ImGui::Checkbox("Contact Points", &ctx.world->debugContacts);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Draw each solved manifold point + normal.\n"
+                              "Color/length = normal impulse, relative to the frame's peak\n"
+                              "(blue = barely loaded, red = carrying the most force).");
+
+        float scale = ctx.world->getTimeScale();
+        if (ImGui::SliderFloat("Time Scale", &scale, 0.0f, 2.0f, "%.2fx"))
+            ctx.world->setTimeScale(scale);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Scales wall-clock time, not the step size — the sim still\n"
+                              "runs at a fixed 240 Hz. 0 freezes it.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("1x")) ctx.world->setTimeScale(1.0f);
+
+        ImGui::Text("pairs %d   contacts %d (%d pts)   islands %d",
+                    ctx.world->getPairCount(), ctx.world->getContactCount(),
+                    ctx.world->getContactPointCount(), ctx.world->getIslandCount());
+    }
+
     ImGui::End();
 }

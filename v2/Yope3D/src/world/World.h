@@ -447,6 +447,52 @@ public:
     int getIslandCount() const { return lastIslandCount_; }
     int getThreadCount() const;
 
+    // ---- Solver instrumentation (devlog toggles; all main-thread setters) ----
+
+    // Warm-starting: reuse last step's converged contact impulses as this step's
+    // initial guess. Turning it off is a demo, not an optimization — see
+    // physics::ColliderDiscrete::setWarmStartEnabled for what it costs.
+    void setWarmStart(bool on) { physics::ColliderDiscrete::setWarmStartEnabled(on); }
+    bool getWarmStart() const  { return physics::ColliderDiscrete::warmStartEnabled(); }
+
+    // Scales the WALL-CLOCK dt fed into the physics accumulator (Engine's physics
+    // thread), NOT the step size — advance() still runs at a fixed PHYSICS_DT, so
+    // slow motion is a slowed-down replay of the same deterministic sim rather
+    // than a different (softer / stiffer) one. 0 freezes the sim; values above 1
+    // are capped by MAX_PHYSICS_ACCUMULATOR's substep clamp, so a big number just
+    // saturates instead of exploding.
+    void  setTimeScale(float s) { timeScale_.store(std::max(0.0f, s), std::memory_order_relaxed); }
+    float getTimeScale() const  { return timeScale_.load(std::memory_order_relaxed); }
+
+    // Last tick's solver-load counters. pairCount = broadphase candidate pairs;
+    // contactCount = manifolds surviving narrowphase (matches the profiler CSV's
+    // contact_count); contactPointCount = individual points inside those
+    // manifolds, which is what the PGS loop actually iterates (a box-box pair is
+    // one manifold but up to four points).
+    int getPairCount()         const { return lastPairCount_; }
+    int getContactCount()      const { return lastContactCount_; }
+    int getContactPointCount() const { return lastContactPointCount_; }
+
+    // ---- Contact-point overlay ----
+    // With debugContacts on, the physics thread copies each solved manifold point
+    // (world position, normal, penetration, converged normal impulse) out at the
+    // end of advance(); the main thread turns them into debug lines via
+    // emitContactDebugLines(). Off by default and the copy is skipped entirely
+    // when off, so this costs nothing in a normal run.
+    bool debugContacts = false;
+    struct ContactDebugPoint {
+        math::Vec3 point;
+        math::Vec3 normal;
+        float      depth   = 0.0f;   // penetration (m)
+        float      impulse = 0.0f;   // converged normal lambda (N·s)
+    };
+    // Main thread. Appends a cross at each contact point plus its normal into
+    // debugLines_, coloring by impulse magnitude relative to the largest impulse
+    // in the same snapshot (blue = barely loaded, red = carrying the most force).
+    // The scale is per-frame and relative — it shows the load *path* through a
+    // stack, not absolute newtons.
+    void emitContactDebugLines(float crossSize = 0.05f, float normalLen = 0.25f);
+
     math::Vec3 gravity = {0.0f, physics::GRAVITY_Y, 0.0f};
 
     // Global scene exposure applied pre-tonemap in the PBR shader (World Settings).
@@ -624,6 +670,15 @@ private:
     physics::IslandDetector                              islandDetector_;
     std::unique_ptr<ThreadPool>                          threadPool_;
     int                                                  lastIslandCount_ = 0;
+    int                                                  lastPairCount_ = 0;
+    int                                                  lastContactCount_ = 0;
+    int                                                  lastContactPointCount_ = 0;
+    std::atomic<float>                                   timeScale_{ 1.0f };
+    // Written by the physics thread at the end of advance(), drained by the main
+    // thread in emitContactDebugLines(). Its own mutex rather than structureMtx_:
+    // the main thread would otherwise block on a whole physics step just to draw.
+    std::vector<ContactDebugPoint>                       contactDebug_;
+    std::mutex                                           contactDebugMtx_;
     std::vector<std::unique_ptr<RenderMesh>>             debugMeshes_;
     std::vector<ecs::Entity>                             debugEntities_;
     std::unordered_map<uint32_t, math::Vec3>            debugColorOverrides_;  // entity.id -> overlay color

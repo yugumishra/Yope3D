@@ -300,6 +300,13 @@ void EditorApp::tick() {
         engine_.world->newSnapshotReady_.store(false, std::memory_order_release);
         engine_.world->syncRenderMeshesFromFront();
 
+        // Contact-point overlay while not playing (e.g. inspecting a paused/
+        // stepped scene). During Play, updateScripts() above already owns this
+        // channel — clearing it again here would wipe a script's own draw_line().
+        if (engine_.world->debugContacts) {
+            engine_.world->clearDebugLines();
+            engine_.world->emitContactDebugLines();
+        }
     }
 
     Listener::setPosition(engine_.camera->getPosition());
