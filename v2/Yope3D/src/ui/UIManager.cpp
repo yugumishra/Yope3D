@@ -82,6 +82,14 @@ void UIManager::buildFrame(UIBuffer& buf, float screenW, float screenH) {
             l->drawCall.texture = dummy;
 
         drawCalls_.push_back(l->drawCall);
+
+        // Styled text spans one draw call per <b>/<i> run; null for everything else.
+        if (const auto* extra = l->extraDrawCalls()) {
+            for (UIDrawCall dc : *extra) {
+                if (dc.state == 0 || dc.texture == VK_NULL_HANDLE) dc.texture = dummy;
+                drawCalls_.push_back(dc);
+            }
+        }
     }
 }
 
@@ -146,7 +154,8 @@ CurvedBackground* UIManager::addCurvedBackground(math::Vec2 min, math::Vec2 max,
 
 TextBox* UIManager::addTextBox(Background* parent, TextAtlas* atlas, const std::string& text,
                                int depth, int displayPx, Alignment align) {
-    auto label = std::make_unique<TextBox>(parent, atlas, text, depth, displayPx, align);
+    // `this` enables inline <b>/<i> styling — see TextBox's header comment.
+    auto label = std::make_unique<TextBox>(parent, atlas, text, depth, displayPx, align, this);
     auto* ptr  = label.get();
     labels_.push_back(std::move(label));
     return ptr;
@@ -173,11 +182,23 @@ TextAtlas* UIManager::loadAtlas(const std::string& fontPath, int pixelSize) {
     for (auto& a : atlases_) {
         if (a->fontPath() == fontPath) return a.get();
     }
+    // Failures are cached too. Styled-text runs ask for variants that often
+    // aren't baked (there is no monaco_bold), and without this a single <b> tag
+    // would retry the disk read and re-log the failure on every frame.
+    if (failedPaths_.count(fontPath)) return nullptr;
+
     auto atlas = std::make_unique<TextAtlas>();
     if (!atlas->init(*gpu_, commandPool_, uiDescPool_, textureLayout_, fontPath, pixelSize)) {
+        failedPaths_.insert(fontPath);
         return nullptr;
     }
     auto* ptr = atlas.get();
     atlases_.push_back(std::move(atlas));
     return ptr;
+}
+
+TextAtlas* UIManager::loadAtlasWithFallback(const std::string& variantPath,
+                                            const std::string& fallbackPath) {
+    if (auto* a = loadAtlas(variantPath)) return a;
+    return loadAtlas(fallbackPath);
 }

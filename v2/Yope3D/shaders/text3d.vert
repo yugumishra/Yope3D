@@ -11,6 +11,7 @@ layout(push_constant) uniform Push {
     mat4  model;          // anchor transform
     float distanceRange;  // (used by fragment shader)
     int   billboard;      // != 0 → face the camera
+    float boldBias;       // (used by fragment shader)
 } push;
 
 layout(location = 0) in vec3 inPos;     // glyph-local meters

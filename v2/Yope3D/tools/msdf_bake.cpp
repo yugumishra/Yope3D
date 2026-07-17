@@ -75,9 +75,20 @@ int main(int argc, char** argv) {
     const double rangeEm = pxRange / bakeSize;   // distance range in em
     const double margin  = 0.5 * rangeEm;        // padding around the glyph each side
 
-    // --- Generate per-glyph MSDF bitmaps (printable ASCII) -------------------
+    // --- Generate per-glyph MSDF bitmaps -------------------------------------
+    // Printable ASCII, then Latin-1 Supplement + Latin Extended-A ("Western +
+    // Central European" coverage: accents, ñ, ø, ł, ...). The gap between the
+    // two skips DEL (0x7F) and the C1 control block (0x80-0x9F), which have no
+    // printable form. A codepoint the font doesn't carry is simply skipped by
+    // the loadGlyph check below, so this range is safe for any Latin font.
+    static constexpr struct { unsigned first, last; } kRanges[] = {
+        { 0x20, 0x7E },
+        { 0xA0, 0x17F },
+    };
+
     std::vector<BakedGlyph> glyphs;
-    for (unsigned c = 32; c <= 126; ++c) {
+    for (const auto& range : kRanges)
+    for (unsigned c = range.first; c <= range.last; ++c) {
         Shape shape;
         double advance = 0.0;
         if (!loadGlyph(shape, font, c, FONT_SCALING_EM_NORMALIZED, &advance)) continue;

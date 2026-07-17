@@ -1,4 +1,5 @@
 #include "TextAtlas.h"
+#include "TextLayout.h"
 #include "gpu/GpuDevice.h"
 #include "scene/serialization/JsonParser.h"
 #include "assets/AssetResolve.h"
@@ -57,7 +58,7 @@ bool TextAtlas::init(GpuDevice& gpu, VkCommandPool commandPool,
 
     for (const JsonNode& g : root["glyphs"].asArray()) {
         int code = g["unicode"].asInt();
-        if (code < 0 || code > 127) continue;     // ASCII-only atlas
+        if (!text::isValidGlyphCodepoint(code)) continue;
 
         GlyphInfo info{};
         info.advance = g["advance"].asFloat();
@@ -77,7 +78,7 @@ bool TextAtlas::init(GpuDevice& gpu, VkCommandPool commandPool,
             info.hasQuad = true;
         }
 
-        glyphs_[static_cast<char>(code)] = info;
+        glyphs_[static_cast<char32_t>(code)] = info;
     }
 
     // ---------------------------------------------------------------------------
@@ -117,12 +118,16 @@ void TextAtlas::destroy(VkDevice device) {
     glyphs_.clear();
 }
 
-const GlyphInfo* TextAtlas::glyph(char c) const {
-    auto it = glyphs_.find(c);
+const GlyphInfo* TextAtlas::glyph(char32_t codepoint) const {
+    auto it = glyphs_.find(codepoint);
     if (it == glyphs_.end()) {
         static bool warned = false;
         if (!warned) {
-            std::cerr << "[TextAtlas] Unknown glyph '" << c << "' (suppressing further warnings)\n";
+            // Printed as U+XXXX rather than the character itself — a codepoint
+            // outside the atlas is by definition one this stream can't render.
+            std::cerr << "[TextAtlas] Unknown glyph U+" << std::hex << std::uppercase
+                      << static_cast<uint32_t>(codepoint) << std::nouppercase << std::dec
+                      << " (suppressing further warnings)\n";
             warned = true;
         }
         return nullptr;

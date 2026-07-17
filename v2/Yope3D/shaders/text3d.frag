@@ -6,6 +6,7 @@ layout(push_constant) uniform Push {
     mat4  model;
     float distanceRange;
     int   billboard;
+    float boldBias;       // synthesized-bold weight; 0 = as authored
 } push;
 
 layout(location = 0) in vec2 fragUV;
@@ -26,7 +27,8 @@ float screenPxRange(vec2 uv) {
 void main() {
     vec3  msd     = texture(atlas, fragUV).rgb;
     float sd      = median(msd.r, msd.g, msd.b);
-    float opacity = clamp(screenPxRange(fragUV) * (sd - 0.5) + 0.5, 0.0, 1.0);
+    // See ui.frag: biasing the threshold thickens strokes to fake a bold face.
+    float opacity = clamp(screenPxRange(fragUV) * (sd - (0.5 - push.boldBias)) + 0.5, 0.0, 1.0);
     if (opacity <= 0.0) discard;
     outColor = vec4(fragColor.rgb, fragColor.a * opacity);
 }

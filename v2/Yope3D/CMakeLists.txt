@@ -91,7 +91,7 @@ if(YOPE_BAKE_FONTS)
     target_include_directories(msdf_bake PRIVATE "${Stb_INCLUDE_DIR}")
     target_link_libraries(msdf_bake PRIVATE msdfgen::msdfgen-core msdfgen::msdfgen-ext)
 
-    set(FONT_BAKE_LIST monaco nunito_sans nunito_sans_bold)
+    set(FONT_BAKE_LIST monaco nunito_sans nunito_sans_bold nunito_sans_italic)
     set(GEN_DIR "${CMAKE_SOURCE_DIR}/assets/fonts/generated")
     file(MAKE_DIRECTORY "${GEN_DIR}")
 
@@ -290,6 +290,8 @@ set(ENGINE_SOURCES
     src/ui/CurvedBackground.cpp
     src/ui/TextAtlas.cpp
     src/ui/TextBox.cpp
+    src/ui/TextLayout.cpp
+    src/ui/TextShaping.cpp
     src/ui/UIManager.cpp
     src/ui/UIInput.cpp
     ${PHYSICS_SOURCES}
@@ -489,6 +491,21 @@ add_executable(yope_tests
 
 target_include_directories(yope_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(yope_tests PRIVATE Catch2::Catch2WithMain)
+
+# ---------------------------------------------------------------------------
+# Text layout test — UTF-8 decoding + inline style tags.
+# TextLayout.cpp is deliberately free of engine/Vulkan includes so this links
+# against nothing else (see src/ui/TextLayout.h).
+# ---------------------------------------------------------------------------
+
+add_executable(yope_text_tests
+    tests/text_layout_tests.cpp
+    src/ui/TextLayout.cpp
+    src/scene/serialization/JsonParser.cpp   # \uXXXX decode feeds the text path
+)
+
+target_include_directories(yope_text_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(yope_text_tests PRIVATE Catch2::Catch2WithMain)
 
 # ---------------------------------------------------------------------------
 # Physics test executable — no Vulkan/GLFW/OpenAL dependency

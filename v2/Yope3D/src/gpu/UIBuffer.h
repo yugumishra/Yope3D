@@ -28,6 +28,8 @@ struct UIDrawCall {
     int32_t         state;         // 0=solid 1=textured 2=MSDF text
     VkDescriptorSet texture;       // VK_NULL_HANDLE if state==0
     float           distanceRange = 0.0f;  // MSDF texel range (state==2); feeds shader AA
+    float           boldBias      = 0.0f;  // >0 fakes bold in the shader (state==2)
+                                            // when the font has no baked bold atlas
 };
 
 // ---------------------------------------------------------------------------
