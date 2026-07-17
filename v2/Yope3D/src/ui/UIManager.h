@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include "Label.h"
 #include "Background.h"
 #include "TexturedBackground.h"
@@ -91,7 +92,15 @@ public:
     void remove(Label* label);
 
     // Load (or retrieve cached) a TextAtlas.  fontPath is relative to YOPE_ASSETS_DIR.
+    // Returns nullptr if the font has no baked atlas; failures are cached, so a
+    // miss costs one disk probe per path for the process lifetime, not per frame.
     TextAtlas* loadAtlas(const std::string& fontPath, int pixelSize = 0);
+
+    // Load `variantPath`, falling back to `fallbackPath` if it has no baked
+    // atlas. Used for styled text: a <b> run asks for "<font>_bold.ttf" and
+    // lands back on the base font when that variant was never baked.
+    TextAtlas* loadAtlasWithFallback(const std::string& variantPath,
+                                     const std::string& fallbackPath);
 
     // ---------------------------------------------------------------------------
     // Layout helpers
@@ -123,6 +132,7 @@ private:
 
     std::vector<std::unique_ptr<Label>>    labels_;
     std::vector<std::unique_ptr<TextAtlas>> atlases_;
+    std::unordered_set<std::string>        failedPaths_;  // fonts with no baked atlas
     std::unique_ptr<Texture>               dummyTexture_;
 
     std::vector<UIDrawCall> drawCalls_;

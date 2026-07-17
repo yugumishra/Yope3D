@@ -736,13 +736,40 @@ binding (capsule_cast with r≈0 works already).
 
 ## 15. Localization & fonts
 
-No string-table/locale system (fine to defer), but the harder constraint is
-fonts: MSDF atlases are offline-baked with a fixed glyph set (`tools/msdf_bake.cpp`,
-`FONT_BAKE_LIST` in `CMakeLists.txt`), three fonts committed, no runtime font
-loading and no fallback chain. CJK/Cyrillic/Arabic text will render as missing
-glyphs. UTF-8 handling in `TextBox` needs verification before any non-ASCII
-content is promised. Cheap first step: bake an extended-Latin set; real i18n
-needs a fallback-font chain and larger/multi-page atlases.
+**Extended Latin: DONE.** Atlases bake printable ASCII + Latin-1 Supplement +
+Latin Extended-A (319 glyphs/font, `tools/msdf_bake.cpp`); four fonts committed
+(`nunito_sans_italic` added). Western/Central European text renders.
+
+UTF-8 is now handled properly end to end — this was previously not just missing
+but *broken*: `TextAtlas` keyed glyphs by `char` (so anything past 127 aliased)
+and both text paths iterated raw bytes with no decoding at all. Decoding lives in
+`text::decodeUtf8` (`src/ui/TextLayout.h`, pure + unit-tested); atlases are keyed
+by `char32_t`. Relatedly, `JsonParser` never decoded `\uXXXX` escapes, so every
+accented character authored through a scene file arrived as literal `u00e9` text
+— fixed, with surrogate-pair support.
+
+**Two live constraints:**
+- **NFC only.** Combining marks (U+0300–036F) are outside the bake range, so
+  decomposed text (`e`+U+0301) loses its accent and logs `Unknown glyph U+301`.
+  Authoring tools must emit precomposed characters. Widening the range to cover
+  combining marks would still not compose them — that needs real glyph
+  positioning, not just more atlas entries.
+- **No string table / locale system** (still fine to defer) and no runtime font
+  loading.
+
+**Still open:** Cyrillic/Greek need a font that carries them (none of the four
+committed do) but no new code — the codepoint path is generic now. CJK needs a
+multi-page atlas: ~thousands of glyphs blow past the single 512px-wide sheet, so
+`TextAtlas`/`UIVertex`/both text shaders would need a page index (the
+`sampler2DArray` pattern already exists in `PointShadowMap`). Arabic/RTL remains
+the real wall — positional joining and bidi are incompatible with the
+one-codepoint-one-quad model in `TextBox`/`buildECSText3DGeometry` and need a
+shaping library (HarfBuzz), not a font tweak.
+
+**Rich text: DONE** (was not previously scoped here). Inline `<b>`/`<bold>`/
+`<i>`/`<italic>`, nestable and case-insensitive, in both `ecs::UIText` and
+`ecs::TextLabel3D` — see `src/ui/TextLayout.h` (tokenizer) and
+`src/ui/TextShaping.h` (shared shaper).
 
 ---
 

@@ -1,5 +1,6 @@
 #pragma once
 #include "gpu/UIBuffer.h"
+#include <vector>
 
 // ---------------------------------------------------------------------------
 // Label — abstract base for all UI elements.
@@ -35,4 +36,10 @@ public:
 
     // Populated by buildMesh(); read by Renderer after buildMesh() returns.
     UIDrawCall drawCall{};
+
+    // Draw calls beyond the first, for labels that can't be drawn in one go.
+    // Only styled text needs this: each run of <b>/<i> resolves to a different
+    // atlas, and an atlas is a descriptor set, so it must be its own draw call.
+    // Everything else is a single quad batch and leaves this null.
+    virtual const std::vector<UIDrawCall>* extraDrawCalls() const { return nullptr; }
 };

@@ -8,6 +8,7 @@ layout(set = 0, binding = 0) uniform sampler2D texSampler;
 layout(push_constant) uniform Push {
     int   state;          // 0 = solid, 1 = textured, 2 = MSDF text
     float distanceRange;  // MSDF texel range (state == 2)
+    float boldBias;       // synthesized-bold weight (state == 2); 0 = as authored
 } push;
 
 layout(location = 0) out vec4 outColor;
@@ -30,7 +31,10 @@ void main() {
     } else if (push.state == 2) {
         vec3  msd     = texture(texSampler, fragUV).rgb;
         float sd      = median(msd.r, msd.g, msd.b);
-        float px      = screenPxRange(fragUV) * (sd - 0.5);
+        // Lowering the threshold pushes the coverage edge outward along the
+        // distance field, thickening every stroke — a stand-in for a real bold
+        // face when the font has no baked bold atlas.
+        float px      = screenPxRange(fragUV) * (sd - (0.5 - push.boldBias));
         float opacity = clamp(px + 0.5, 0.0, 1.0);
         outColor = vec4(fragColor.rgb, fragColor.a * opacity);
     } else {

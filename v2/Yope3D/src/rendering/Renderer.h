@@ -136,6 +136,7 @@ private:
         VkDescriptorSet atlas        = VK_NULL_HANDLE;
         float           distanceRange = 0.0f;
         int32_t         billboard    = 0;
+        float           boldBias     = 0.0f;  // >0 fakes bold in the shader
         math::Mat4      model;
     };
     std::vector<Text3DDrawCall> ecsText3DDrawCalls_;

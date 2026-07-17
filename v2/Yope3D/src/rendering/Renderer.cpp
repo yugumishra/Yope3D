@@ -20,6 +20,8 @@
 #include "ui/UIManager.h"
 #include "ui/UILayout.h"
 #include "ui/UIHierarchy.h"
+#include "ui/TextLayout.h"
+#include "ui/TextShaping.h"
 #include "ecs/Components.h"
 #include "world/TransformHierarchy.h"
 #include "debug/Profiler.h"
@@ -1456,7 +1458,9 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
                     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                         uiPipelineLayout, 0, 1, &dc.texture, 0, nullptr);
                 }
-                struct { int32_t state; float distanceRange; } uipush{ dc.state, dc.distanceRange };
+                struct { int32_t state; float distanceRange; float boldBias; }
+                    uipush{ dc.state, dc.distanceRange, dc.boldBias };
+                static_assert(sizeof(uipush) == 12, "must match ui.frag Push and the pipeline's VkPushConstantRange");
                 vkCmdPushConstants(cmd, uiPipelineLayout,
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(uipush), &uipush);
                 vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset,
@@ -1565,7 +1569,8 @@ void Renderer::buildECSUIGeometry(UIBuffer& buf, World& world, float sw, float s
                     // (not next frame) so text never renders wrapped/tiny for a frame.
                     if (ut->autoSize && std::strcmp(ut->text, ut->autoSizedText) != 0) {
                         float natW, natH;
-                        TextBox::measureNatural(atlas, ut->text, displayPx, sw, sh, natW, natH);
+                        TextBox::measureNatural(atlas, ut->text, displayPx, sw, sh, natW, natH,
+                                                uiManager_);
                         if (auto* tfMut = reg.get<ecs::UITransform>(e)) {
                             if (static_cast<ui::Anchor>(tfMut->anchor) == ui::Anchor::Free) {
                                 // minX/maxX are LOCAL fractions of the parent's
@@ -1602,10 +1607,13 @@ void Renderer::buildECSUIGeometry(UIBuffer& buf, World& world, float sw, float s
 
                     Background boundsBox(mn, mx, {0,0,0,0}, 0);
                     TextBox tb(&boundsBox, atlas, ut->text, uiTf->depth,
-                               displayPx, static_cast<Alignment>(ut->alignment));
+                               displayPx, static_cast<Alignment>(ut->alignment), uiManager_);
                     tb.setColor(ut->cr, ut->cg, ut->cb, ut->ca * op);
                     tb.buildMesh(buf, sw, sh);
                     if (tb.drawCall.indexCount > 0) ecsUIDrawCalls_.push_back(tb.drawCall);
+                    // Styled text emits one draw call per <b>/<i> run.
+                    if (const auto* extra = tb.extraDrawCalls())
+                        ecsUIDrawCalls_.insert(ecsUIDrawCalls_.end(), extra->begin(), extra->end());
                 }
             }
         }
@@ -1730,11 +1738,12 @@ void Renderer::createUIPipeline(VkDevice device) {
     colorBlend.attachmentCount = 1;
     colorBlend.pAttachments    = &blendAttachment;
 
-    // Push constant: int state + float distanceRange (8 bytes), fragment stage only.
+    // Push constant: int state + float distanceRange + float boldBias (12 bytes),
+    // fragment stage only.
     VkPushConstantRange pushRange{};
     pushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     pushRange.offset     = 0;
-    pushRange.size       = 8;
+    pushRange.size       = 12;
 
     // Set 0 = texture sampler (reuse the same layout as the 3D pipeline's set 1)
     VkDescriptorSetLayout setLayouts[1] = { textureSetLayout->get() };
@@ -1864,11 +1873,12 @@ void Renderer::createText3DPipeline(VkDevice device) {
     colorBlend.attachmentCount = 1;
     colorBlend.pAttachments    = &blendAttachment;
 
-    // Push: mat4 model + float distanceRange + int billboard (72 bytes), both stages.
+    // Push: mat4 model + float distanceRange + int billboard + float boldBias
+    // (76 bytes), both stages.
     VkPushConstantRange pushRange{};
     pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pushRange.offset     = 0;
-    pushRange.size       = 72;
+    pushRange.size       = 76;
 
     // Set 0 = GlobalUBO (shared with the mesh pipeline), Set 1 = MSDF atlas sampler.
     VkDescriptorSetLayout setLayouts[2] = { uboLayout->get(), textureSetLayout->get() };
@@ -1918,49 +1928,83 @@ void Renderer::buildECSText3DGeometry(Text3DBuffer& buf, World& world) {
         if (!atlas) continue;
 
         float s = t.sizeMeters;
+        // Text may carry inline <b>/<i> tags; tokenize once and walk twice
+        // (measure, then emit) — same shared shaper the 2D UI text path uses.
+        const text::TokenizedText tok = text::tokenizeStyledText(t.text);
 
         // Measure the (single-line) width, then center horizontally on the anchor.
         float width = 0.0f;
-        for (const char* p = t.text; *p; ++p) {
-            const GlyphInfo* g = atlas->glyph(*p);
-            if (g) width += g->advance * s;
-        }
+        text::shapeTokenized(*uiManager_, t.fontPath, tok,
+            [&](const text::ShapedGlyph& sg) {
+                if (sg.glyph) width += sg.glyph->advance * s;
+                return true;
+            });
+
         float penX  = -0.5f * width;
+        // Vertical metrics stay on the base atlas so styled runs share a baseline.
         float baseY = -0.5f * atlas->ascender() * s;   // roughly vertical-center the cap height
 
+        // One draw call per contiguous atlas+bias run: the atlas is a descriptor
+        // set and boldBias is a push constant, so neither can vary within a draw.
         verts.clear();
         indices.clear();
-        for (const char* p = t.text; *p; ++p) {
-            const GlyphInfo* g = atlas->glyph(*p);
-            if (!g) continue;
-            if (g->hasQuad) {
-                // planeBounds are em, Y-up, baseline origin → local meters, Y-up.
-                float xMin = penX + g->planeL * s;
-                float xMax = penX + g->planeR * s;
-                float yBot = baseY + g->planeB * s;
-                float yTop = baseY + g->planeT * s;   // top → atlas v0
-                uint32_t base = static_cast<uint32_t>(verts.size());
-                verts.push_back({ xMin, yTop, 0.0f, g->u0, g->v0, t.cr, t.cg, t.cb, t.ca });
-                verts.push_back({ xMax, yTop, 0.0f, g->u1, g->v0, t.cr, t.cg, t.cb, t.ca });
-                verts.push_back({ xMax, yBot, 0.0f, g->u1, g->v1, t.cr, t.cg, t.cb, t.ca });
-                verts.push_back({ xMin, yBot, 0.0f, g->u0, g->v1, t.cr, t.cg, t.cb, t.ca });
-                indices.insert(indices.end(), { base, base+1, base+2, base, base+2, base+3 });
-            }
-            penX += g->advance * s;
-        }
-        if (verts.empty()) continue;
+        TextAtlas* batchAtlas = nullptr;
+        float      batchBias  = 0.0f;
+        const math::Mat4 model = hierarchy::worldTransform(reg, e).getModelMatrix();
 
-        auto r = buf.push(verts.data(), static_cast<uint32_t>(verts.size()),
-                          indices.data(), static_cast<uint32_t>(indices.size()));
-        Text3DDrawCall dc{};
-        dc.indexCount    = r.indexCount;
-        dc.indexOffset   = r.indexOffset;
-        dc.vertexOffset  = r.vertexOffset;
-        dc.atlas         = atlas->descriptorSet();
-        dc.distanceRange = atlas->distanceRange();
-        dc.billboard     = t.billboard;
-        dc.model         = hierarchy::worldTransform(reg, e).getModelMatrix();
-        ecsText3DDrawCalls_.push_back(dc);
+        auto flush = [&]() {
+            if (verts.empty() || !batchAtlas) return;
+            auto r = buf.push(verts.data(), static_cast<uint32_t>(verts.size()),
+                              indices.data(), static_cast<uint32_t>(indices.size()));
+            Text3DDrawCall dc{};
+            dc.indexCount    = r.indexCount;
+            dc.indexOffset   = r.indexOffset;
+            dc.vertexOffset  = r.vertexOffset;
+            dc.atlas         = batchAtlas->descriptorSet();
+            dc.distanceRange = batchAtlas->distanceRange();
+            dc.billboard     = t.billboard;
+            dc.boldBias      = batchBias;
+            dc.model         = model;
+            ecsText3DDrawCalls_.push_back(dc);
+            verts.clear();
+            indices.clear();
+        };
+
+        text::shapeTokenized(*uiManager_, t.fontPath, tok,
+            [&](const text::ShapedGlyph& sg) {
+                const GlyphInfo* g = sg.glyph;
+                if (!g) return true;
+                if (g->hasQuad) {
+                    const float bias = sg.synthesizeBold ? text::kSynthBoldBias : 0.0f;
+                    if (sg.atlas != batchAtlas || bias != batchBias) {
+                        flush();
+                        batchAtlas = sg.atlas;
+                        batchBias  = bias;
+                    }
+                    // planeBounds are em, Y-up, baseline origin → local meters, Y-up.
+                    float xMin = penX + g->planeL * s;
+                    float xMax = penX + g->planeR * s;
+                    float yBot = baseY + g->planeB * s;
+                    float yTop = baseY + g->planeT * s;   // top → atlas v0
+
+                    // Faux italic: lean forward about the baseline (Y-up here, so
+                    // the offset is +shear * height above it — mirror of TextBox's
+                    // Y-down form).
+                    const float shear = sg.synthesizeItalic ? text::kSynthItalicShear : 0.0f;
+                    float topShift = shear * (yTop - baseY);
+                    float botShift = shear * (yBot - baseY);
+
+                    uint32_t base = static_cast<uint32_t>(verts.size());
+                    verts.push_back({ xMin + topShift, yTop, 0.0f, g->u0, g->v0, t.cr, t.cg, t.cb, t.ca });
+                    verts.push_back({ xMax + topShift, yTop, 0.0f, g->u1, g->v0, t.cr, t.cg, t.cb, t.ca });
+                    verts.push_back({ xMax + botShift, yBot, 0.0f, g->u1, g->v1, t.cr, t.cg, t.cb, t.ca });
+                    verts.push_back({ xMin + botShift, yBot, 0.0f, g->u0, g->v1, t.cr, t.cg, t.cb, t.ca });
+                    indices.insert(indices.end(), { base, base+1, base+2, base, base+2, base+3 });
+                }
+                penX += g->advance * s;
+                return true;
+            });
+        flush();
     }
 }
 
@@ -1979,8 +2023,9 @@ void Renderer::recordText3D(VkCommandBuffer cmd) {
     for (const auto& dc : ecsText3DDrawCalls_) {
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, text3DPipelineLayout_,
             1, 1, &dc.atlas, 0, nullptr);
-        struct { math::Mat4 model; float distanceRange; int32_t billboard; }
-            push{ dc.model, dc.distanceRange, dc.billboard };
+        struct { math::Mat4 model; float distanceRange; int32_t billboard; float boldBias; }
+            push{ dc.model, dc.distanceRange, dc.billboard, dc.boldBias };
+        static_assert(sizeof(push) == 76, "must match text3d.vert/frag Push and the pipeline's VkPushConstantRange");
         vkCmdPushConstants(cmd, text3DPipelineLayout_,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
         vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset, dc.vertexOffset, 0);
@@ -2610,7 +2655,9 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
                     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                         uiPipelineLayout, 0, 1, &dc.texture, 0, nullptr);
                 }
-                struct { int32_t state; float distanceRange; } uipush{ dc.state, dc.distanceRange };
+                struct { int32_t state; float distanceRange; float boldBias; }
+                    uipush{ dc.state, dc.distanceRange, dc.boldBias };
+                static_assert(sizeof(uipush) == 12, "must match ui.frag Push and the pipeline's VkPushConstantRange");
                 vkCmdPushConstants(cmd, uiPipelineLayout,
                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(uipush), &uipush);
                 vkCmdDrawIndexed(cmd, dc.indexCount, 1, dc.indexOffset,

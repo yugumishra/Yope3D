@@ -49,8 +49,8 @@ public:
 
     void destroy(VkDevice device);
 
-    // Returns nullptr if the character is not in the atlas (logs a warning).
-    const GlyphInfo* glyph(char c) const;
+    // Returns nullptr if the codepoint is not in the atlas (logs a warning).
+    const GlyphInfo* glyph(char32_t codepoint) const;
 
     VkDescriptorSet descriptorSet() const { return texture_->getDescriptorSet(); }
 
@@ -62,8 +62,8 @@ public:
     const std::string& fontPath() const { return fontPath_; }
 
 private:
-    std::unique_ptr<Texture>             texture_;
-    std::unordered_map<char, GlyphInfo>  glyphs_;
+    std::unique_ptr<Texture>                 texture_;
+    std::unordered_map<char32_t, GlyphInfo>  glyphs_;
     std::string fontPath_;
     float lineHeight_    = 0.0f;
     float ascender_      = 0.0f;
