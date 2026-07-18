@@ -3,7 +3,7 @@ package visual;
 import java.awt.Dimension;
 import java.awt.Toolkit;
 
-import scripts.RaytracingTest;
+import scripts.Tester;
 
 public class Launch {
 	//create static variables that hold the important variables concerning the application
@@ -14,8 +14,8 @@ public class Launch {
 	public static Loop game;
 	
 	
-	public static Class<?> toScript = RaytracingTest.class;
-	public static Class<?> renderType = Raytracer.class;
+	public static Class<?> toScript = Tester.class;
+	public static Class<?> renderType = Renderer.class;
 	
 	public static void launch() {
 		//get width and height from the toolkit of the current monitor
