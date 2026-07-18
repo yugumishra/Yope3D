@@ -23,6 +23,7 @@ jobs:
       - uses: withastro/action@v3
         with:
           path: ./v2/Yope3D/site
+          node-version: 22
 
   deploy:
     needs: build
