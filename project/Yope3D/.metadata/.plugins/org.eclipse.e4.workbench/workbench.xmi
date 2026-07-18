@@ -2,7 +2,7 @@
 <application:Application xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:advanced="http://www.eclipse.org/ui/2010/UIModel/application/ui/advanced" xmlns:application="http://www.eclipse.org/ui/2010/UIModel/application" xmlns:basic="http://www.eclipse.org/ui/2010/UIModel/application/ui/basic" xmlns:menu="http://www.eclipse.org/ui/2010/UIModel/application/ui/menu" xmi:id="_gZoFIZdPEe-VMp4_1eq-oA" elementId="org.eclipse.e4.legacy.ide.application" contributorURI="platform:/plugin/org.eclipse.platform" selectedElement="_gZpTQJdPEe-VMp4_1eq-oA" bindingContexts="_gZpTSZdPEe-VMp4_1eq-oA">
   <persistedState key="memento" value="&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?>&#xD;&#xA;&lt;workbench>&#xD;&#xA;&lt;mruList/>&#xD;&#xA;&lt;/workbench>"/>
   <tags>activeSchemeId:org.eclipse.ui.defaultAcceleratorConfiguration</tags>
-  <children xsi:type="basic:TrimmedWindow" xmi:id="_gZpTQJdPEe-VMp4_1eq-oA" elementId="IDEWindow" contributorURI="platform:/plugin/org.eclipse.platform" selectedElement="_gqt1IJdPEe-VMp4_1eq-oA" label="%trimmedwindow.label.eclipseSDK" x="208" y="208" width="1024" height="768">
+  <children xsi:type="basic:TrimmedWindow" xmi:id="_gZpTQJdPEe-VMp4_1eq-oA" elementId="IDEWindow" contributorURI="platform:/plugin/org.eclipse.platform" selectedElement="_gqt1IJdPEe-VMp4_1eq-oA" label="%trimmedwindow.label.eclipseSDK" x="440" y="84" width="1024" height="768">
     <persistedState key="coolBarVisible" value="true"/>
     <persistedState key="perspectiveBarVisible" value="true"/>
     <persistedState key="isRestored" value="true"/>
@@ -10,6 +10,7 @@
     <persistedState key="workingSets" value="&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?>&#xD;&#xA;&lt;workingSets/>"/>
     <persistedState key="aggregateWorkingSetId" value="Aggregate for window 1730355325750"/>
     <tags>topLevel</tags>
+    <tags>shellMaximized</tags>
     <children xsi:type="basic:PartSashContainer" xmi:id="_gqt1IJdPEe-VMp4_1eq-oA" selectedElement="_gqt1IZdPEe-VMp4_1eq-oA" horizontal="true">
       <children xsi:type="advanced:PerspectiveStack" xmi:id="_gqt1IZdPEe-VMp4_1eq-oA" elementId="org.eclipse.ui.ide.perspectivestack" containerData="7500" selectedElement="_g4nuQJdPEe-VMp4_1eq-oA">
         <children xsi:type="advanced:Perspective" xmi:id="_g4nuQJdPEe-VMp4_1eq-oA" elementId="org.eclipse.jdt.ui.JavaPerspective" selectedElement="_g4nuQZdPEe-VMp4_1eq-oA" label="Java" iconURI="platform:/plugin/org.eclipse.jdt.ui/$nl$/icons/full/eview16/jperspective.png">
@@ -348,7 +349,7 @@
       </children>
       <children xsi:type="menu:ToolBar" xmi:id="_gs3KMJdPEe-VMp4_1eq-oA" elementId="org.eclipse.ui.workbench.file">
         <tags>Draggable</tags>
-        <children xsi:type="menu:HandledToolItem" xmi:id="_gs9Q0JdPEe-VMp4_1eq-oA" elementId="print" visible="false" iconURI="platform:/plugin/org.eclipse.ui/icons/full/etool16/print_edit.png" tooltip="Print" command="_gackopdPEe-VMp4_1eq-oA"/>
+        <children xsi:type="menu:HandledToolItem" xmi:id="_QDNfYChiEfCqEP_mY-erfQ" elementId="print" visible="false" iconURI="platform:/plugin/org.eclipse.ui/icons/full/etool16/print_edit.png" tooltip="Print" command="_gackopdPEe-VMp4_1eq-oA"/>
       </children>
       <children xsi:type="menu:ToolBar" xmi:id="_gs3KMZdPEe-VMp4_1eq-oA" elementId="group.edit" toBeRendered="false">
         <tags>toolbarSeparator</tags>
@@ -376,7 +377,7 @@
       </children>
       <children xsi:type="menu:ToolBar" xmi:id="_gs3xQpdPEe-VMp4_1eq-oA" elementId="org.eclipse.ui.workbench.navigate">
         <tags>Draggable</tags>
-        <children xsi:type="menu:HandledToolItem" xmi:id="_gs_GAJdPEe-VMp4_1eq-oA" elementId="org.eclipse.ui.window.pinEditor" iconURI="platform:/plugin/org.eclipse.ui/icons/full/etool16/pin_editor.png" tooltip="Pin Editor" enabled="false" type="Check" command="_gab9mZdPEe-VMp4_1eq-oA"/>
+        <children xsi:type="menu:HandledToolItem" xmi:id="_QDRw0ChiEfCqEP_mY-erfQ" elementId="org.eclipse.ui.window.pinEditor" iconURI="platform:/plugin/org.eclipse.ui/icons/full/etool16/pin_editor.png" tooltip="Pin Editor" enabled="false" type="Check" command="_gab9mZdPEe-VMp4_1eq-oA"/>
       </children>
       <children xsi:type="menu:ToolBar" xmi:id="_gs3xQ5dPEe-VMp4_1eq-oA" elementId="group.editor" toBeRendered="false">
         <tags>toolbarSeparator</tags>
