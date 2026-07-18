@@ -94,6 +94,13 @@ void JsonWriter::writeString(const char* key, const char* value) {
     needComma_ = true;
 }
 
+void JsonWriter::writeRawValue(const char* key, const char* rawJson) {
+    comma();
+    indent();
+    ss_ << "\"" << key << "\": " << (rawJson && *rawJson ? rawJson : "null");
+    needComma_ = true;
+}
+
 void JsonWriter::writeInt(const char* key, int value) {
     comma();
     indent();

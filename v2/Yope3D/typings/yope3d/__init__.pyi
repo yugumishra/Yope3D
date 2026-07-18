@@ -108,8 +108,12 @@ A behavior is a class in ``scripts/behaviors/*.py`` with a class-level
 
         # All optional:
         def on_unload(self, world: World, entity: Entity) -> None: ...
-        def on_collision_enter(self, world: World, entity: Entity, other: Entity) -> None: ...
-        def on_collision_exit(self, world: World, entity: Entity, other: Entity) -> None: ...
+        # `contact` is an OPTIONAL 5th arg — add it only if you want the impact
+        # data (point/normal/impulse). 4-arg forms keep working unchanged.
+        def on_collision_enter(self, world: World, entity: Entity, other: Entity,
+                               contact: Contact) -> None: ...
+        def on_collision_exit(self, world: World, entity: Entity, other: Entity,
+                              contact: Contact) -> None: ...
         # UI pointer callbacks — entity must carry a UITransform + this ScriptComponent.
         def on_ui_press(self, world: World, entity: Entity) -> None: ...
         def on_ui_release(self, world: World, entity: Entity) -> None: ...
@@ -128,6 +132,14 @@ A behavior is a class in ``scripts/behaviors/*.py`` with a class-level
   entity needs a collider to receive these (a behavior on a mesh-only entity
   never collides). Note: an entity that gains a ScriptComponent while already
   in contact won't get an enter until separation + recontact.
+  An OPTIONAL 5th ``contact: Contact`` arg carries the impact data — the deepest
+  contact ``point``, the ``normal`` (oriented toward ``entity``), and the
+  accumulated normal ``impulse`` (a proxy for impact strength). On ENTER all three
+  are populated; on EXIT they are zero (the pair has separated). Declare the arg
+  only if you need it — 4-arg callbacks keep working unchanged.
+- To observe collisions between bodies that carry *no* script (e.g. "spark
+  wherever a bullet hits anything"), use the global ``yope3d.observe_collisions``
+  registry instead — see its entry below.
 - ``on_ui_press`` / ``on_ui_release`` fire on the mouse-button press/release edge
   while the cursor is over this entity's UITransform rect (topmost by depth
   wins). ``on_ui_enter`` / ``on_ui_leave`` fire when the cursor starts/stops
@@ -210,6 +222,44 @@ Collision events + cross-behavior messaging::
         hp = yope3d.get_behavior(other)         # other entity's live instance
         if hp is not None:
             hp.take_damage(10)
+
+Impact-scaled response (the optional ``contact`` arg)::
+
+    def on_collision_enter(self, world, entity, other, contact):
+        # contact.impulse ~ impact strength; point/normal locate the hit.
+        if contact.impulse > 5.0:
+            yope3d.play_sound("sfx/thud.ogg", volume=min(1.0, contact.impulse / 40.0))
+            yope3d.draw_ray(contact.point, contact.normal, yope3d.Vec3(1, 0.6, 0.1))
+
+Moving platform (kinematic body a script drives; riders inherit its motion)::
+
+    def init(self, world, entity, params):
+        # Mesh-less factory, like add_obb — attach a mesh after.
+        self.plat = world.add_kinematic_box(yope3d.Vec3(0, 1, 0), yope3d.Vec3(2, 0.2, 2))
+        world.attach_box_mesh(self.plat, yope3d.Vec3(2, 0.2, 2), 0.6, 0.6, 0.7)
+        self.t = 0.0
+
+    def update(self, world, entity, dt):
+        self.t += dt
+        # Set velocity (NOT position) so the solver carries resting bodies along.
+        h = yope3d.reg_get(self.plat, "Hull")
+        h.velocity = yope3d.Vec3(0, math.cos(self.t) * 1.5, 0)
+
+Global collision observer (scriptless pairs, layer-scoped)::
+
+    LAYER_DEBRIS = 1 << 3
+
+    def init(self, world, entity, params):
+        # Opt bodies in by setting observe_layers (defaults to 0 = unobserved),
+        # then subscribe. cb(contact) fires for pairs whose combined observe_layers
+        # intersects the mask — including pairs with no script on either side.
+        for e in self.spawn_debris(world):
+            yope3d.reg_get(e, "Hull").observe_layers = LAYER_DEBRIS
+        yope3d.observe_collisions(LAYER_DEBRIS, self.on_debris_hit)
+
+    def on_debris_hit(self, contact):
+        if contact.enter and contact.impulse > 2.0:
+            yope3d.draw_ray(contact.point, contact.normal, yope3d.Vec3(1, 1, 0.3))
 
 Trigger volumes (overlap events, zero physical response)::
 
@@ -298,7 +348,7 @@ Import them with ``from behaviors import _events, _timers, _debug`` and
 unsubscribe / cancel in ``on_unload`` to avoid stale callbacks.
 """
 
-from typing import Any, Final, Literal, overload
+from typing import Any, Callable, Final, Literal, overload
 
 # ==============================================================================
 # Semantic type aliases (documentary — each resolves to its base type, but the
@@ -543,10 +593,51 @@ class Hull:
     composition change. Prefer ``world.wake`` over setting it directly, since
     ``wake`` also zeros ``sleepFrames`` so the body doesn't immediately re-sleep.
     """
+    kinematic: bool
+    """If ``True`` this is a *kinematic* rigid body (moving platform): immovable by
+    contacts (its inverse mass/inertia are held at 0), but its Transform is still
+    integrated by ``velocity``/``omega`` each step, and the solver reads that
+    velocity so dynamic bodies resting on it inherit the motion. It never sleeps
+    and skips gravity/damping. Set velocity, NOT position, to move it. Prefer the
+    ``world.add_kinematic_box``/``add_kinematic_sphere`` factories or
+    ``world.make_kinematic(entity)`` (they also zero inverse mass/inertia + gravity
+    and drop the Fixed tag); flipping this flag alone leaves those unchanged."""
     collision_layer: int
     """Bitmask of layers this body belongs to (see ``yope3d.world.layers``)."""
     collision_mask: int
     """Bitmask of layers this body collides with. Both directions must match to collide."""
+    observe_layers: int
+    """Observer membership bitmask that ``yope3d.observe_collisions(mask, cb)``
+    matches against. **Defaults to 0 — this body is invisible to every observer**
+    until you assign it a channel, so observers never pay for bodies that didn't opt
+    in. Independent of ``collision_layer`` (which governs what physically collides):
+    set this to the channel(s) you want a global observer to watch, e.g.
+    ``reg_get(bullet, "Hull").observe_layers = 1 << 3``."""
+
+class Contact:
+    """Collision payload passed as the optional 5th arg to ``on_collision_enter`` /
+    ``on_collision_exit`` and (as the sole arg) to ``yope3d.observe_collisions``
+    callbacks. Read-only.
+
+    On ENTER, ``point``/``normal``/``impulse`` describe the contact; on EXIT they
+    are all zero (the pair has separated), and ``impulse`` is also 0 for trigger
+    overlaps (which never reach the solver)."""
+
+    a: Entity
+    """First body of the pair. In a per-entity callback this is your own entity
+    (``self``'s), and ``normal`` points toward it; in an observer callback it is
+    the pair in the solver's stored order (``normal`` points a→b)."""
+    b: Entity
+    """Second body of the pair (``other`` in a per-entity callback)."""
+    enter: bool
+    """``True`` for a contact-begin event, ``False`` for contact-end."""
+    point: Vec3
+    """Deepest contact point in world space. Zero on exit."""
+    normal: Vec3
+    """Unit contact normal (see ``a`` for orientation). Zero on exit."""
+    impulse: float
+    """Accumulated normal impulse this tick (N·s) — a proxy for impact strength.
+    Zero on exit and for trigger overlaps."""
 
 class SphereForm:
     """Sphere collision shape."""
@@ -924,6 +1015,7 @@ ComponentName = Literal[
     "AnimationPlayer",
     "AudioSource",
     "Fixed",
+    "Transient",
 ]
 """Component names accepted by ``view()`` / ``reg_get()`` / ``reg_has()``.
 
@@ -931,6 +1023,10 @@ ComponentName = Literal[
 ``reg_get`` returns ``True`` / ``None``. Prefer ``fix_entity`` over ``reg_add``-ing
 it. Sleep state is a plain ``Hull.asleep`` field, not a tag — read it directly
 or via ``is_sleeping`` / ``wake``.
+
+``"Transient"`` is a zero-size tag marking an entity to be **excluded from saves**
+(VFX, debris, HUD rebuilt on load). ``reg_add(e, "Transient")`` opts a
+runtime-spawned entity out; a full-scene save skips every tagged entity.
 """
 
 # ==============================================================================
@@ -1192,6 +1288,23 @@ class World:
         Returns:
             The new entity.
         """
+    def add_kinematic_box(self, pos: Vec3, extent: Vec3) -> Entity:
+        """Spawn a kinematic *rigid* body box (moving platform — has a Hull with
+        ``kinematic=True``). Immovable by contacts, but integrated by a script-set
+        ``velocity``/``omega`` so dynamic bodies resting on it inherit the motion.
+        Never sleeps. Mesh-less like ``add_obb`` — call ``attach_box_mesh`` after.
+
+        Drive it by setting ``reg_get(e, "Hull").velocity`` (NOT position). ``extent``
+        is half-extents; the shape is an OBB so the platform can also rotate.
+        Distinct from ``add_kinematic_capsule``, which has no Hull at all."""
+    def add_kinematic_sphere(self, pos: Vec3, radius: float) -> Entity:
+        """Spherical counterpart of ``add_kinematic_box`` — a kinematic rigid body
+        (moving platform). Mesh-less; call ``attach_sphere_mesh`` after."""
+    def make_kinematic(self, entity: Entity) -> None:
+        """Convert an existing Hull-bearing entity into a kinematic body in place:
+        zeroes its inverse mass/inertia + gravity, disables sleep, sets
+        ``Hull.kinematic=True``, and drops the ``Fixed`` tag if present. No-op if the
+        entity has no Hull."""
 
     # ------------------------------------------------------------------ #
     # Attaching render meshes
@@ -2187,6 +2300,79 @@ class SceneManager:
                 (the default) clears any previously stashed payload.
         """
 
+class Settings:
+    """Persisted user preferences. Singleton ``yope3d.settings``.
+
+    A typed key/value store backed by ``settings.cfg`` in the per-platform
+    writable data dir (the same directory :func:`save_path` resolves into) —
+    *not* next to ``yope3d.cfg``, which a shipped ``.app`` bundle cannot write
+    to. Use it for volume, sensitivity, resolution, key bindings: anything the
+    player chooses and expects to survive a restart.
+
+    The engine reads five keys of its own at startup and overlays them on
+    ``yope3d.cfg``, so a value set here wins over the shipped default:
+    ``width``, ``height``, ``escapeCloses``, ``tabPauses``, ``f11Fullscreen``.
+    Every other key is yours. ``startupScene`` is deliberately *not* overlayable
+    — a corrupt preference must not be able to make the game unlaunchable.
+
+    Writes are explicit. Mutate with the ``set_*`` methods, then call
+    :meth:`save` once — a volume slider dragged across frames would otherwise
+    hit the disk every tick.
+
+    Example:
+        >>> vol = yope3d.settings.get_float("music_volume", 0.8)
+        >>> yope3d.settings.set_float("music_volume", 0.5)
+        >>> yope3d.settings.save()
+    """
+
+    def get_str(self, key: str, default: str = "") -> str:
+        """Return the value of ``key``, or ``default`` if unset."""
+    def get_float(self, key: str, default: float = 0.0) -> float:
+        """Return ``key`` as a float, or ``default`` if unset or unparseable."""
+    def get_int(self, key: str, default: int = 0) -> int:
+        """Return ``key`` as an int, or ``default`` if unset or unparseable."""
+    def get_bool(self, key: str, default: bool = False) -> bool:
+        """Return ``key`` as a bool, or ``default`` if unset.
+
+        Truthy spellings are ``1``, ``true``, ``True``, ``TRUE``; anything
+        else reads as ``False``.
+        """
+    def set_str(self, key: str, value: str) -> None:
+        """Set ``key``. Call :meth:`save` to persist."""
+    def set_float(self, key: str, value: float) -> None:
+        """Set ``key``. Call :meth:`save` to persist."""
+    def set_int(self, key: str, value: int) -> None:
+        """Set ``key``. Call :meth:`save` to persist."""
+    def set_bool(self, key: str, value: bool) -> None:
+        """Set ``key``. Call :meth:`save` to persist."""
+    def has(self, key: str) -> bool:
+        """Return whether ``key`` is present in the store."""
+    def remove(self, key: str) -> None:
+        """Delete ``key`` if present. Call :meth:`save` to persist."""
+    def clear(self) -> None:
+        """Drop every key — a "restore defaults" button. :meth:`save` to persist."""
+    def keys(self) -> list[str]:
+        """Return every key currently in the store, sorted."""
+    def save(self) -> bool:
+        """Write the store to disk.
+
+        Returns:
+            ``False`` if the data directory could not be resolved or the file
+            could not be opened — worth surfacing in an options menu rather
+            than failing silently.
+        """
+    def load(self) -> bool:
+        """Re-read from disk, discarding unsaved changes (an options-menu Cancel).
+
+        Returns:
+            ``False`` only if no writable data directory could be resolved. A
+            *missing* file is not a failure — it just means first launch, and
+            the store ends up empty.
+        """
+    @property
+    def path(self) -> str:
+        """Absolute path of the backing ``settings.cfg``."""
+
 world: World
 """The engine World (always set by the time behavior ``init()`` / ``update()`` run)."""
 camera: Camera
@@ -2199,6 +2385,8 @@ scene_manager: SceneManager
 """Deferred scene loader."""
 window: Window
 """The application window."""
+settings: Settings
+"""Persisted user preferences (volume, sensitivity, bindings, resolution)."""
 
 # ==============================================================================
 # ECS queries
@@ -2344,22 +2532,34 @@ def find_entity(name: str) -> Entity | None:
         Linear scan over all entities.
     """
 
-def get_behavior(entity: Entity) -> Any | None:
-    """Return the live Python behavior instance attached to ``entity``, or ``None``.
+def get_behavior(entity: Entity, class_name: str | None = None) -> Any | None:
+    """Return a live Python behavior instance attached to ``entity``, or ``None``.
+
+    An entity may host a *stack* of behaviors (see ``attach_script`` and the
+    scene ``"scripts"`` array). Identity within a stack is the Python class name,
+    unique per entity.
 
     Args:
         entity: The entity whose behavior you want.
+        class_name: The behavior's Python class name, e.g. ``"Health"``. Required
+            when the entity hosts more than one behavior; optional (and may be
+            omitted) when it hosts exactly one.
 
     Returns:
-        The behavior instance, so one behavior can read/call another's state
-        directly, e.g. in a collision callback::
+        The matching behavior instance, so one behavior can read/call another's
+        state directly, e.g. in a collision callback::
 
-            hp = yope3d.get_behavior(other)
+            hp = yope3d.get_behavior(other, "Health")
             if hp is not None:
                 hp.take_damage(10)
 
-        Returns ``None`` if the entity has no script, or its script isn't a
-        Python behavior.
+        Returns ``None`` if the entity has no such behavior (or no script at all,
+        or its script isn't a Python behavior).
+
+    Raises:
+        RuntimeError: if ``class_name`` is omitted but the entity hosts multiple
+            behaviors -- the request is ambiguous. Pass a class name to
+            disambiguate. The composite host itself is never returned.
     """
 
 def attach_script(
@@ -2395,10 +2595,17 @@ def attach_script(
             Serialized to JSON internally -- must fit in the 2048-byte
             paramsBlob budget together with ``module``/``class``.
 
+    A second attach on an already-scripted entity *stacks* the behavior rather
+    than no-opping: the entity transparently becomes a composite hosting both,
+    the existing behavior keeps its live state (it is not re-init'd), and only
+    the newly attached one's ``init()`` runs. Reach either afterwards with
+    ``get_behavior(entity, "ClassName")``. Attaching a class the entity already
+    carries is rejected (class names are unique per entity).
+
     Returns:
-        ``True`` on success. ``False`` (no-op) if ``entity`` is invalid or
-        already carries a live script instance -- this does not replace or
-        reset an existing one.
+        ``True`` on success (fresh attach or stacked onto an existing behavior).
+        ``False`` (no-op) if ``entity`` is invalid, or ``class_name`` duplicates
+        a behavior the entity already carries.
     """
 
 def spawn(path: str, pos: Vec3 = ..., rot: Quat = ...) -> Entity:
@@ -2514,6 +2721,30 @@ def scene_payload() -> Any | None:
     no payload was passed (or the game hasn't called ``load_scene`` yet).
     """
 
+def observe_collisions(layer_mask: int, callback: Callable[[Contact], None]) -> None:
+    """Register a *global* collision observer — a central listener that sees
+    collisions between bodies carrying **no** ScriptComponent, which per-entity
+    ``on_collision_*`` callbacks cannot ("spawn a spark wherever a bullet hits
+    anything").
+
+    ``callback(contact)`` fires on every enter/exit between a pair whose combined
+    ``Hull.observe_layers`` intersects ``layer_mask`` (``contact.enter``
+    distinguishes begin from end). ``observe_layers`` **defaults to 0**, so a body
+    is invisible to observers until you opt it in by assigning a channel — the
+    observed set is therefore always bounded to the bodies you explicitly marked,
+    never "every collision in the scene". (This is a separate field from
+    ``collision_layer``, which governs physical collision and defaults to all-bits;
+    observation deliberately does not reuse it.) Multiple subscriptions with
+    different masks are allowed.
+
+    Observers are cleared automatically on scene unload / editor Stop, so register
+    them from a scene-logic script's ``init``. Use ``clear_collision_observers()``
+    to drop them by hand."""
+
+def clear_collision_observers() -> None:
+    """Drop all registered :func:`observe_collisions` observers. Also happens
+    automatically when a scene unloads; rarely needed by hand."""
+
 def save_path(name: str) -> str:
     """Resolve a writable path for `name` in the per-platform save directory.
 
@@ -2525,6 +2756,52 @@ def save_path(name: str) -> str:
 
     Returns:
         Absolute path suitable for ``open(..., "w")``.
+    """
+
+def save_game(name: str, meta: Any | None = None) -> bool:
+    """Write a full save game to `name` under the sanctioned save directory.
+
+    Captures the entire live world — every entity except those tagged
+    ``"Transient"`` (see ``reg_add(e, "Transient")``), the world settings, and
+    each scripted entity's ``save_state()`` payload — into one save file
+    (``name`` plus a co-located ``.meshbin`` sidecar for any bulky custom
+    geometry). Restore it with :func:`load_game`.
+
+    A behavior opts into save games by implementing::
+
+        def save_state(self) -> dict: ...        # returns JSON-able runtime state
+        def load_state(self, state: dict): ...   # called after init() on load
+
+    ``save_state`` should return only the script's own runtime state; it must
+    not need engine calls (though reentrant ones are safe). The dict travels as
+    JSON and never touches the 2048-byte params blob, so it can be large.
+
+    Args:
+        name: Filename or relative subpath, e.g. ``"saves/slot1.ysave"``.
+        meta: Optional JSON-serializable value (score, playtime, level name, ...)
+            stored in the save-file header so a load-game menu can list slots
+            without loading the world. Read it in pure Python via
+            ``json.load(open(save_path(name)))["meta"]``.
+
+    Returns:
+        True on success, False if the file could not be written.
+
+    Safe to call from a script's ``update()`` — it runs under the physics lock
+    and briefly stalls the physics thread while writing.
+    """
+
+def load_game(name: str) -> None:
+    """Restore a save file written by :func:`save_game`.
+
+    Deferred to the next safe frame boundary (like :func:`load_scene`), so it is
+    safe to call from a script. The current world is torn down and rebuilt from
+    the save; after every script's ``init()`` runs, each script that saved state
+    receives it back via ``load_state(dict)`` (ordering: params → init →
+    load_state). There is no separate scene-vs-save distinction on disk — a save
+    file is a complete scene plus per-entity script state.
+
+    Slot management (listing, deleting saves) is plain Python over the save
+    directory — e.g. ``os.listdir(os.path.dirname(save_path("saves/x")))``.
     """
 
 # ==============================================================================

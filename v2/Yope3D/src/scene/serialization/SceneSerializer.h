@@ -25,6 +25,15 @@ bool save(const char* path, ecs::Registry& reg, World& world);
 bool saveEntities(const char* path, const std::vector<ecs::Entity>& entities,
                   ecs::Registry& reg, World& world);
 
+// Write a runtime save game: the same scene shape as save() (world settings +
+// every non-Transient entity), plus a save-game header (saveVersion, sourceScene,
+// savedAtUnix, caller meta) and per-entity "scriptState" captured from each live
+// Script instance's serializeState(). `metaJson` is a pre-rendered JSON value
+// (an object, or "null"). Read back through the normal load pipeline plus a
+// post-init deserializeState overlay — see SceneManager::loadGameSynchronous.
+bool saveGame(const char* path, ecs::Registry& reg, World& world,
+              const std::string& sourceScene, const std::string& metaJson);
+
 // Clear the scene and load entities from a JSON file.
 // Returns empty string on success, error message on failure.
 // audio:   optional — rebinds AudioSource.source from path on load.
@@ -86,6 +95,9 @@ struct ParsedScene {
         uint32_t coneTwistJointTargetFileId = UINT32_MAX;
         bool     hasParentLink      = false;
         uint32_t parentFileId       = UINT32_MAX;
+        // Save-game only: raw JSON string of this entity's script save_state,
+        // overlaid via Script::deserializeState after init (empty otherwise).
+        std::string scriptState;
     };
     std::vector<Ent> entities;
 

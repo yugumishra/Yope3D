@@ -1,0 +1,205 @@
+---
+const base = import.meta.env.BASE_URL;
+
+const features = [
+	{
+		title: 'Physics, from scratch',
+		body: '240 Hz rigid-body simulation on its own thread — sweep-and-prune broadphase, analytical narrowphase, island-parallel PGS solver. Joints, springs, vehicles, ragdolls, compound colliders.',
+	},
+	{
+		title: 'PBR renderer',
+		body: 'Vulkan raster + compute-raytrace modes. Cook-Torrance materials, glTF import, shadow mapping, cubemap skyboxes, MSDF text in UI and world space.',
+	},
+	{
+		title: 'Python behaviors',
+		body: 'Per-entity gameplay scripts through embedded Python with a fully typed stub — autocomplete for the whole engine surface in any editor.',
+	},
+	{
+		title: 'An editor that plays fair',
+		body: 'Entity inspectors, undo/redo, ID-buffer picking, and Play/Stop that snapshots and restores the whole world.',
+	},
+];
+---
+
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" type="image/svg+xml" href={`${base}/favicon.svg`} />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="generator" content={Astro.generator} />
+		<meta
+			name="description"
+			content="Yope3D — a C++20 / Vulkan game engine, built from scratch and documented in public."
+		/>
+		<title>Yope3D</title>
+	</head>
+	<body>
+		<main>
+			<section class="hero">
+				<p class="kicker">Work in progress · built in public</p>
+				<h1>Yope3D</h1>
+				<p class="tagline">
+					A C++20 / Vulkan game engine, built from scratch — physics, renderer,
+					editor, and scripting, all one codebase.
+				</p>
+				<div class="cta">
+					<a class="button primary" href="https://github.com/yugumishra/Yope3D">GitHub</a>
+					<a class="button" href={`${base}/blog`}>Devlog</a>
+				</div>
+				<div class="trailer-slot">
+					<span>trailer coming soon</span>
+				</div>
+			</section>
+
+			<section class="features">
+				{features.map((f) => (
+					<article class="card">
+						<h2>{f.title}</h2>
+						<p>{f.body}</p>
+					</article>
+				))}
+			</section>
+
+			<section class="status">
+				<h2>Where it stands</h2>
+				<p>
+					Yope3D is a solo project in active development. It is not
+					release-ready. What's on this page exists and runs today; everything
+					else is roadmap, and the devlog documents the difference.
+				</p>
+			</section>
+		</main>
+
+		<footer>
+			<p>© {new Date().getFullYear()} Yope3D</p>
+		</footer>
+	</body>
+</html>
+
+<style>
+	:root {
+		--bg: #0b0d10;
+		--surface: #12151a;
+		--border: #232830;
+		--text: #e6e9ee;
+		--muted: #9aa3b0;
+		--accent: #6ea8fe;
+	}
+	* {
+		box-sizing: border-box;
+	}
+	html,
+	body {
+		margin: 0;
+		padding: 0;
+	}
+	body {
+		background: var(--bg);
+		color: var(--text);
+		font-family:
+			ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+		line-height: 1.6;
+	}
+	main {
+		max-width: 60rem;
+		margin: 0 auto;
+		padding: 0 1.5rem;
+	}
+	.hero {
+		text-align: center;
+		padding: 6rem 0 3rem;
+	}
+	.kicker {
+		color: var(--muted);
+		text-transform: uppercase;
+		letter-spacing: 0.15em;
+		font-size: 0.75rem;
+		margin: 0 0 1rem;
+	}
+	h1 {
+		font-size: clamp(3rem, 8vw, 5rem);
+		margin: 0;
+		letter-spacing: -0.02em;
+	}
+	.tagline {
+		color: var(--muted);
+		font-size: 1.15rem;
+		max-width: 34rem;
+		margin: 1rem auto 2rem;
+	}
+	.cta {
+		display: flex;
+		gap: 0.75rem;
+		justify-content: center;
+		margin-bottom: 3rem;
+	}
+	.button {
+		display: inline-block;
+		padding: 0.6rem 1.4rem;
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+		color: var(--text);
+		text-decoration: none;
+		font-weight: 500;
+	}
+	.button:hover {
+		border-color: var(--accent);
+	}
+	.button.primary {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: #0b0d10;
+	}
+	.trailer-slot {
+		aspect-ratio: 16 / 9;
+		max-width: 48rem;
+		margin: 0 auto;
+		border: 1px dashed var(--border);
+		border-radius: 0.75rem;
+		display: grid;
+		place-items: center;
+		color: var(--muted);
+		font-size: 0.9rem;
+		background: var(--surface);
+	}
+	.features {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+		gap: 1rem;
+		padding: 2rem 0;
+	}
+	.card {
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 0.75rem;
+		padding: 1.5rem;
+	}
+	.card h2 {
+		font-size: 1.05rem;
+		margin: 0 0 0.5rem;
+	}
+	.card p {
+		color: var(--muted);
+		font-size: 0.95rem;
+		margin: 0;
+	}
+	.status {
+		padding: 2rem 0 4rem;
+		text-align: center;
+	}
+	.status h2 {
+		font-size: 1.2rem;
+	}
+	.status p {
+		color: var(--muted);
+		max-width: 40rem;
+		margin: 0 auto;
+	}
+	footer {
+		border-top: 1px solid var(--border);
+		text-align: center;
+		color: var(--muted);
+		font-size: 0.85rem;
+		padding: 1.5rem 0;
+	}
+</style>

@@ -17,60 +17,47 @@
 #include "scripting/python/BehaviorRegistry.h"
 
 // ---------------------------------------------------------------------------
-// Per-param value storage. sBuf / listBuf are char arrays owned by each entry
-// so multiple str/strlist params never share a buffer.
+// The inspector edits a *stack* of behaviors (composite-behaviors.md). One
+// behavior stores as a plain PythonScript; two or more materialize a
+// CompositeScript. The developer never sees that machinery — they see a list of
+// typed behavior blocks with add/remove/reorder.
 // ---------------------------------------------------------------------------
+
+// Per-param value storage. sBuf / listBuf are char arrays owned by each entry so
+// multiple str/strlist params never share a buffer.
 struct LiveParamValue {
     float                    f       = 0.f;
     int                      i       = 0;
     bool                     b       = false;
     std::string              s;
     std::vector<std::string> list;
-    char                     sBuf[256]  = {};  // InputText staging for "str"/"enum"
-    char                     listBuf[2048] = {}; // InputTextMultiline staging for "strlist"
+    char                     sBuf[256]     = {};  // InputText staging for "str"/"enum"
+    char                     listBuf[2048] = {};  // InputTextMultiline staging for "strlist"
+};
+
+// One behavior in the stack: its class + module + live param values.
+struct StackEntry {
+    std::string                          className;
+    std::string                          modulePath;
+    std::map<std::string, LiveParamValue> values;
 };
 
 // ---------------------------------------------------------------------------
 // Inspector-local state (valid for one entity at a time)
 // ---------------------------------------------------------------------------
-static ecs::Entity                           s_lastEntity   = ecs::NullEntity;
-static char                                  s_lastBlob[2048] = {};
-static std::string                           s_selectedClass;
-static std::map<std::string, LiveParamValue> s_paramValues;
-static char                                  s_filterBuf[64] = {};
+static ecs::Entity              s_lastEntity     = ecs::NullEntity;
+static char                     s_lastBlob[2048] = {};
+static std::vector<StackEntry>  s_stack;
+static bool                     s_pickerOpen     = false;
+static char                     s_filterBuf[64]  = {};
 
 // ---------------------------------------------------------------------------
-// JSON round-trip helpers
+// Value <-> JSON helpers
 // ---------------------------------------------------------------------------
-static std::string buildBlob(const BehaviorEntry* entry) {
-    JsonWriter w;
-    w.beginObject();
-    w.writeString("module", entry ? entry->modulePath.c_str() : "");
-    w.writeString("class",  s_selectedClass.c_str());
-    if (entry) {
-        for (const auto& pd : entry->params) {
-            auto it = s_paramValues.find(pd.name);
-            if (it == s_paramValues.end()) continue;
-            const LiveParamValue& v = it->second;
-            if (pd.type == "float")        w.writeFloat (pd.name.c_str(), v.f);
-            else if (pd.type == "int")     w.writeInt   (pd.name.c_str(), v.i);
-            else if (pd.type == "bool")    w.writeBool  (pd.name.c_str(), v.b);
-            else if (pd.type == "strlist") {
-                w.beginArray(pd.name.c_str());
-                for (const auto& item : v.list) w.writeArrayString(item.c_str());
-                w.endArray();
-            } else {
-                w.writeString(pd.name.c_str(), v.s.c_str());
-            }
-        }
-    }
-    w.endObject();
-    return w.str();
-}
-
-static void loadParamValues(const char* blob, const BehaviorEntry* entry) {
-    s_paramValues.clear();
-    if (!entry) return;
+static std::map<std::string, LiveParamValue> loadValues(const JsonNode& paramsObj,
+                                                         const BehaviorEntry* entry) {
+    std::map<std::string, LiveParamValue> out;
+    if (!entry) return out;
     for (const auto& pd : entry->params) {
         LiveParamValue v;
         if      (pd.type == "float")   v.f    = pd.fDefault;
@@ -78,15 +65,13 @@ static void loadParamValues(const char* blob, const BehaviorEntry* entry) {
         else if (pd.type == "bool")    v.b    = pd.bDefault;
         else if (pd.type == "strlist") v.list = pd.listDefault;
         else                           v.s    = pd.sDefault;
-        s_paramValues[pd.name] = v;
+        out[pd.name] = v;
     }
-    try {
-        JsonNode root = parseJson(blob);
-        if (!root.isObject()) return;
+    if (paramsObj.isObject()) {
         for (const auto& pd : entry->params) {
-            if (!root.contains(pd.name)) continue;
-            const JsonNode& n = root[pd.name];
-            LiveParamValue& v = s_paramValues[pd.name];
+            if (!paramsObj.contains(pd.name)) continue;
+            const JsonNode& n = paramsObj[pd.name];
+            LiveParamValue& v = out[pd.name];
             if      (pd.type == "float"   && n.isNumber()) v.f = n.asFloat();
             else if (pd.type == "int"     && n.isNumber()) v.i = n.asInt();
             else if (pd.type == "bool"    && n.isBool())   v.b = n.asBool();
@@ -98,32 +83,111 @@ static void loadParamValues(const char* blob, const BehaviorEntry* entry) {
                 v.s = n.asString();
             }
         }
-    } catch (...) {}
-    // Sync char buffers from parsed string values
-    for (auto& [name, v] : s_paramValues) {
+    }
+    // Sync char buffers from parsed string/list values.
+    for (auto& [name, v] : out) {
         std::strncpy(v.sBuf, v.s.c_str(), sizeof(v.sBuf) - 1);
-        // Build listBuf: one path per line
         std::string flat;
         for (const auto& item : v.list) { flat += item; flat += '\n'; }
         std::strncpy(v.listBuf, flat.c_str(), sizeof(v.listBuf) - 1);
     }
+    return out;
 }
 
-static void syncFromComponent(const ecs::ScriptComponent* sc) {
-    s_selectedClass.clear();
+// Write one behavior's param values as JSON keys at the writer's current object
+// level (used flat for a single script, and inside "params" for a composite).
+static void writeParamValues(JsonWriter& w, const BehaviorEntry* entry,
+                             const std::map<std::string, LiveParamValue>& values) {
+    if (!entry) return;
+    for (const auto& pd : entry->params) {
+        auto it = values.find(pd.name);
+        if (it == values.end()) continue;
+        const LiveParamValue& v = it->second;
+        if      (pd.type == "float") w.writeFloat(pd.name.c_str(), v.f);
+        else if (pd.type == "int")   w.writeInt  (pd.name.c_str(), v.i);
+        else if (pd.type == "bool")  w.writeBool (pd.name.c_str(), v.b);
+        else if (pd.type == "strlist") {
+            w.beginArray(pd.name.c_str());
+            for (const auto& item : v.list) w.writeArrayString(item.c_str());
+            w.endArray();
+        } else {
+            w.writeString(pd.name.c_str(), v.s.c_str());
+        }
+    }
+}
+
+// Rebuild the whole stack into ScriptComponent (scriptClass + paramsBlob). One
+// entry -> a flat PythonScript blob; 2+ -> a CompositeScript "scripts" blob.
+static void flushStackToComponent(ecs::ScriptComponent* sc) {
+    std::string blob;
+    const char* cls = "";
+    if (s_stack.size() == 1) {
+        cls = "PythonScript";
+        const StackEntry& se = s_stack[0];
+        JsonWriter w;
+        w.beginObject();
+        w.writeString("module", se.modulePath.c_str());
+        w.writeString("class",  se.className.c_str());
+        writeParamValues(w, BehaviorRegistry::findByClass(se.className), se.values);
+        w.endObject();
+        blob = w.str();
+    } else if (s_stack.size() >= 2) {
+        cls = "CompositeScript";
+        JsonWriter w;
+        w.beginObject();
+        w.beginArray("scripts");
+        for (const auto& se : s_stack) {
+            w.beginArrayObject();
+            w.writeString("module", se.modulePath.c_str());
+            w.writeString("class",  se.className.c_str());
+            w.writeKey("params");
+            w.beginObject();
+            writeParamValues(w, BehaviorRegistry::findByClass(se.className), se.values);
+            w.endObject();
+            w.endObject();
+        }
+        w.endArray();
+        w.endObject();
+        blob = w.str();
+    } else {
+        blob = "{}";
+    }
+
+    std::strncpy(sc->scriptClass, cls,          sizeof(sc->scriptClass) - 1);
+    sc->scriptClass[sizeof(sc->scriptClass) - 1] = '\0';
+    if (blob.size() < sizeof(sc->paramsBlob)) {
+        std::strncpy(sc->paramsBlob, blob.c_str(), sizeof(sc->paramsBlob) - 1);
+        sc->paramsBlob[sizeof(sc->paramsBlob) - 1] = '\0';
+    }
+    std::strncpy(s_lastBlob, sc->paramsBlob, sizeof(s_lastBlob) - 1);
+}
+
+// Parse the entity's ScriptComponent into the editable stack.
+static void syncStackFromComponent(const ecs::ScriptComponent* sc) {
+    s_stack.clear();
+    if (sc->scriptClass[0] == '\0') return;
     try {
         JsonNode root = parseJson(sc->paramsBlob);
-        if (root.contains("class")) s_selectedClass = root["class"].asString();
+        if (std::strcmp(sc->scriptClass, "CompositeScript") == 0) {
+            if (root.contains("scripts") && root["scripts"].isArray()) {
+                for (const auto& elem : root["scripts"].asArray()) {
+                    StackEntry se;
+                    se.className  = elem.contains("class")  ? elem["class"].asString()  : "";
+                    se.modulePath = elem.contains("module") ? elem["module"].asString() : "";
+                    const JsonNode& params = elem.contains("params") ? elem["params"] : JsonNode::nullNode();
+                    se.values = loadValues(params, BehaviorRegistry::findByClass(se.className));
+                    s_stack.push_back(std::move(se));
+                }
+            }
+        } else {
+            // Single script: flat blob, params are siblings of module/class.
+            StackEntry se;
+            se.className  = root.contains("class")  ? root["class"].asString()  : "";
+            se.modulePath = root.contains("module") ? root["module"].asString() : "";
+            se.values = loadValues(root, BehaviorRegistry::findByClass(se.className));
+            s_stack.push_back(std::move(se));
+        }
     } catch (...) {}
-    loadParamValues(sc->paramsBlob, BehaviorRegistry::findByClass(s_selectedClass));
-}
-
-static void flushToComponent(ecs::ScriptComponent* sc) {
-    const BehaviorEntry* entry = BehaviorRegistry::findByClass(s_selectedClass);
-    std::string blob = buildBlob(entry);
-    std::strncpy(sc->paramsBlob,  blob.c_str(),  sizeof(sc->paramsBlob)  - 1);
-    std::strncpy(sc->scriptClass, "PythonScript", sizeof(sc->scriptClass) - 1);
-    std::strncpy(s_lastBlob,      blob.c_str(),  sizeof(s_lastBlob)      - 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -131,11 +195,9 @@ static void flushToComponent(ecs::ScriptComponent* sc) {
 // ---------------------------------------------------------------------------
 struct WidgetResult { bool changed; bool activated; bool deactivatedAfterEdit; };
 
-static WidgetResult drawParamWidget(const ParamDef& pd) {
+static WidgetResult drawParamWidget(const ParamDef& pd, LiveParamValue& v) {
     WidgetResult r{};
-    LiveParamValue& v = s_paramValues[pd.name];
     ImGui::PushID(pd.name.c_str());
-
     const float labelW = ImGui::GetContentRegionAvail().x * 0.48f;
 
     if (pd.type == "float") {
@@ -196,6 +258,12 @@ static WidgetResult drawParamWidget(const ParamDef& pd) {
     ImGui::PopID();
     return r;
 }
+
+// True if a behavior class is already somewhere in the stack.
+static bool stackHasClass(const std::string& cls) {
+    for (const auto& se : s_stack) if (se.className == cls) return true;
+    return false;
+}
 #endif // YOPE_PYTHON
 
 // ---------------------------------------------------------------------------
@@ -212,84 +280,132 @@ void drawScriptComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
     if (removeRequested && ctx.registry) { ctx.registry->remove<ecs::ScriptComponent>(e); return; }
 
 #ifdef YOPE_PYTHON
-    // Re-sync when entity changes OR when paramsBlob was modified externally (undo/redo)
+    // Re-sync when the entity changes OR the blob was modified externally (undo/redo).
     bool entityChanged = (e.id != s_lastEntity.id || e.generation != s_lastEntity.generation);
     bool blobChanged   = (std::strcmp(sc->paramsBlob, s_lastBlob) != 0);
     if (entityChanged || blobChanged) {
         s_lastEntity = e;
         std::strncpy(s_lastBlob, sc->paramsBlob, sizeof(s_lastBlob) - 1);
         std::memset(s_filterBuf, 0, sizeof(s_filterBuf));
-        syncFromComponent(sc);
+        s_pickerOpen = false;
+        syncStackFromComponent(sc);
     }
 
     static ecs::ScriptComponent beforeEdit{};
 
-    // --- Type badge ---
-    ImGui::TextDisabled("Type:");
-    ImGui::SameLine();
-    ImGui::TextUnformatted("Python");
+    // Deferred structural edits (applied after the render loop so we never mutate
+    // s_stack while iterating it): remove index, or move index by delta.
+    int removeIdx = -1;
+    int moveIdx = -1, moveDelta = 0;
+
+    // --- Behavior blocks ---
+    for (size_t i = 0; i < s_stack.size(); ++i) {
+        StackEntry& se = s_stack[i];
+        ImGui::PushID(static_cast<int>(i));
+
+        const BehaviorEntry* entry = BehaviorRegistry::findByClass(se.className);
+        std::string title = se.className.empty() ? "(unset)" : se.className;
+        bool open = ImGui::CollapsingHeader(title.c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+
+        // Reorder / remove controls on the header line.
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - 66.f);
+        if (ImGui::SmallButton("^") && i > 0)              { moveIdx = (int)i; moveDelta = -1; }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("v") && i + 1 < s_stack.size()) { moveIdx = (int)i; moveDelta = +1; }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X"))                        { removeIdx = (int)i; }
+
+        if (open) {
+            if (!entry) {
+                ImGui::TextDisabled("(behavior not found — check scripts/behaviors/)");
+            } else if (entry->params.empty()) {
+                ImGui::TextDisabled("(no parameters)");
+            } else {
+                for (const auto& pd : entry->params) {
+                    LiveParamValue& v = se.values[pd.name];
+                    WidgetResult r = drawParamWidget(pd, v);
+                    if (r.activated) beforeEdit = *sc;
+                    bool isDrag = (pd.type == "float" || pd.type == "int");
+                    if (r.changed) {
+                        flushStackToComponent(sc);
+                        if (!isDrag || r.deactivatedAfterEdit)
+                            ctx.history->execute(ctx,
+                                std::make_unique<SetComponentCommand<ecs::ScriptComponent>>(
+                                    e, beforeEdit, *sc, "Edit " + pd.label));
+                    } else if (r.deactivatedAfterEdit) {
+                        ctx.history->execute(ctx,
+                            std::make_unique<SetComponentCommand<ecs::ScriptComponent>>(
+                                e, beforeEdit, *sc, "Edit " + pd.label));
+                    }
+                }
+            }
+        }
+        ImGui::PopID();
+    }
+
     ImGui::Spacing();
 
-    // --- Search filter ---
-    ImGui::SetNextItemWidth(-1);
-    ImGui::InputText("##filter", s_filterBuf, sizeof(s_filterBuf));
-    ImGui::SameLine(0, 4); ImGui::TextDisabled("Search");
+    // --- Add behavior ---
+    if (!s_pickerOpen) {
+        if (ImGui::Button("+ Add Behavior", ImVec2(-1, 0))) {
+            s_pickerOpen = true;
+            std::memset(s_filterBuf, 0, sizeof(s_filterBuf));
+        }
+    } else {
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputText("##filter", s_filterBuf, sizeof(s_filterBuf));
+        ImGui::SameLine(0, 4); ImGui::TextDisabled("Search");
 
-    // --- Behavior list ---
-    {
-        ImGui::BeginChild("##behlist", ImVec2(-1, 90.f), true);
-        for (const auto& entry : BehaviorRegistry::all()) {
+        ImGui::BeginChild("##behlist", ImVec2(-1, 120.f), true);
+        for (const auto& b : BehaviorRegistry::all()) {
             if (s_filterBuf[0] != '\0') {
-                std::string lower = entry.displayName;
-                std::string flt   = s_filterBuf;
+                std::string lower = b.displayName, flt = s_filterBuf;
                 for (auto& c : lower) c = (char)std::tolower((unsigned char)c);
                 for (auto& c : flt)   c = (char)std::tolower((unsigned char)c);
                 if (lower.find(flt) == std::string::npos) continue;
             }
-            bool selected = (entry.className == s_selectedClass);
-            if (ImGui::Selectable(entry.displayName.c_str(), selected)) {
-                if (!selected) {
-                    beforeEdit      = *sc;
-                    s_selectedClass = entry.className;
-                    loadParamValues("{}", &entry);
-                    flushToComponent(sc);
-                    ctx.history->execute(ctx,
-                        std::make_unique<SetComponentCommand<ecs::ScriptComponent>>(
-                            e, beforeEdit, *sc, "Select Behavior Script"));
-                }
+            bool dup = stackHasClass(b.className);
+            if (dup) ImGui::BeginDisabled();
+            if (ImGui::Selectable(b.displayName.c_str())) {
+                beforeEdit = *sc;
+                StackEntry se;
+                se.className  = b.className;
+                se.modulePath = b.modulePath;
+                se.values     = loadValues(JsonNode::nullNode(), &b);   // defaults
+                s_stack.push_back(std::move(se));
+                flushStackToComponent(sc);
+                ctx.history->execute(ctx,
+                    std::make_unique<SetComponentCommand<ecs::ScriptComponent>>(
+                        e, beforeEdit, *sc, "Add Behavior"));
+                s_pickerOpen = false;
+            }
+            if (dup) {
+                ImGui::EndDisabled();
+                ImGui::SameLine(); ImGui::TextDisabled("(added)");
             }
         }
         ImGui::EndChild();
+        if (ImGui::Button("Cancel")) s_pickerOpen = false;
     }
 
-    // --- Per-param widgets ---
-    const BehaviorEntry* entry = BehaviorRegistry::findByClass(s_selectedClass);
-    if (entry && !entry->params.empty()) {
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-
-        for (const auto& pd : entry->params) {
-            WidgetResult r = drawParamWidget(pd);
-            if (r.activated) beforeEdit = *sc;
-
-            if (r.changed) {
-                flushToComponent(sc);
-                bool isDrag = (pd.type == "float" || pd.type == "int");
-                if (!isDrag || r.deactivatedAfterEdit) {
-                    ctx.history->execute(ctx,
-                        std::make_unique<SetComponentCommand<ecs::ScriptComponent>>(
-                            e, beforeEdit, *sc, "Edit " + pd.label));
-                }
-            } else if (r.deactivatedAfterEdit) {
-                ctx.history->execute(ctx,
-                    std::make_unique<SetComponentCommand<ecs::ScriptComponent>>(
-                        e, beforeEdit, *sc, "Edit " + pd.label));
-            }
+    // --- Apply deferred structural edits ---
+    if (removeIdx >= 0 && removeIdx < (int)s_stack.size()) {
+        beforeEdit = *sc;
+        s_stack.erase(s_stack.begin() + removeIdx);
+        flushStackToComponent(sc);
+        ctx.history->execute(ctx,
+            std::make_unique<SetComponentCommand<ecs::ScriptComponent>>(
+                e, beforeEdit, *sc, "Remove Behavior"));
+    } else if (moveIdx >= 0) {
+        int j = moveIdx + moveDelta;
+        if (j >= 0 && j < (int)s_stack.size()) {
+            beforeEdit = *sc;
+            std::swap(s_stack[moveIdx], s_stack[j]);
+            flushStackToComponent(sc);
+            ctx.history->execute(ctx,
+                std::make_unique<SetComponentCommand<ecs::ScriptComponent>>(
+                    e, beforeEdit, *sc, "Reorder Behavior"));
         }
-    } else if (!s_selectedClass.empty() && !entry) {
-        ImGui::Spacing();
-        ImGui::TextDisabled("(behavior not found — check scripts/behaviors/)");
     }
 
     // --- Runtime status ---

@@ -1,6 +1,8 @@
 #pragma once
 #include "ScriptContext.h"
 #include "ecs/Entity.h"
+#include "physics/ContactInfo.h"
+#include <string>
 
 class JsonWriter;
 struct JsonNode;
@@ -29,10 +31,14 @@ public:
                           double /*x*/, double /*y*/) {}
 
     // Collision callbacks. `self` is this script's entity; `other` is the entity it
-    // started/stopped touching. Dispatched on the main thread from drained physics
+    // started/stopped touching. `contact` carries the deepest contact point/normal
+    // and the tick's accumulated normal impulse on ENTER (all zero on EXIT — the
+    // pair has separated). Dispatched on the main thread from drained physics
     // events (see World::drainCollisionEvents); default no-ops.
-    virtual void onCollisionEnter(ScriptContext& /*ctx*/, ecs::Entity /*self*/, ecs::Entity /*other*/) {}
-    virtual void onCollisionExit (ScriptContext& /*ctx*/, ecs::Entity /*self*/, ecs::Entity /*other*/) {}
+    virtual void onCollisionEnter(ScriptContext& /*ctx*/, ecs::Entity /*self*/, ecs::Entity /*other*/,
+                                  const physics::ContactInfo& /*contact*/) {}
+    virtual void onCollisionExit (ScriptContext& /*ctx*/, ecs::Entity /*self*/, ecs::Entity /*other*/,
+                                  const physics::ContactInfo& /*contact*/) {}
 
     // UI pointer callbacks. `self` is the UI entity (must carry a UITransform +
     // this ScriptComponent). Dispatched on the main thread from World's
@@ -53,9 +59,39 @@ public:
     // live instance of another. nullptr for native scripts.
     virtual void* pyInstanceHandle() { return nullptr; }
 
+    // --- Composite behavior support (see composite-behaviors.md) ---
+    // An entity carries one ScriptComponent, but that component can host a *stack*
+    // of behaviors via CompositeScript, which fans the whole vtable out to child
+    // scripts. These three hooks let get_behavior address a behavior by its Python
+    // class name and detect the ambiguous 1-arg case.
+    //
+    // behaviorClassName(): the Python class this leaf script bridges to (identity
+    //   key, unique per entity). Empty for native scripts and for CompositeScript
+    //   (which is a host, not a behavior).
+    // isComposite(): true only for CompositeScript — a host of 2+ behaviors, so
+    //   the 1-arg get_behavior(e) is ambiguous and must raise.
+    // pyHandleForClass(cls): the live runtime handle for the behavior named `cls`
+    //   hosted by this script, or nullptr. A leaf matches its own class name; a
+    //   CompositeScript searches its children.
+    virtual std::string behaviorClassName() const { return {}; }
+    virtual bool        isComposite()       const { return false; }
+    virtual void*       pyHandleForClass(const std::string& cls) {
+        return behaviorClassName() == cls ? pyInstanceHandle() : nullptr;
+    }
+
     // Per-script param serialization. Default = no params.
     virtual void serializeParams  (JsonWriter& /*w*/) const {}
     virtual bool deserializeParams(const JsonNode& /*n*/) { return true; }
+
+    // Runtime save-game state — distinct from authoring params. serializeState
+    // returns a JSON object string to persist in a save file (empty = nothing to
+    // save); deserializeState receives that same string back, after the script
+    // has been constructed and init()'d, to overlay the saved runtime state.
+    // Only PythonScript overrides these (bridging Python save_state/load_state);
+    // the state travels dict→JSON→dict and never touches ScriptComponent's
+    // fixed paramsBlob.
+    virtual std::string serializeState() const { return {}; }
+    virtual void        deserializeState(const std::string& /*json*/) {}
 
     // Editor-only inspector hook (no-op in runtime). EditorContext is a forward decl;
     // the editor build links the real definition and supplies it.
