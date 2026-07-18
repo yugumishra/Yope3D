@@ -488,6 +488,61 @@ ecs::Entity World::addKinematicCapsule(float radius, float halfHeight, math::Vec
     return e;
 }
 
+// ---- Kinematic rigid bodies (moving platforms) ----
+
+// Shared factory for the kinematic-Hull settings: immovable (no inverse mass /
+// inertia), no gravity, sleep disabled (so anything riding it never sleeps and
+// gets left behind — the island wake-propagation keeps it awake via the shared
+// contact). NOT Fixed-tagged: the body must integrate its own velocity and stay
+// active in broadphase.
+static ecs::Hull makeKinematicHull() {
+    ecs::Hull hc;
+    hc.mass            = 0.0f;
+    hc.inverseMass     = 0.0f;
+    hc.inverseInertia  = math::Mat3::zero();
+    hc.gravity         = false;
+    hc.kinematic       = true;
+    hc.sleepingEnabled = false;
+    return hc;
+}
+
+ecs::Entity World::addKinematicBox(math::Vec3 pos, math::Vec3 extent) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {1.0f, 1.0f, 1.0f}});
+    registry_.add<ecs::Hull>(e, makeKinematicHull());
+    registry_.add<ecs::OBBForm>(e, {extent});   // OBB so platforms can also rotate
+    finalizeEntity(e, "KinematicBox");
+    return e;
+}
+
+ecs::Entity World::addKinematicSphere(math::Vec3 pos, float radius) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {1.0f, 1.0f, 1.0f}});
+    registry_.add<ecs::Hull>(e, makeKinematicHull());
+    registry_.add<ecs::SphereForm>(e, {radius});
+    finalizeEntity(e, "KinematicSphere");
+    return e;
+}
+
+void World::makeKinematic(ecs::Entity e) {
+    auto lock = lockStructure();
+    auto* h = registry_.get<ecs::Hull>(e);
+    if (!h) return;
+    h->mass            = 0.0f;
+    h->inverseMass     = 0.0f;
+    h->inverseInertia  = math::Mat3::zero();
+    h->gravity         = false;
+    h->kinematic       = true;
+    h->sleepingEnabled = false;
+    h->asleep          = false;
+    h->sleepFrames     = 0;
+    // A kinematic body must integrate + stay active in broadphase, so it can't be
+    // Fixed. (Removing the tag migrates the archetype — safe under the lock.)
+    if (registry_.has<ecs::Fixed>(e)) registry_.remove<ecs::Fixed>(e);
+}
+
 ecs::Entity World::addOBBFromMesh(const LoadedMesh& loadedMesh, float mass) {
     math::Vec3 mn = { FLT_MAX,  FLT_MAX,  FLT_MAX };
     math::Vec3 mx = {-FLT_MAX, -FLT_MAX, -FLT_MAX };
@@ -1389,30 +1444,74 @@ static uint64_t pairKey(ecs::Entity a, ecs::Entity b) {
     return (static_cast<uint64_t>(lo) << 32) | hi;
 }
 
-void World::detectCollisionEvents() {
-    // Build this tick's contact-pair set, but only for pairs where at least one side
-    // carries a behavior — keeps the diff/queue tiny and meaningful. Trigger pairs
-    // (triggerContacts_) are unioned in here too — they never reach the solver, but
-    // they still need enter/exit events.
-    std::unordered_map<uint64_t, std::pair<ecs::Entity, ecs::Entity>> current;
-    current.reserve(advanceContacts_.size() + triggerContacts_.size());
-    auto collect = [&](const std::vector<physics::ColliderDiscrete::ActiveContact>& contacts) {
-        for (const auto& c : contacts) {
-            if (!registry_.has<ecs::ScriptComponent>(c.a) &&
-                !registry_.has<ecs::ScriptComponent>(c.b)) continue;
-            current.emplace(pairKey(c.a, c.b), std::make_pair(c.a, c.b));
-        }
-    };
-    collect(advanceContacts_);
-    collect(triggerContacts_);
+// Fold one narrowphase/solved contact into the per-pair contact-info map that
+// backs collision events. Keeps the deepest point (its penetration) as the
+// representative point/normal for the pair, and sums the converged normal impulse
+// across all points/sub-manifolds (compound colliders emit several manifolds for
+// one entity pair). `contact.manifold.normal` is a→b (see ColliderAnalytical).
+static void accumulatePairContact(
+    std::unordered_map<uint64_t, World::PairContact>& map,
+    const physics::ColliderDiscrete::ActiveContact& c)
+{
+    const auto& m = c.manifold;
+    if (m.numContacts <= 0) return;
+
+    auto& pc = map.try_emplace(pairKey(c.a, c.b), World::PairContact{ c.a, c.b }).first->second;
+
+    float impulseSum = 0.0f;
+    int   deepest    = 0;
+    for (int i = 0; i < m.numContacts; ++i) {
+        impulseSum += c.lambda[i];
+        if (m.depths[i] > m.depths[deepest]) deepest = i;
+    }
+    pc.impulse += impulseSum;
+    if (m.depths[deepest] > pc.bestDepth) {
+        pc.bestDepth = m.depths[deepest];
+        pc.point     = m.contactPoints[deepest];
+        pc.normal    = m.normal;
+    }
+}
+
+void World::detectCollisionEvents(const std::unordered_map<uint64_t, PairContact>& pairContacts) {
+    // Build this tick's observed-pair set from the post-solve contact map. A pair
+    // is observed when at least one side carries a behavior (per-entity callbacks)
+    // OR its combined collisionLayer intersects the global observe mask (§4.5) —
+    // both gates keep the diff/queue bounded to the pairs someone actually listens
+    // to. Enter events carry the deepest contact point/normal + normal impulse; the
+    // exit branch emits a zeroed contact (the pair has separated).
+    const uint32_t obs = collisionObserveMask_.load(std::memory_order_relaxed);
+
+    std::unordered_map<uint64_t, CollisionEvent> current;
+    current.reserve(pairContacts.size());
+    for (const auto& [k, pc] : pairContacts) {
+        // Observe match uses Hull.observeLayers (default 0 = opted out), NOT
+        // collisionLayer — the latter defaults to all-bits, which would make every
+        // default body match every subscription (limitations.md §4.5 footgun).
+        uint32_t layers = 0;
+        if (auto* ha = registry_.get<ecs::Hull>(pc.a)) layers |= ha->observeLayers;
+        if (auto* hb = registry_.get<ecs::Hull>(pc.b)) layers |= hb->observeLayers;
+
+        bool scripted = registry_.has<ecs::ScriptComponent>(pc.a) ||
+                        registry_.has<ecs::ScriptComponent>(pc.b);
+        bool observed = obs != 0 && (layers & obs) != 0;
+        if (!scripted && !observed) continue;
+
+        current.emplace(k, CollisionEvent{ pc.a, pc.b, true,
+                                           { pc.point, pc.normal, pc.impulse }, layers });
+    }
 
     std::vector<CollisionEvent> evs;
-    for (const auto& [k, ab] : current)
-        if (!prevContactPairs_.count(k)) evs.push_back({ ab.first, ab.second, true });
-    for (const auto& [k, ab] : prevContactPairs_)
-        if (!current.count(k)) evs.push_back({ ab.first, ab.second, false });
+    for (const auto& [k, ev] : current)
+        if (!prevContactEvents_.count(k)) evs.push_back(ev);            // enter (+ contact)
+    for (const auto& [k, ev] : prevContactEvents_)
+        if (!current.count(k)) {
+            CollisionEvent exit = ev;                                   // keep a/b/layers
+            exit.enter   = false;
+            exit.contact = {};                                         // separated → no contact
+            evs.push_back(exit);
+        }
 
-    prevContactPairs_ = std::move(current);
+    prevContactEvents_ = std::move(current);
 
     if (!evs.empty()) {
         std::lock_guard<std::mutex> lk(collisionEventMtx_);
@@ -1912,7 +2011,7 @@ void World::resetPhysics() {
     // Collision-event state must not survive a scene swap: the fresh registry
     // recycles entity ids from 0, so a stale pair set would fire spurious exits at
     // unrelated new entities and swallow genuine enters whose key collides.
-    prevContactPairs_.clear();
+    prevContactEvents_.clear();
     { std::lock_guard<std::mutex> elk(collisionEventMtx_); collisionEvents_.clear(); }
 
     {
@@ -2060,11 +2159,12 @@ void World::advance(float dt) {
     for (const auto& c : advanceContacts_)
         lastContactPointCount_ += c.manifold.numContacts;
 
-    // 2b. Collision enter/exit events (only when a behavior is listening). Uses the
-    // freshly-built advanceContacts_ + triggerContacts_ — runs even when empty so
-    // separations fire exits.
-    if (collisionEventsEnabled_.load(std::memory_order_relaxed))
-        detectCollisionEvents();
+    // 2b. Collision enter/exit events now run AFTER the solve (below) so the
+    // enter payload can carry this tick's converged normal impulse. The contact
+    // geometry+impulse is gathered from the solved island manifolds + trigger
+    // manifolds into `pairContacts`.
+    const bool wantEvents = collisionEventsEnabled_.load(std::memory_order_relaxed);
+    std::unordered_map<uint64_t, PairContact> pairContacts;
 
     // 3. Island-partitioned PGS solve.
     lastIslandCount_ = 0;
@@ -2129,6 +2229,13 @@ void World::advance(float dt) {
         }
         physics::IslandDetector::mergeCache(islands, contactCache_);
 
+        // Gather solved-manifold contact info for collision events (post-solve, so
+        // `lambda` holds this tick's converged normal impulse).
+        if (wantEvents)
+            for (const auto& island : islands)
+                for (const auto& c : island.contacts)
+                    accumulatePairContact(pairContacts, c);
+
         if (debugContacts) {
             debugPts.reserve(static_cast<size_t>(lastContactPointCount_));
             for (const auto& island : islands)
@@ -2143,6 +2250,15 @@ void World::advance(float dt) {
     if (debugContacts) {
         std::lock_guard lk2(contactDebugMtx_);
         contactDebug_ = std::move(debugPts);
+    }
+
+    // 3b. Collision enter/exit events. Trigger pairs skip the solver, so fold their
+    // narrowphase manifolds in here (impulse stays 0 — no solve). Runs even with an
+    // empty map so separations still fire exits.
+    if (wantEvents) {
+        for (const auto& c : triggerContacts_)
+            accumulatePairContact(pairContacts, c);
+        detectCollisionEvents(pairContacts);
     }
 
     // 4. Integration + sleep check.
@@ -2176,15 +2292,23 @@ void World::advance(float dt) {
             continue;
         }
 
+        // Kinematic bodies (moving platforms): script-driven velocity/omega only.
+        // No gravity, no damping, no sleep — just integrate the Transform so the
+        // solver-read velocity carries riders along. inverseMass=0 keeps them
+        // immovable, so the split-impulse pass below is a no-op for them.
+        const bool kin = hc.kinematic;
+
         // Gravity (applied once per full step, same as Hull::advance isFirst guard)
-        if (hc.gravity)
+        if (!kin && hc.gravity)
             hc.velocity += gravity * dt;
 
         // Damping — skip if decay would flip sign (matches Hull::advance: if linDecay > 0)
-        float linDecay = 1.0f - hc.linearDamping  * dt;
-        float angDecay = 1.0f - hc.angularDamping * dt;
-        if (linDecay > 0.0f) hc.velocity = hc.velocity * linDecay;
-        if (angDecay > 0.0f) hc.omega    = hc.omega    * angDecay;
+        if (!kin) {
+            float linDecay = 1.0f - hc.linearDamping  * dt;
+            float angDecay = 1.0f - hc.angularDamping * dt;
+            if (linDecay > 0.0f) hc.velocity = hc.velocity * linDecay;
+            if (angDecay > 0.0f) hc.omega    = hc.omega    * angDecay;
+        }
 
         // Integrate position
         tf.position += hc.velocity * dt;
@@ -2215,8 +2339,9 @@ void World::advance(float dt) {
         hc.pseudoVel   = {};
         hc.pseudoOmega = {};
 
-        // Sleep check
-        if (hc.sleepingEnabled) {
+        // Sleep check (never for kinematic bodies — they must stay awake so riders
+        // don't sleep and get left behind, per the island wake-propagation).
+        if (hc.sleepingEnabled && !kin) {
             float linSq = hc.velocity.dot(hc.velocity);
             float angSq = hc.omega.dot(hc.omega);
             float linThresh = physics::SLEEP_LINEAR_THRESHOLD  * physics::SLEEP_LINEAR_THRESHOLD;

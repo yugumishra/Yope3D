@@ -21,12 +21,67 @@
 #include "ecs/Components.h"
 #include "math/Mat3.h"
 #include "debug/Profiler.h"
+#include "scripting/python/CollisionObservers.h"
+#include "scripting/python/PyContact.h"
+#include "debug/Console.h"
 #include <GLFW/glfw3.h>
 #include <unordered_set>
 #include <atomic>
 #include <filesystem>
+#include <vector>
 
 namespace py = pybind11;
+
+// ---------------------------------------------------------------------------
+// Global collision observers (limitations.md §4.5). The registry + py::function
+// storage live here (a pybind TU); Engine/SceneManager reach them through the
+// pybind-free CollisionObservers.h declarations. Registered from Python via
+// yope3d.observe_collisions(layer_mask, cb).
+// ---------------------------------------------------------------------------
+namespace {
+    struct CollisionObserver { uint32_t mask; py::function cb; };
+    std::vector<CollisionObserver>& observerList() {
+        static std::vector<CollisionObserver> s;
+        return s;
+    }
+    std::atomic<uint32_t> g_observeMaskUnion{ 0 };
+    void recomputeObserveMask() {
+        uint32_t u = 0;
+        for (auto& o : observerList()) u |= o.mask;
+        g_observeMaskUnion.store(u, std::memory_order_relaxed);
+    }
+}
+
+namespace collisionobs {
+
+uint32_t observerMask() { return g_observeMaskUnion.load(std::memory_order_relaxed); }
+
+void clear() {
+    if (observerList().empty()) return;
+    py::gil_scoped_acquire gil;   // releasing py::function refs touches Python
+    observerList().clear();
+    g_observeMaskUnion.store(0, std::memory_order_relaxed);
+}
+
+void dispatch(ecs::Entity a, ecs::Entity b, bool enter,
+              const physics::ContactInfo& contact, uint32_t layers) {
+    if (observerList().empty()) return;
+    py::gil_scoped_acquire gil;
+    PyContact payload{ a, b, enter, contact };
+    py::object pc = py::cast(payload);
+    for (auto& o : observerList()) {
+        if ((o.mask & layers) == 0) continue;
+        try {
+            o.cb(pc);
+        } catch (py::error_already_set& e) {
+            Console::log(std::string("[observe_collisions] ") + e.what(), LogSeverity::Error);
+        } catch (std::exception& e) {
+            Console::log(std::string("[observe_collisions] ") + e.what(), LogSeverity::Error);
+        }
+    }
+}
+
+} // namespace collisionobs
 
 // Opaque handle to a live physics::Joint*. NOT a direct py::class_<physics::Joint>
 // binding: physics::Joint is a bare std::variant<...>, and <pybind11/stl.h>
@@ -74,6 +129,14 @@ void bind_world(py::module_& m) {
              py::arg("pos"), py::arg("extent"))
         .def("add_trigger_sphere", &World::addTriggerSphere,
              py::arg("pos"), py::arg("radius"))
+        // Kinematic rigid bodies (moving platforms — §4.3): immovable Hull driven
+        // by a script-set velocity/omega; riders inherit the motion. Mesh-less like
+        // add_obb/add_sphere — call attach_box_mesh / attach_sphere_mesh after.
+        .def("add_kinematic_box",    &World::addKinematicBox,
+             py::arg("pos"), py::arg("extent"))
+        .def("add_kinematic_sphere", &World::addKinematicSphere,
+             py::arg("pos"), py::arg("radius"))
+        .def("make_kinematic",       &World::makeKinematic, py::arg("entity"))
         .def("remove_entity",   &World::removeEntity)
         .def("reset_physics",   &World::resetPhysics)
         .def("get_hull_count",  &World::getHullCount)
@@ -870,5 +933,22 @@ void bind_world(py::module_& m) {
         std::filesystem::path full = std::filesystem::path(base) / name;
         smObj.cast<SceneManager*>()->queueLoadGame(full.string());
     }, py::arg("name"));
+
+    // observe_collisions(layer_mask, cb) — register a global collision observer
+    // (§4.5). `cb(contact)` fires on every enter/exit between a pair whose combined
+    // collisionLayer intersects `layer_mask`, INCLUDING pairs with no
+    // ScriptComponent on either side — the use case per-entity callbacks can't
+    // serve ("spawn a spark wherever a bullet hits anything"). The mask keeps the
+    // observed set bounded to the layers you subscribe to; assign specific
+    // collisionLayers to your bodies or the default 0xFFFFFFFF will match any mask.
+    // Observers are cleared automatically on scene unload / editor Stop.
+    m.def("observe_collisions", [](uint32_t layer_mask, py::function cb) {
+        observerList().push_back({ layer_mask, std::move(cb) });
+        recomputeObserveMask();
+    }, py::arg("layer_mask"), py::arg("callback"));
+
+    // Drop all registered collision observers (also done automatically when a
+    // scene unloads). Rarely needed by hand.
+    m.def("clear_collision_observers", []() { collisionobs::clear(); });
 }
 #endif // YOPE_PYTHON

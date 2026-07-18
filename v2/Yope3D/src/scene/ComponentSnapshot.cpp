@@ -201,10 +201,12 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
             h->angularDamping  = hull.angularDamping;
             h->collisionLayer  = hull.collisionLayer;
             h->collisionMask   = hull.collisionMask;
+            h->observeLayers   = hull.observeLayers;
             h->gravity         = hull.gravity;
             h->tangible        = hull.tangible;
             h->sleepingEnabled = hull.sleepingEnabled;
             h->isTrigger       = hull.isTrigger;
+            h->kinematic       = hull.kinematic;
         }
     }
     if (hasTransient && !reg.has<ecs::Transient>(e))

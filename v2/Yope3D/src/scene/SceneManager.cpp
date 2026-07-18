@@ -5,6 +5,9 @@
 #include "ecs/Components.h"
 #include "assets/AssetManager.h"
 #include "scripting/Script.h"
+#ifdef YOPE_PYTHON
+#include "scripting/python/CollisionObservers.h"
+#endif
 #include "scripting/ScriptFactory.h"
 #include "scripting/ScriptContext.h"
 #include "scene/serialization/JsonParser.h"
@@ -41,6 +44,12 @@ static void destroyAllInstances(ecs::Registry& reg, ScriptContext& ctx) {
     // Null out the now-dangling pointers (entities may still exist for a beat).
     for (auto [e, sc] : reg.view<ecs::ScriptComponent>())
         sc.instance = nullptr;
+
+#ifdef YOPE_PYTHON
+    // Global collision observers were registered by these now-destroyed scripts;
+    // drop them so they don't leak or double-fire across scene loads / editor Stop.
+    collisionobs::clear();
+#endif
 }
 
 static void instantiateAll(ecs::Registry& reg, ScriptContext& ctx, bool runInit) {

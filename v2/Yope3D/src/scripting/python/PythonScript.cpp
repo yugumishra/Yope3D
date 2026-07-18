@@ -1,5 +1,6 @@
 #ifdef YOPE_PYTHON
 #include "scripting/python/PythonScript.h"
+#include "scripting/python/PyContact.h"
 #include "scripting/ScriptFactory.h"
 #include "scripting/ScriptContext.h"
 #include "world/World.h"
@@ -69,11 +70,18 @@ void PythonScript::init(ScriptContext& ctx, ecs::Entity self) {
         pyObj_ = std::make_unique<PyObj>();
         pyObj_->instance = cls();
 
-        // Retrieve params blob from ScriptComponent on the entity itself
-        auto& reg = ctx.world->getRegistry();
-        std::string blob = "{}";
-        if (auto* sc = reg.get<ecs::ScriptComponent>(self)) {
-            blob = sc->paramsBlob;
+        // Params source: a composite child reads its own captured spec (several
+        // behaviors share one entity, so the entity's paramsBlob is the composite's
+        // and not any single child's); a standalone script reads paramsBlob as before.
+        std::string blob;
+        if (isChild_) {
+            blob = childParamsJson_.empty() ? "{}" : childParamsJson_;
+        } else {
+            blob = "{}";
+            auto& reg = ctx.world->getRegistry();
+            if (auto* sc = reg.get<ecs::ScriptComponent>(self)) {
+                blob = sc->paramsBlob;
+            }
         }
 
         auto params = paramsToDict(blob);
@@ -106,20 +114,50 @@ void PythonScript::onUnload(ScriptContext& ctx, ecs::Entity self) {
     pyObj_.reset();
 }
 
-void PythonScript::onCollisionEnter(ScriptContext& ctx, ecs::Entity self, ecs::Entity other) {
-    if (!pyObj_) return;
-    (void)ctx;
-    auto yope3d = py::module_::import("yope3d");
-    callPyMethod(pyObj_->instance, "on_collision_enter",
-                 py::make_tuple(yope3d.attr("world"), py::cast(self), py::cast(other)));
+// Does `inst.method` accept the optional 5th `contact` arg? A bound method's
+// __code__.co_argcount counts self, so on_collision_enter(self, world, entity,
+// other) = 4 and (…, contact) = 5; *args (CO_VARARGS) also opts in. Cached per
+// (method) on first call — arity is fixed per class, and collisions can churn.
+static bool acceptsContactArg(py::object& inst, const char* method) {
+    try {
+        if (!py::hasattr(inst, method)) return false;
+        py::object fn = inst.attr(method);
+        if (!py::hasattr(fn, "__code__")) return false;   // builtins / C funcs
+        py::object code = fn.attr("__code__");
+        if ((code.attr("co_flags").cast<int>() & 0x04) != 0) return true;  // CO_VARARGS
+        return code.attr("co_argcount").cast<int>() >= 5;
+    } catch (...) { return false; }
 }
 
-void PythonScript::onCollisionExit(ScriptContext& ctx, ecs::Entity self, ecs::Entity other) {
+// Deliver a collision callback, passing the Contact object only to callbacks
+// whose signature accepts it (backward compat with 4-arg on_collision_* scripts).
+static void dispatchCollision(py::object& inst, const char* method,
+                              ecs::Entity self, ecs::Entity other, bool enter,
+                              const physics::ContactInfo& contact) {
+    auto yope3d = py::module_::import("yope3d");
+    if (acceptsContactArg(inst, method)) {
+        PyContact c{ self, other, enter, contact };
+        callPyMethod(inst, method,
+                     py::make_tuple(yope3d.attr("world"), py::cast(self),
+                                    py::cast(other), py::cast(c)));
+    } else {
+        callPyMethod(inst, method,
+                     py::make_tuple(yope3d.attr("world"), py::cast(self), py::cast(other)));
+    }
+}
+
+void PythonScript::onCollisionEnter(ScriptContext& ctx, ecs::Entity self, ecs::Entity other,
+                                    const physics::ContactInfo& contact) {
     if (!pyObj_) return;
     (void)ctx;
-    auto yope3d = py::module_::import("yope3d");
-    callPyMethod(pyObj_->instance, "on_collision_exit",
-                 py::make_tuple(yope3d.attr("world"), py::cast(self), py::cast(other)));
+    dispatchCollision(pyObj_->instance, "on_collision_enter", self, other, true, contact);
+}
+
+void PythonScript::onCollisionExit(ScriptContext& ctx, ecs::Entity self, ecs::Entity other,
+                                   const physics::ContactInfo& contact) {
+    if (!pyObj_) return;
+    (void)ctx;
+    dispatchCollision(pyObj_->instance, "on_collision_exit", self, other, false, contact);
 }
 
 void PythonScript::onUIPress(ScriptContext& ctx, ecs::Entity self) {
@@ -179,7 +217,19 @@ void PythonScript::serializeParams(JsonWriter& w) const {
 bool PythonScript::deserializeParams(const JsonNode& n) {
     if (n.contains("module")) module_ = n["module"].asString();
     if (n.contains("class"))  class_  = n["class"].asString();
+    // A composite child spec nests its params under "params": {...}. Presence of
+    // that key marks this instance as a child and captures the sub-object as the
+    // blob init() will feed to the Python class. A standalone script's params are
+    // flat siblings of module/class, so this branch never fires for it.
+    if (n.contains("params") && n["params"].isObject()) {
+        childParamsJson_ = dumpJson(n["params"]);
+        isChild_ = true;
+    }
     return !module_.empty() && !class_.empty();
+}
+
+std::string PythonScript::behaviorClassName() const {
+    return class_;
 }
 
 // ---------------------------------------------------------------------------

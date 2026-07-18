@@ -9,15 +9,53 @@
 #include "world/World.h"
 #include "audio/Source.h"   // complete type for AudioSource.source binding
 #include "scripting/Script.h"  // Script::pyInstanceHandle for get_behavior
+#include "scripting/CompositeScript.h"  // auto-promotion on second attach_script
+#include "scripting/ScriptFactory.h"
 #include "scripting/python/PyComponentTable.h"
+#include "scripting/python/PyContact.h"           // Contact payload type
 #include "scripting/python/PythonInterpreter.h"  // boundContext() for attach_script
 #include "scripting/ScriptContext.h"
 #include "scene/SceneManager.h"
 #include "scene/TemplateSpawner.h"
+#include "scene/serialization/JsonParser.h"  // dumpJson/parseJson for stack blobs
 #include "math/Vec3.h"
 #include "math/Quat.h"
+#include <cstring>
 
 namespace py = pybind11;
+
+// --- Composite-behavior stack helpers (attach_script auto-promotion) ---
+
+// A behavior's canonical stack spec: {"module":..,"class":..,"params":{..}}.
+// paramsJson is a JSON object string ("" -> {}). module/class are behavior
+// identifiers, safe to embed unescaped.
+static std::string makeChildSpec(const std::string& module, const std::string& cls,
+                                 const std::string& paramsJson) {
+    return "{\"module\":\"" + module + "\",\"class\":\"" + cls + "\",\"params\":"
+         + (paramsJson.empty() ? "{}" : paramsJson) + "}";
+}
+
+// Convert a standalone PythonScript's flat blob ({module,class,...params}) into a
+// stack spec ({module,class,params:{...}}), so an existing single behavior can be
+// adopted into a composite without dropping its authored params.
+static std::string flatBlobToChildSpec(const char* flatBlob) {
+    std::string module, cls, params = "{";
+    try {
+        JsonNode fb = parseJson(flatBlob);
+        if (fb.isObject()) {
+            bool first = true;
+            for (const auto& [k, v] : fb.asObject()) {
+                if (k == "module") { if (v.isString()) module = v.asString(); continue; }
+                if (k == "class")  { if (v.isString()) cls    = v.asString(); continue; }
+                if (!first) params += ",";
+                first = false;
+                params += "\"" + k + "\":" + dumpJson(v);
+            }
+        }
+    } catch (...) {}
+    params += "}";
+    return makeChildSpec(module, cls, params);
+}
 
 void bind_ecs(py::module_& m) {
     // Entity handle
@@ -53,8 +91,25 @@ void bind_ecs(py::module_& m) {
         .def_readwrite("tangible",        &ecs::Hull::tangible)
         .def_readwrite("is_trigger",      &ecs::Hull::isTrigger)
         .def_readwrite("asleep",          &ecs::Hull::asleep)
+        .def_readwrite("kinematic",       &ecs::Hull::kinematic)
         .def_readwrite("collision_layer", &ecs::Hull::collisionLayer)
-        .def_readwrite("collision_mask",  &ecs::Hull::collisionMask);
+        .def_readwrite("collision_mask",  &ecs::Hull::collisionMask)
+        .def_readwrite("observe_layers",  &ecs::Hull::observeLayers);
+
+    // Contact — collision payload passed to on_collision_enter/exit (optional 5th
+    // arg) and to yope3d.observe_collisions callbacks. Read-only. See PyContact.h.
+    py::class_<PyContact>(m, "Contact")
+        .def_readonly("a",       &PyContact::a)
+        .def_readonly("b",       &PyContact::b)
+        .def_readonly("enter",   &PyContact::enter)
+        .def_property_readonly("point",   [](const PyContact& c) { return c.info.point; })
+        .def_property_readonly("normal",  [](const PyContact& c) { return c.info.normal; })
+        .def_property_readonly("impulse", [](const PyContact& c) { return c.info.impulse; })
+        .def("__repr__", [](const PyContact& c) {
+            return "Contact(a=" + std::to_string(c.a.id) + ", b=" + std::to_string(c.b.id) +
+                   ", enter=" + (c.enter ? "True" : "False") +
+                   ", impulse=" + std::to_string(c.info.impulse) + ")";
+        });
 
     // Shape forms
     py::class_<ecs::SphereForm>(m, "SphereForm")
@@ -505,15 +560,30 @@ void bind_ecs(py::module_& m) {
 
     // get_behavior — the live Python instance of another entity's behavior, or None.
     // Lets one behavior read/call another's state directly (inter-script comms).
-    m.def("get_behavior", [](ecs::Entity e) -> py::object {
+    //
+    // With composite behaviors (composite-behaviors.md §4.1) an entity may host a
+    // stack; identity is the Python class name. get_behavior(e, "Health") resolves
+    // by class across the stack (or a lone behavior). The 1-arg form works only
+    // when there's exactly one behavior — on a stack it *raises* rather than
+    // silently pick, and the composite host itself is never returned.
+    m.def("get_behavior", [](ecs::Entity e, py::object className) -> py::object {
         auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         auto* sc = world->getRegistry().get<ecs::ScriptComponent>(e);
         if (!sc || !sc->instance) return py::none();
-        void* h = sc->instance->pyInstanceHandle();
+        void* h = nullptr;
+        if (!className.is_none()) {
+            h = sc->instance->pyHandleForClass(className.cast<std::string>());
+        } else {
+            if (sc->instance->isComposite())
+                throw std::runtime_error(
+                    "get_behavior(entity): entity has multiple behaviors -- pass a "
+                    "class name, e.g. get_behavior(entity, \"Health\")");
+            h = sc->instance->pyInstanceHandle();
+        }
         if (!h) return py::none();
         return py::reinterpret_borrow<py::object>(reinterpret_cast<PyObject*>(h));
-    }, py::arg("entity"));
+    }, py::arg("entity"), py::arg("class_name") = py::none());
 
     // attach_script — create + immediately instantiate a Python behavior on an
     // entity at runtime (not just at scene load). Unlike scene-authored
@@ -526,36 +596,84 @@ void bind_ecs(py::module_& m) {
     // same as a scene file's paramsBlob "module"/"class" keys). params is merged
     // into the dict the new instance's init() receives.
     //
-    // Returns False (no-op) if the entity is invalid or already carries a live
-    // script instance -- attach_script does not replace/reset an existing one.
+    // A second attach on an already-scripted entity *stacks* the behavior: the
+    // entity transparently becomes a CompositeScript hosting both, the existing
+    // one keeps its live state (not re-init'd), and only the new one's init()
+    // runs (composite-behaviors.md §4.1). Attaching a class the entity already
+    // carries is rejected (returns False) -- class names are unique per entity.
+    //
+    // Returns False (no-op) if the entity is invalid, or the class is a duplicate.
     m.def("attach_script",
         [](ecs::Entity e, const std::string& module_, const std::string& className,
            py::dict params) -> bool {
             auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
-            auto* sceneManager = py::module_::import("yope3d").attr("scene_manager").cast<SceneManager*>();
             auto* ctx = PythonInterpreter::boundContext();
             if (!ctx) return false;
 
-            py::dict blob = params.attr("copy")().cast<py::dict>();  // don't mutate caller's dict
-            blob["module"] = module_;
-            blob["class"]  = className;
-            std::string blobStr = py::module_::import("json").attr("dumps")(blob).cast<std::string>();
-            if (blobStr.size() >= sizeof(ecs::ScriptComponent::paramsBlob))
-                throw std::runtime_error("attach_script: params too large for paramsBlob (2048 bytes)");
+            std::string paramsJson = py::module_::import("json").attr("dumps")(params).cast<std::string>();
+            std::string newSpec    = makeChildSpec(module_, className, paramsJson);
 
+            Script* pendingInit = nullptr;   // new child to init() after unlocking
+            bool    firstAttach = false;
             {
                 auto lock = world->lockStructure();
                 auto& reg = world->getRegistry();
                 if (!reg.valid(e)) return false;
                 auto* sc = reg.get<ecs::ScriptComponent>(e);
-                if (sc && sc->instance) return false;   // already scripted -- no-op
-                if (!sc) sc = &reg.add<ecs::ScriptComponent>(e);
-                std::strncpy(sc->scriptClass, "PythonScript", sizeof(sc->scriptClass) - 1);
-                sc->scriptClass[sizeof(sc->scriptClass) - 1] = '\0';
-                std::strncpy(sc->paramsBlob, blobStr.c_str(), sizeof(sc->paramsBlob) - 1);
-                sc->paramsBlob[sizeof(sc->paramsBlob) - 1] = '\0';
+
+                if (sc && sc->instance) {
+                    // --- Stack onto the existing behavior(s) ---
+                    CompositeScript* comp = nullptr;
+                    if (sc->instance->isComposite()) {
+                        comp = static_cast<CompositeScript*>(sc->instance);
+                    } else {
+                        if (sc->instance->behaviorClassName() == className) return false;  // dup
+                        // Promote the lone behavior into a composite, adopting the
+                        // live instance (state preserved, no re-init).
+                        std::string existingSpec = flatBlobToChildSpec(sc->paramsBlob);
+                        auto composite = std::make_unique<CompositeScript>();
+                        comp = composite.get();
+                        comp->appendChild(std::unique_ptr<Script>(sc->instance), existingSpec);
+                        sc->instance = composite.release();
+                        std::strncpy(sc->scriptClass, "CompositeScript", sizeof(sc->scriptClass) - 1);
+                        sc->scriptClass[sizeof(sc->scriptClass) - 1] = '\0';
+                    }
+                    auto child = ScriptFactory::create("PythonScript");
+                    if (!child) return false;
+                    try { child->deserializeParams(parseJson(newSpec.c_str())); }
+                    catch (...) { return false; }
+                    Script* raw = comp->appendChild(std::move(child), newSpec);
+                    if (!raw) return false;   // duplicate class within the stack
+
+                    std::string blob = comp->composeBlob();
+                    if (blob.size() >= sizeof(sc->paramsBlob))
+                        throw std::runtime_error("attach_script: composed stack exceeds paramsBlob (2048 bytes)");
+                    std::strncpy(sc->paramsBlob, blob.c_str(), sizeof(sc->paramsBlob) - 1);
+                    sc->paramsBlob[sizeof(sc->paramsBlob) - 1] = '\0';
+                    pendingInit = raw;
+                } else {
+                    // --- First attach: a plain single PythonScript, as before ---
+                    py::dict blob = params.attr("copy")().cast<py::dict>();  // don't mutate caller's dict
+                    blob["module"] = module_;
+                    blob["class"]  = className;
+                    std::string blobStr = py::module_::import("json").attr("dumps")(blob).cast<std::string>();
+                    if (blobStr.size() >= sizeof(ecs::ScriptComponent::paramsBlob))
+                        throw std::runtime_error("attach_script: params too large for paramsBlob (2048 bytes)");
+                    if (!sc) sc = &reg.add<ecs::ScriptComponent>(e);
+                    std::strncpy(sc->scriptClass, "PythonScript", sizeof(sc->scriptClass) - 1);
+                    sc->scriptClass[sizeof(sc->scriptClass) - 1] = '\0';
+                    std::strncpy(sc->paramsBlob, blobStr.c_str(), sizeof(sc->paramsBlob) - 1);
+                    sc->paramsBlob[sizeof(sc->paramsBlob) - 1] = '\0';
+                    firstAttach = true;
+                }
             }
-            return sceneManager->instantiateScript(e, *ctx);
+            // init() runs unlocked -- it may re-enter World methods that lock internally.
+            if (pendingInit) { pendingInit->init(*ctx, e); return true; }
+            if (firstAttach) {
+                auto* sceneManager = py::module_::import("yope3d").attr("scene_manager").cast<SceneManager*>();
+                return sceneManager->instantiateScript(e, *ctx);
+            }
+            return false;
         }, py::arg("entity"), py::arg("module"), py::arg("class_name"),
            py::arg("params") = py::dict());
 
