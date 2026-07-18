@@ -1,1 +1,34 @@
-/.metadata/
+build/
+
+# vcpkg-specific ignore entries
+vcpkg_installed/
+vcpkg/
+scripts/buildsystems/vcpkg.cmake
+
+#ignore claude specific stuff
+claude.md
+
+#ignore graphics time analysis (profiler output)
+graphics_pipeline_time_analysis
+
+#ignore logo animations (large files)
+v2/Yope3D/assets/logo/logo_part*
+
+#ignore all profile csvs (huge files)
+yope_profile_*.csv
+
+#ignore all mesh binary files
+*.meshbin
+
+#ignore old source directory (already tracked)
+old_src_java/
+
+# milestone-report script output
+major_updates/
+releases/
+
+# OS / editor / python junk
+.DS_Store
+__pycache__/
+*.pyc
+imgui.ini

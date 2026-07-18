@@ -1,0 +1,552 @@
+#version 430 core
+
+layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+//sphere data
+layout(std430, binding = 2) buffer data {
+    vec4 spheres[];
+    //first vec4: pos + radius
+    //second vec4: vel + mass
+};
+
+//barrier data
+layout(std430, binding = 4) readonly buffer barrierData {
+	vec4 barriers[];
+	//first vec4: pos, padding
+	//second vec4: normal, padding
+};
+
+//bounding box data
+layout(std430, binding = 6) buffer boxData {
+	vec4 boxes[];
+	//vec4 1: x axis + extent.x
+	//vec4 2: y axis + extent.y
+	//vec4 3: z axis + extent.z
+	//vec4 4: pos + padding
+	//vec4 5: vel + mass
+	//vec4 6: omega + padding
+	//vec4 7: rot + padding
+};
+
+layout (location = 1) uniform float dt;
+layout (location = 3) uniform int iterations;
+layout (location = 5) uniform int numSpheres;
+layout (location = 7) uniform int numBarriers;
+layout (location = 9) uniform int collisions;
+layout (location = 11) uniform int numBoxes;
+
+mat3 calculateInertiaTensor(float mass, vec3 halfExtent) {
+	float factor = mass / 3.0;
+	return mat3(factor*(halfExtent.y * halfExtent.y + halfExtent.z * halfExtent.z), 0.0, 0.0, 0.0, factor*(halfExtent.x * halfExtent.x + halfExtent.z * halfExtent.z), 0.0, 0.0, 0.0, factor*(halfExtent.x * halfExtent.x + halfExtent.y * halfExtent.y));
+}
+
+void setOrientation(uint index, mat3 orientation) {
+	boxes[index * 6 + 0].x = orientation[0].x;
+	boxes[index * 6 + 0].y = orientation[0].y;
+	boxes[index * 6 + 0].z = orientation[0].z;
+	
+	boxes[index * 6 + 1].x = orientation[1].x;
+	boxes[index * 6 + 1].y = orientation[1].y;
+	boxes[index * 6 + 1].z = orientation[1].z;
+	
+	boxes[index * 6 + 2].x = orientation[2].x;
+	boxes[index * 6 + 2].y = orientation[2].y;
+	boxes[index * 6 + 2].z = orientation[2].z;
+}
+
+vec3 rodrigues(vec3 v, float angle, vec3 axis) {
+	vec3 rotated = v * cos(angle);
+	vec3 rejection = cross(axis, v);
+	vec3 projection = axis * dot(axis, v);
+	rotated += rejection * sin(angle);
+	rotated += projection * (1.0 - cos(angle));
+	return rotated;
+}
+
+void main() {
+	//coefficient of restitution
+	float cor = 0.9;
+	
+	for(int iteration = 0; iteration < iterations; iteration++) {
+		uint index = 0;
+		if(gl_WorkGroupID.x < numSpheres) {
+			index = gl_WorkGroupID.x;
+			
+			//sphere logic
+			vec3 position = spheres[index * 2].xyz;
+			float r = spheres[index * 2].w;
+			vec3 velocity = spheres[index * 2 + 1].xyz;
+			float m = spheres[index * 2 + 1].w;
+			if(collisions == 0) {
+				for(int i = 0; i< numSpheres; i++) {
+					//skip this current one to avoid div by 0
+					if(i == gl_WorkGroupID.x) continue;
+					
+					//get the other sphere info
+					float rr = spheres[i*2].w;
+					vec3 oPos = spheres[i*2].xyz;
+					
+					//first collision check
+					vec3 diff = oPos - position;
+					float min = r + rr;
+					float depth = length(diff) - min;
+					
+					if(depth < 0) {
+						//the two spheres are colliding
+						vec3 oVel = spheres[i*2 + 1].xyz;
+						float mm = spheres[i*2 + 1].w;
+						
+						//normalize the line of action vector (used for dot product)
+						diff = normalize(diff);
+						
+						//find the relative velocity
+						vec3 velocityDiff = oVel - velocity;
+						float relativeVelocity = dot(velocityDiff, diff);
+						
+						//impulse calculation
+						float impulse = (1.0 + cor) * (relativeVelocity/(1/m + 1/mm));
+						
+						velocity += (impulse * diff) /m;
+						oVel -= (impulse * diff) /mm;
+						
+						//write back into buffer
+						spheres[index * 2 + 1].x = velocity.x;
+						spheres[index * 2 + 1].y = velocity.y;
+						spheres[index * 2 + 1].z = velocity.z;
+						
+						spheres[i * 2 + 1].x = oVel.x;
+						spheres[i * 2 + 1].y = oVel.y;
+						spheres[i * 2 + 1].z = oVel.z;
+						
+						//resolve any possible penetration
+						float resolution = depth * 0.5;
+						
+						//move each sphere away by the resolution amount
+						position += resolution * diff;
+						oPos -= resolution * diff;
+						
+						//write back into buffer
+						spheres[index * 2].x = position.x;
+						spheres[index * 2].y = position.y;
+						spheres[index * 2].z = position.z;
+						
+						spheres[i * 2].x = oPos.x;
+						spheres[i * 2].y = oPos.y;
+						spheres[i * 2].z = oPos.z;
+						
+					}
+				}
+			}
+			
+			//barrier check
+			for(int i = 0; i< numBarriers; i++) {
+				vec3 bNorm = barriers[i*2+1].xyz;
+				vec3 diff = position - barriers[i*2].xyz;
+				
+				float normalDistance = dot(diff, bNorm);
+				normalDistance -= r; 
+				if(normalDistance < -0.001) {
+					//the sphere is colliding with the barrier and this needs to be resolved
+					//penetration resolution
+					position -= bNorm * normalDistance;
+					
+					//now to reflect the velocity
+					velocity -= 0.5 * bNorm * dot(bNorm, velocity);
+					
+				}
+			}
+			
+			//gravity
+			velocity.y -= 9.81*dt;
+			
+			//integrate
+			position += velocity*dt;
+			
+			//write back into buffer
+			spheres[index * 2].x = position.x;
+			spheres[index * 2].y = position.y;
+			spheres[index * 2].z = position.z;
+			
+			
+			spheres[index * 2 + 1].x = velocity.x;
+			spheres[index * 2 + 1].y = velocity.y;
+			spheres[index * 2 + 1].z = velocity.z;
+		}else {
+			index = gl_WorkGroupID.x - numSpheres;
+			if(boxes[index*6 +4].w > 0) {
+				//bounding box (which is oriented) logic
+				//bbox will now be referred to as OBB
+				
+				//get the box
+				vec4 v0 = boxes[index * 6 + 0];
+				vec4 v1 = boxes[index * 6 + 1];
+				vec4 v2 = boxes[index * 6 + 2];
+				vec4 v3 = boxes[index * 6 + 3];
+				vec4 v4 = boxes[index * 6 + 4];
+				vec4 v5 = boxes[index * 6 + 5];
+				
+				vec3 pos = v3.xyz;
+				vec3 velocity = v4.xyz;
+				
+				vec3 extent = vec3(v0.w, v1.w, v2.w);
+				extent *= 0.5;
+				
+				vec3 omega = v5.xyz;
+				float mass = v4.w;
+				
+				
+				mat3 transform = mat3(v0.xyz, v1.xyz, v2.xyz);
+				mat3 transposeForm = transpose(transform);
+				mat3 inertiaTensor = transform * calculateInertiaTensor(mass, extent) * transposeForm;
+				mat3 invInertia = inverse(inertiaTensor);
+				
+				float e = 0.5 * (mass * (velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z) + (invInertia[0][0] * omega.x * omega.x + invInertia[1][1] * omega.y * omega.y + invInertia[2][2] * omega.z * omega.z));
+				
+				//gravity
+				if(mass != 314159265) velocity.y -= 9.81 * dt;
+				
+				
+			
+				for(int i =0; i< numBarriers; i++) {
+					vec3 planeNormal = barriers[i*2 + 1].xyz;
+					vec3 diff = barriers[i*2].xyz - pos;
+					
+					//half-proj of first (half because extents are half)
+					float proj1 = abs(dot(extent.x * transform[0], planeNormal)) + abs(dot(extent.y * transform[1], planeNormal)) + abs(dot(extent.z * transform[2], planeNormal));
+					//half-proj of second (half because extents are half)
+					float proj2 = dot(diff, planeNormal);
+					
+					//calc penetration
+					float penetration = abs(proj2) - proj1;
+					if(penetration < 0.0 || (proj2 > proj1 && proj2 > 0)){
+						if(proj2 > proj1 && proj2 > 0) penetration = -proj2-proj1-0.01;
+						
+						pos -= 0.5 * penetration * planeNormal;
+						
+						//identify contact
+						vec3[8] worldPoints = vec3[8](
+							transform * (-extent),
+							transform * vec3(- extent.x, - extent.y, extent.z),
+							transform * vec3(- extent.x, extent.y, - extent.z),
+							transform * vec3(- extent.x, extent.y, extent.z),
+							transform * vec3(extent.x, - extent.y, - extent.z),
+							transform * vec3(extent.x, - extent.y, extent.z),
+							transform * vec3(extent.x, extent.y, - extent.z),
+							transform * extent
+						);
+						
+						int maxCount = 0;
+						vec3[] contacts = vec3[](vec3(0.0));
+						for(int p = 0; p< 8; p++) {
+							if(dot(worldPoints[p], planeNormal) < proj2) {
+								contacts[maxCount] = worldPoints[p];
+								maxCount++;
+							}
+						}
+						
+						//dot each axis to find similarity with planeNormal						
+						float cosAngleX = dot(transform[0], planeNormal);
+						float cosAngleY = dot(transform[1], planeNormal);
+						float cosAngleZ = dot(transform[2], planeNormal);
+						
+						bool oneClose = (abs(cosAngleX - 1) < 0.01) || (abs(cosAngleY -1) < 0.01) || (abs(cosAngleZ - 1) < 0.01);
+						if(maxCount == 4 || (e < .01 && (oneClose))) {
+							omega = vec3(0.0);
+							//snap the orientation when there are 4 contact points							
+						    
+						
+						    // choose the axis with largest similarity
+						    if (cosAngleX > cosAngleY && cosAngleX > cosAngleZ) {
+						        //snap x to planeNormal
+						        vec3 newXAxis = planeNormal;
+						        vec3 newYAxis = normalize(cross(transform[2], newXAxis));
+						        vec3 newZAxis = normalize(cross(newXAxis, newYAxis));
+						        mat3 newOrientation = mat3(newXAxis, newYAxis, newZAxis);
+						        setOrientation(index, newOrientation);
+						    } else if (cosAngleY > cosAngleX && cosAngleY > cosAngleZ) {
+						        //snap y
+						        vec3 newYAxis = planeNormal;
+						        vec3 newXAxis = normalize(cross(newYAxis, transform[2]));
+						        vec3 newZAxis = normalize(cross(newXAxis, newYAxis));
+						        mat3 newOrientation = mat3(newXAxis, newYAxis, newZAxis);
+						        setOrientation(index, newOrientation);
+						    } else {
+						        //snap z
+						        vec3 newZAxis = planeNormal;
+						        vec3 newXAxis = normalize(cross(transform[1], newZAxis));
+						        vec3 newYAxis = normalize(cross(newZAxis, newXAxis));
+						        mat3 newOrientation = mat3(newXAxis, newYAxis, newZAxis);
+						        setOrientation(index, newOrientation);
+						    }
+						    velocity -= planeNormal * dot(planeNormal, velocity);
+						    
+							continue;
+						}
+						
+						omega *= 0.75;
+						int maxIter = 4;
+						for(int iter = 0; iter< maxIter; iter++) {
+							vec3 totalAngularImpulse = vec3(0.0);
+							vec3 totalLinearImpulse = vec3(0.0);
+							float totalImpulse = 0.0;
+
+							for(int p =0; p< maxCount; p++) {
+								vec3 relativeVelocity = velocity + cross(omega, contacts[p]);
+								float impulse = -(1.25) * dot(relativeVelocity, planeNormal);
+								vec3 tripleCross = invInertia * cross(contacts[p], planeNormal);
+								tripleCross = cross(tripleCross, contacts[p]);
+								impulse /= (1.0/mass + dot(planeNormal, tripleCross));
+								
+								totalImpulse += impulse;
+								
+								
+								vec3 linearImpulse = impulse * planeNormal;
+								totalLinearImpulse += linearImpulse;	
+								totalAngularImpulse += cross(contacts[p], linearImpulse);
+							}
+							
+							if(totalImpulse > 0.0) {
+								velocity += totalLinearImpulse/(maxIter*mass);
+								totalAngularImpulse /= maxIter;
+								omega += invInertia * totalAngularImpulse;
+							}
+						}
+					}
+					
+						
+					
+					/*
+					//box-box collisions (these are the expensive ones)
+					for(int i= 0; i< numBoxes; i++) {
+						if(i == index) continue;
+						
+						//check if collision enabled for other box
+						if(boxes[i*6 + 4].w > 0) {
+							
+							//collision enabled, get the other box info
+							vec4 o0 = boxes[i*6 + 0];
+							vec4 o1 = boxes[i*6 + 1];
+							vec4 o2 = boxes[i*6 + 2];
+							vec4 o3 = boxes[i*6 + 3];
+							vec4 o4 = boxes[i*6 + 4];
+							vec4 o5 = boxes[i*6 + 5];
+							
+							vec3 oPos = vec3(o3.xyz);
+							vec3 oExtent = vec3(o0.w, o1.w, o2.w);
+							vec3 oVelocity = o4.xyz;
+							float oMass = o4.w;
+							
+							mat3 oTransform = mat3(o0.xyz, o1.xyz, o2.xyz);
+							vec3 oOmega = o5.xyz;
+							
+							vec3 diff = oPos - pos;
+							
+							//sat time
+							bool colliding = true;
+							float deepestPenetration = 10000.0;
+							vec3 penetrationAxis;
+							for(int a = 0; a< 15; a++) {
+								vec3 axis;
+								if(a < 3) {
+									axis = transform[a];
+								}else if(a< 6) {
+									axis = oTransform[a-3];
+								}else {
+									axis = cross(transform[a/3 - 2], oTransform[a%3]);
+								}
+								
+								axis = normalize(axis);
+								//half-proj of first (half because extents are half)
+								float proj1 = abs(dot(extent.x * transform[0], axis)) + abs(dot(extent.y * transform[1], axis)) + abs(dot(extent.z * transform[2], axis));
+								//half-proj of second (half because extents are half)
+								float proj2 = abs(dot(oExtent.x * oTransform[0], axis)) + abs(dot(oExtent.y * oTransform[1], axis)) + abs(dot(oExtent.z * oTransform[2], axis));
+								
+								//diff interval on the axis
+								float differval = abs(dot(diff, axis));
+								
+								//calc penetration
+								float penetration = differval - proj1 - proj2;
+								if(penetration > 0.0) {
+									//no collision
+									colliding = false;
+									break;
+								}else if(penetration < deepestPenetration){
+									deepestPenetration = penetration;
+									penetrationAxis = axis;
+								}
+							}
+							
+							if(colliding) {
+								pos -= 0.4 * deepestPenetration * penetrationAxis;
+								oPos+= 0.4 * deepestPenetration * penetrationAxis;
+								//find the contacts for each body
+								vec3[8] worldPoints1 = vec3[8](
+									transform * (-extent),
+									transform * vec3(- extent.x, - extent.y, extent.z),
+									transform * vec3(- extent.x, extent.y, - extent.z),
+									transform * vec3(- extent.x, extent.y, extent.z),
+									transform * vec3(extent.x, - extent.y, - extent.z),
+									transform * vec3(extent.x, - extent.y, extent.z),
+									transform * vec3(extent.x, extent.y, - extent.z),
+									transform * extent
+								);
+								vec3[8] worldPoints2 = vec3[8](
+									oTransform * (-oExtent),
+									oTransform * vec3(- oExtent.x, - oExtent.y, oExtent.z),
+									oTransform * vec3(- oExtent.x, oExtent.y, - oExtent.z),
+									oTransform * vec3(- oExtent.x, oExtent.y, oExtent.z),
+									oTransform * vec3(oExtent.x, - oExtent.y, - oExtent.z),
+									oTransform * vec3(oExtent.x, - oExtent.y, oExtent.z),
+									oTransform * vec3(oExtent.x, oExtent.y, - oExtent.z),
+									oTransform * oExtent
+								);
+								float[8] projections1 = float[8](1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0);
+								float[8] projections2 = float[8](1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0);
+								float min1 = 10000.0;
+								float max1 = -10000.0;
+								float min2 = 10000.0;
+								float max2 = -10000.0;
+								for(int p = 0; p< 8; p++) {
+									vec3 firstWorldPoint = pos + worldPoints1[p];
+									vec3 secondWorldPoint = oPos + worldPoints2[p];
+									projections1[p] = dot(firstWorldPoint, penetrationAxis);
+									projections2[p] = dot(secondWorldPoint, penetrationAxis);
+									if(projections1[p] < min1) min1 = projections1[p];
+									if(projections1[p] > max1) max1 = projections1[p];
+									if(projections2[p] < min2) min2 = projections2[p];
+									if(projections2[p] > max2) max2 = projections2[p];
+								}
+								
+								vec3[] contacts = vec3[](vec3(0.0));
+								int contactCount = 0;
+								if(max1 > min2) {
+									// <--------> one
+									//        <--------> two
+									for(int p = 0; p< 8; p++) {
+										if(projections1[p] > min2 && projections1[p] < max1) {
+											contacts[contactCount] = worldPoints1[p];
+											contactCount++;
+										}
+									}
+									
+								}else if(max2 > min1) {
+									// <--------> two
+									//        <--------> one
+									for(int p =0; p< 8; p++) {
+										if(projections1[p] < max2 && projections1[p] > min1) {
+											contacts[contactCount] = worldPoints1[p];
+											contactCount++;
+										}
+									}
+								}
+								mat3 oInertia = calculateInertiaTensor(oMass, oExtent);
+								mat3 oWorldInertia = transform * oInertia * transpose(transform);
+								mat3 invInertia2 = inverse(oWorldInertia);
+								int maxIter = 1;
+								for(int iter = 0; iter< maxIter; iter++) {
+									vec3 totalAngularImpulse1 = vec3(0.0);
+									vec3 totalAngularImpulse2 = vec3(0.0);
+									vec3 totalLinearImpulse = vec3(0.0);
+									float totalImpulse = 0.0;
+		
+									for(int p =0; p< contactCount; p++) {
+										vec3 body2Offset = contacts[p] - diff;
+										vec3 relativeVelocity = oVelocity + cross(oOmega, body2Offset)- velocity - cross(omega, contacts[p]);
+										
+										float impulse = -(1.25) * dot(relativeVelocity, penetrationAxis);
+										
+										vec3 tripleCross1 = invInertia * cross(contacts[p], penetrationAxis);
+										tripleCross1 = cross(tripleCross1, contacts[p]);
+										vec3 tripleCross2 = invInertia2 * cross(body2Offset, penetrationAxis);
+										tripleCross2 = cross(tripleCross2, body2Offset);
+										tripleCross1 += tripleCross2;
+										
+										impulse /= (1.0/mass + 1.0/oMass + dot(penetrationAxis, tripleCross1));
+										
+										totalImpulse += impulse;
+										
+										
+										vec3 linearImpulse = impulse * penetrationAxis;
+										totalLinearImpulse += linearImpulse;	
+										totalAngularImpulse1 += cross(contacts[p], linearImpulse);
+										totalAngularImpulse2 += cross(body2Offset, linearImpulse);
+									}
+									
+									if(totalImpulse > 0.0) {
+										velocity -= totalLinearImpulse/(maxIter*mass);
+										totalAngularImpulse1 /= maxIter;
+										omega -= invInertia * totalAngularImpulse1;
+										
+										oVelocity += totalLinearImpulse/(maxIter*oMass);
+										totalAngularImpulse2 /= maxIter;
+										oOmega += invInertia2 * totalAngularImpulse2;
+									}
+								}
+								boxes[index * 6 + 4].w = -max2;
+								
+								
+								
+								boxes[index * 6 + 3].x = pos.x;
+								boxes[index * 6 + 3].y = pos.y;
+								boxes[index * 6 + 3].z = pos.z;
+								
+								boxes[index * 6 + 4].x = velocity.x;
+								boxes[index * 6 + 4].y = velocity.y;
+								boxes[index * 6 + 4].z = velocity.z;
+								
+								boxes[i * 6 + 3].x = oPos.x;
+								boxes[i * 6 + 3].y = oPos.y;
+								boxes[i * 6 + 3].z = oPos.z;
+								
+								boxes[i * 6 + 4].x = oVelocity.x;
+								boxes[i * 6 + 4].y = oVelocity.y;
+								boxes[i * 6 + 4].z = oVelocity.z;
+								
+							}
+						}
+					}*/
+					
+				}
+				
+				//integrate
+				pos += velocity*dt;
+				
+				//integrate again with omega
+				vec3 X = rodrigues(rodrigues(rodrigues(v0.xyz, omega.x * dt, vec3(1,0,0)), omega.y * dt, vec3(0,1,0)), omega.z * dt, vec3(0,0,1));
+				vec3 Y = rodrigues(rodrigues(rodrigues(v1.xyz, omega.x * dt, vec3(1,0,0)), omega.y * dt, vec3(0,1,0)), omega.z * dt, vec3(0,0,1));
+				vec3 Z = rodrigues(rodrigues(rodrigues(v2.xyz, omega.x * dt, vec3(1,0,0)), omega.y * dt, vec3(0,1,0)), omega.z * dt, vec3(0,0,1));
+				
+				boxes[index * 6 + 0].x = X.x;
+				boxes[index * 6 + 0].y = X.y;
+				boxes[index * 6 + 0].z = X.z;
+				boxes[index * 6 + 0].w = 0;
+							
+				boxes[index * 6 + 1].x = Y.x;
+				boxes[index * 6 + 1].y = Y.y;
+				boxes[index * 6 + 1].z = Y.z;
+				boxes[index * 6 + 1].w = 0;
+				
+				boxes[index * 6 + 2].x = Z.x;
+				boxes[index * 6 + 2].y = Z.y;
+				boxes[index * 6 + 2].z = Z.z;
+				boxes[index * 6 + 2].w = 0;
+				
+				//write back into buffer
+				boxes[index * 6 + 3].x = pos.x;
+				boxes[index * 6 + 3].y = pos.y;
+				boxes[index * 6 + 3].z = pos.z;
+				
+				boxes[index * 6 + 4].x = velocity.x;
+				boxes[index * 6 + 4].y = velocity.y;
+				boxes[index * 6 + 4].z = velocity.z;
+				
+				boxes[index * 6 + 5].x = omega.x;
+				boxes[index * 6 + 5].y = omega.y;
+				boxes[index * 6 + 5].z = omega.z;
+				
+			}
+			
+		}
+		
+	}
+}

@@ -1,0 +1,91 @@
+{
+    "version": 1,
+    "gravity": [0, -9.80665, 0],
+    "entities": [
+        {
+            "fileId": 0,
+            "runtimeId": 10,
+            "Name":             {
+                "value": "PointLight"
+            },
+            "LightSource":             {
+                "type": 0,
+                "color": [1, 1, 1],
+                "intensity": 1.5,
+                "position": [2.0479, 3.99997, 1.69525],
+                "direction": [0, -1, 0],
+                "constant": 1,
+                "linear": 0.09,
+                "quadratic": 0.032,
+                "innerConeAngle": 0.2,
+                "outerConeAngle": 0.5
+            }
+        },
+        {
+            "fileId": 1,
+            "runtimeId": 11,
+            "isFixed": true,
+            "Name":             {
+                "value": "StaticAABB"
+            },
+            "Transform":             {
+                "position": [0, 2.37366, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [10, 0.1, 10]
+            },
+            "Hull":             {
+                "mass": 0,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": false,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "AABBForm":             {
+                "extent": [10, 0.1, 10]
+            },
+            "MeshRenderer":             {
+                "color": [0.5, 0.5, 0.55],
+                "primitiveType": 3,
+                "primitiveExtents": [1, 1, 1]
+            }
+        },
+        {
+            "fileId": 2,
+            "runtimeId": 12,
+            "Name":             {
+                "value": "Mover"
+            },
+            "Transform":             {
+                "position": [0, 3.93329, 3.27911],
+                "rotation": [-9.09963e-07, 1, -9.09963e-07, 8.30108e-13],
+                "scale": [1, 1, 1]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": true,
+                "tangible": true,
+                "velocity": [0, 0, 0]
+            },
+            "SphereForm":             {
+                "radius": 1.36719
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "sourcePath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/suzanne.obj"
+            },
+            "ScriptComponent":             {
+                "scriptClass": "PythonScript",
+                "paramsBlob": "{\n    \"module\": \"behaviors._tier2_smoketest\",\n    \"class\": \"Tier2Smoketest\"\n}"
+            }
+        }
+    ]
+}
