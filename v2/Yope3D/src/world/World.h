@@ -22,6 +22,7 @@
 #include "../physics/IslandDetector.h"
 #include "../physics/PhysicsConstants.h"
 #include "../physics/ContactCache.h"
+#include "../physics/ContactInfo.h"
 #include "../physics/CompoundShape.h"
 #include "../physics/CollisionLayers.h"
 #include "../physics/DebugShapes.h"
@@ -57,7 +58,22 @@ public:
     ecs::Entity addCapsule          (float radius, float halfHeight, float mass, math::Vec3 pos = {});
     ecs::Entity addCylinder         (float radius, float halfHeight, float mass, math::Vec3 pos = {});
     // Kinematic capsule: Transform + CapsuleForm only — no Hull, physics sim ignores it.
+    // (Query-driven character-controller body; distinct from the kinematic *rigid*
+    // bodies below, which do carry a Hull and participate in the solve.)
     ecs::Entity addKinematicCapsule (float radius, float halfHeight, math::Vec3 pos = {});
+
+    // Kinematic rigid bodies (moving platforms — limitations.md §4.3): a Hull with
+    // Hull.kinematic=true (immovable by contacts, integrated by a script-set
+    // velocity/omega, never sleeps). Dynamic bodies resting on one inherit its
+    // motion through the normal solver. Mesh-less like the other physics factories
+    // — call attach_box_mesh / attach_sphere_mesh after. See makeKinematic() to
+    // convert an existing body.
+    ecs::Entity addKinematicBox   (math::Vec3 pos, math::Vec3 extent);
+    ecs::Entity addKinematicSphere(math::Vec3 pos, float radius);
+    // Convert an existing Hull-bearing entity into a kinematic body in place
+    // (zeroes inverse mass/inertia + gravity, disables sleep, removes the Fixed
+    // tag if present). Takes the structure lock internally.
+    void        makeKinematic(ecs::Entity e);
 
     // Visual-only entity (mesh, no physics body).
     ecs::Entity addRenderObject(const std::vector<Vertex>&   vertices,
@@ -429,9 +445,37 @@ public:
     // transitions; the main thread drains them once per frame and dispatches to
     // behaviors. Enabled lazily by Engine only when behaviors exist (zero cost
     // for script-less / stress scenes — the whole diff is skipped).
-    struct CollisionEvent { ecs::Entity a, b; bool enter; };
+    // `contact` carries the deepest contact point/normal + the tick's accumulated
+    // normal impulse on ENTER (all zero on EXIT). `layers` = the OR of both bodies'
+    // Hull.observeLayers (default 0), used by the global observer dispatch to match
+    // its subscribed mask without re-reading the Hulls.
+    struct CollisionEvent {
+        ecs::Entity a, b;
+        bool enter;
+        physics::ContactInfo contact;
+        uint32_t layers = 0;
+    };
+    // Per-pair contact info accumulated (post-solve) from the solved island
+    // manifolds + trigger manifolds, keyed by pairKey — the source detectCollisionEvents
+    // diffs and the payload it attaches to each enter event. (Public because a
+    // namespace-scope accumulation helper in World.cpp populates it.)
+    struct PairContact {
+        ecs::Entity a, b;
+        math::Vec3  point{};
+        math::Vec3  normal{};
+        float       impulse   = 0.0f;   // summed normal impulse across the manifold
+        float       bestDepth = -1e30f; // deepest point wins point/normal (compound: many manifolds/pair)
+    };
     void setCollisionEventsEnabled(bool e) { collisionEventsEnabled_.store(e, std::memory_order_relaxed); }
     std::vector<CollisionEvent> drainCollisionEvents();
+
+    // Global collision-observer gate (limitations.md §4.5). When non-zero, a pair
+    // whose combined collisionLayer intersects this mask generates enter/exit
+    // events even if neither side has a ScriptComponent — Engine feeds it from the
+    // registered yope3d.observe_collisions subscriptions each frame. Zero (the
+    // default, no subscribers) keeps the old script-only behavior exactly.
+    void     setCollisionObserveMask(uint32_t m) { collisionObserveMask_.store(m, std::memory_order_relaxed); }
+    uint32_t getCollisionObserveMask() const { return collisionObserveMask_.load(std::memory_order_relaxed); }
 
     // Edit-mode pause: physics thread's advance() is a no-op while paused.
     // Zero cost in runtime (atomic load of a false value on every tick).
@@ -696,11 +740,15 @@ private:
     std::vector<UIOpacityTween> uiTweens_;
 
     // Physics-thread: diff this tick's contact pairs vs. last tick's, enqueue enter/exit.
-    void detectCollisionEvents();
+    // Runs after the solve so `impulse` reflects this tick's converged lambdas.
+    void detectCollisionEvents(const std::unordered_map<uint64_t, PairContact>& pairContacts);
     std::atomic<bool>           collisionEventsEnabled_{ false };
+    std::atomic<uint32_t>       collisionObserveMask_{ 0 };
     std::mutex                  collisionEventMtx_;
     std::vector<CollisionEvent> collisionEvents_;
-    std::unordered_map<uint64_t, std::pair<ecs::Entity, ecs::Entity>> prevContactPairs_;
+    // Keyed by pairKey; value keeps a/b + layers so an EXIT (pair gone this tick)
+    // can still be emitted with the right entities and observer-layer mask.
+    std::unordered_map<uint64_t, CollisionEvent> prevContactEvents_;
 
 #ifdef YOPE_EDITOR
     struct PlaySnapshot {

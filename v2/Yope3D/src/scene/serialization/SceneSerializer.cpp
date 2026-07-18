@@ -9,6 +9,9 @@
 #include "world/World.h"
 #include "world/Transform.h"
 #include "world/TransformHierarchy.h"
+#include "world/RenderMesh.h"
+#include "physics/CompoundShape.h"
+#include "scripting/Script.h"
 #include "audio/AudioSystem.h"
 #include "audio/Source.h"
 #include "assets/AssetManager.h"
@@ -21,6 +24,10 @@
 #include <fstream>
 #include <filesystem>
 #include <stdexcept>
+#include <ctime>
+#include <cmath>
+#include <cfloat>
+#include <string>
 #include <cstring>
 #include <vector>
 #include <map>
@@ -187,6 +194,176 @@ static void computeOverrides(const ComponentSnapshot& live, const ComponentSnaps
     }
 }
 
+// Emit an entity node's script(s). A CompositeScript is written as the clean
+// "scripts": [ {module, class, params}, ... ] array (composite-behaviors.md
+// §4.4), pulled straight from paramsBlob (the source of truth even in the editor,
+// where there is no live instance). A single script keeps the legacy
+// "ScriptComponent": {scriptClass, paramsBlob} object — zero churn to existing
+// scenes, and the deserializer accepts both shapes.
+static void writeScriptComponentNode(JsonWriter& w, const ecs::ScriptComponent* sc) {
+    if (std::strcmp(sc->scriptClass, "CompositeScript") == 0) {
+        try {
+            JsonNode blob = parseJson(sc->paramsBlob);
+            if (blob.contains("scripts") && blob["scripts"].isArray()) {
+                w.beginArray("scripts");
+                for (const auto& elem : blob["scripts"].asArray()) {
+                    w.beginArrayObject();
+                    if (elem.contains("module")) w.writeString("module", elem["module"].asString().c_str());
+                    if (elem.contains("class"))  w.writeString("class",  elem["class"].asString().c_str());
+                    if (elem.contains("params") && elem["params"].isObject())
+                        w.writeRawValue("params", dumpJson(elem["params"]).c_str());
+                    w.endObject();
+                }
+                w.endArray();
+                return;
+            }
+        } catch (...) {}
+        // Malformed composite blob — fall through and preserve it verbatim rather
+        // than drop the whole stack.
+    }
+    w.writeKey("ScriptComponent");
+    w.beginObject();
+    compser::serializeScriptComponent(sc, w);
+    w.endObject();
+}
+
+// Inverse of writeScriptComponentNode for the array shape: build an in-memory
+// ScriptComponent from a "scripts": [...] entity-node array. One entry -> a plain
+// PythonScript with a flat blob (byte-identical to a legacy singular
+// ScriptComponent, so a lone behavior stores and reads exactly as before); two or
+// more -> a CompositeScript whose blob wraps the array. Overflowing the 2048-byte
+// blob is a loud error that drops params rather than truncate into unparseable
+// JSON (composite-behaviors.md §4.2).
+static void buildScriptComponentFromArray(const JsonNode& arr, ecs::ScriptComponent& sc) {
+    const auto& elems = arr.asArray();
+    if (elems.empty()) return;
+
+    std::string blob;
+    const char* cls;
+    if (elems.size() == 1) {
+        cls = "PythonScript";
+        const JsonNode& e0 = elems[0];
+        std::string flat = "{";
+        bool first = true;
+        auto put = [&](const std::string& key, const std::string& valJson) {
+            if (!first) flat += ",";
+            first = false;
+            flat += "\"" + key + "\":" + valJson;
+        };
+        if (e0.contains("module")) put("module", dumpJson(e0["module"]));
+        if (e0.contains("class"))  put("class",  dumpJson(e0["class"]));
+        if (e0.contains("params") && e0["params"].isObject())
+            for (const auto& [k, v] : e0["params"].asObject()) put(k, dumpJson(v));
+        flat += "}";
+        blob = std::move(flat);
+    } else {
+        cls = "CompositeScript";
+        blob = "{\"scripts\":" + dumpJson(arr) + "}";
+    }
+
+    std::strncpy(sc.scriptClass, cls, sizeof(sc.scriptClass) - 1);
+    sc.scriptClass[sizeof(sc.scriptClass) - 1] = '\0';
+    if (blob.size() >= sizeof(sc.paramsBlob)) {
+        std::fprintf(stderr,
+            "ScriptComponent: composed \"scripts\" blob is %zu bytes, exceeds the %zu-byte "
+            "limit -- params dropped (kept default \"{}\").\n",
+            blob.size(), sizeof(sc.paramsBlob));
+    } else {
+        std::strncpy(sc.paramsBlob, blob.c_str(), sizeof(sc.paramsBlob) - 1);
+        sc.paramsBlob[sizeof(sc.paramsBlob) - 1] = '\0';
+    }
+    sc.instance = nullptr;
+}
+
+// True when `e` is a compound body or a descendant of one (walks the Parent
+// chain up to any ancestor carrying an ecs::CompoundCollider). Used to scope the
+// primitive-ification below to compound sub-parts only.
+static bool inCompoundSubtree(ecs::Registry& reg, ecs::Entity e) {
+    ecs::Entity cur = e;
+    for (int guard = 0; guard < 256 && reg.valid(cur); ++guard) {
+        if (reg.has<ecs::CompoundCollider>(cur)) return true;
+        auto* p = reg.get<ecs::Parent>(cur);
+        if (!p) break;
+        cur = p->parent;
+    }
+    return false;
+}
+
+// Returns 0 if v ~= lo, 1 if v ~= hi, -1 otherwise (which AABB face a coordinate lies on).
+static int onExtreme(float v, float lo, float hi, float tol) {
+    if (std::fabs(v - lo) <= tol) return 0;
+    if (std::fabs(v - hi) <= tol) return 1;
+    return -1;
+}
+
+// Classifies a Custom mesh that is geometrically a box or sphere, so a compound
+// sub-part authored as a primitive doesn't have to round-trip its vertices
+// through the .meshbin sidecar — it is regenerated from primitiveType+extents on
+// load (ComponentSnapshot::restore -> Primitives::rect/sphere). Conservative by
+// design: the geometry must be centered on the mesh origin (the engine primitive
+// convention, so the reconstructed primitive lands in the same place) and either
+// exactly fill its AABB with all 8 corners present (box) or match the sphere
+// volume ratio. Anything else (a beveled box, an off-center part, arbitrary
+// geometry) fails and correctly stays Custom.
+static bool detectPrimitiveGeometry(const RenderMesh& rm, PrimitiveType& outType,
+                                    math::Vec3& outExtents) {
+    const std::vector<Vertex>& verts = rm.cpuVertices;
+    if (verts.size() < 8) return false;   // need at least a box's 8 corners
+
+    math::Vec3 mn{ FLT_MAX,  FLT_MAX,  FLT_MAX};
+    math::Vec3 mx{-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    for (const auto& v : verts) {
+        mn.x = std::min(mn.x, v.position[0]); mx.x = std::max(mx.x, v.position[0]);
+        mn.y = std::min(mn.y, v.position[1]); mx.y = std::max(mx.y, v.position[1]);
+        mn.z = std::min(mn.z, v.position[2]); mx.z = std::max(mx.z, v.position[2]);
+    }
+    math::Vec3 half   = (mx - mn) * 0.5f;
+    math::Vec3 center = (mx + mn) * 0.5f;
+
+    const float eps  = 1e-4f;
+    float span = std::max(half.x, std::max(half.y, half.z));
+    if (span <= eps) return false;                       // degenerate (point/line/plane)
+    float ctol = eps * std::max(1.0f, span);
+    if (std::fabs(center.x) > ctol || std::fabs(center.y) > ctol || std::fabs(center.z) > ctol)
+        return false;                                    // not centered on the mesh origin
+
+    // Box: every vertex sits on an AABB corner (each coord at its min or max) and
+    // all 8 corners are represented.
+    if (half.x > eps && half.y > eps && half.z > eps) {
+        float atol = eps * span;
+        uint8_t cornerMask = 0;
+        bool allCorners = true;
+        for (const auto& v : verts) {
+            int cx = onExtreme(v.position[0], mn.x, mx.x, atol);
+            int cy = onExtreme(v.position[1], mn.y, mx.y, atol);
+            int cz = onExtreme(v.position[2], mn.z, mx.z, atol);
+            if (cx < 0 || cy < 0 || cz < 0) { allCorners = false; break; }
+            cornerMask |= static_cast<uint8_t>(1u << ((cx << 2) | (cy << 1) | cz));
+        }
+        if (allCorners && cornerMask == 0xFF) {
+            bool unit = std::fabs(half.x - 1.0f) < 1e-3f && std::fabs(half.y - 1.0f) < 1e-3f
+                     && std::fabs(half.z - 1.0f) < 1e-3f;
+            outType    = unit ? PrimitiveType::Cube : PrimitiveType::Rect;
+            outExtents = half;   // Primitives::rect scales the unit cube by these half-extents
+            return true;
+        }
+    }
+
+    // Sphere: reuse the collider baker's volume-ratio discriminator. Radius follows
+    // setPrimitiveInfo's convention (max vertex distance from the centered origin).
+    std::vector<math::Vec3> positions;
+    positions.reserve(verts.size());
+    for (const auto& v : verts) positions.push_back({v.position[0], v.position[1], v.position[2]});
+    if (physics::classifyAsSphere(positions, rm.cpuIndices, half)) {
+        float maxR2 = 0.0f;
+        for (const auto& p : positions) maxR2 = std::max(maxR2, p.x*p.x + p.y*p.y + p.z*p.z);
+        outType    = PrimitiveType::Sphere;
+        outExtents = { std::sqrt(maxR2), 0.0f, 0.0f };
+        return true;
+    }
+    return false;
+}
+
 // Writes the "entities" JSON array for exactly the given entity list (order
 // determines fileId, 0..N-1) plus any bulky custom-mesh geometry to the
 // .meshbin sidecar at binPath. Shared by whole-scene save() and template
@@ -202,7 +379,7 @@ static void computeOverrides(const ComponentSnapshot& live, const ComponentSnaps
 // template it already came from.
 static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& entities,
                                ecs::Registry& reg, World& world, const std::string& binPath,
-                               ecs::Entity exemptRoot) {
+                               ecs::Entity exemptRoot, bool writeScriptState = false) {
     auto table = buildSerTable();
 
     // Build a runtime-id → fileId map so SpringConstraint (and Parent/other
@@ -285,11 +462,81 @@ static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& en
 
         // Tag: fixed
         if (reg.has<ecs::Fixed>(e)) w.writeBool("isFixed", true);
+        // Tag: transient (opt-out of persistence). Top-level saves filter these
+        // out before they reach this loop; round-tripped here for the explicit
+        // saveEntities/subtree paths that may still include a tagged child.
+        if (reg.has<ecs::Transient>(e)) w.writeBool("isTransient", true);
 
         // Components
         for (auto& entry : table) {
             void* comp = reg.getRaw(e, entry.typeId);
             if (!comp) continue;
+            // ScriptComponent has a bespoke entity-node shape (single object vs.
+            // "scripts" array for a composite), so it bypasses the generic
+            // key/object emission.
+            if (entry.typeId == ecs::typeId<ecs::ScriptComponent>()) {
+                writeScriptComponentNode(w, static_cast<const ecs::ScriptComponent*>(comp));
+                continue;
+            }
+            // MeshRenderer: a Custom-mesh sub-part of a compound body whose geometry
+            // is actually a primitive (box/sphere) is re-emitted as that primitive so
+            // it regenerates on load instead of round-tripping its vertices through the
+            // .meshbin sidecar (nobody authored bespoke geometry for it). Everything
+            // else keeps the normal color+primitiveType(+sourcePath) emission, with
+            // bulky Custom geometry going to the sidecar and small geometry inlined.
+            if (entry.typeId == ecs::typeId<ecs::MeshRenderer>()) {
+                auto* mr = static_cast<const ecs::MeshRenderer*>(comp);
+                w.writeKey("MeshRenderer");
+                w.beginObject();
+
+                PrimitiveType detType; math::Vec3 detExt;
+                bool primified = mr->mesh
+                    && mr->mesh->primitiveType == PrimitiveType::Custom
+                    && mr->mesh->sourcePath.empty()
+                    && !mr->mesh->cpuVertices.empty()
+                    && inCompoundSubtree(reg, e)
+                    && detectPrimitiveGeometry(*mr->mesh, detType, detExt);
+
+                if (primified) {
+                    w.writeFloat3("color", mr->mesh->color[0], mr->mesh->color[1], mr->mesh->color[2]);
+                    w.writeInt("primitiveType", static_cast<int>(detType));
+                    w.writeFloat3("primitiveExtents", detExt.x, detExt.y, detExt.z);
+                } else {
+                    compser::serializeMeshRenderer(mr, w);
+                    // Custom-mesh geometry → binary sidecar, except tiny meshes (below
+                    // kMeshBinVertexThreshold) which are cheap enough to inline as JSON
+                    // arrays and don't justify a second file on disk.
+                    if (mr->mesh && mr->mesh->primitiveType == PrimitiveType::Custom
+                        && mr->mesh->sourcePath.empty() && !mr->mesh->cpuVertices.empty()) {
+                        const auto& verts = mr->mesh->cpuVertices;
+                        const auto& inds  = mr->mesh->cpuIndices;
+                        if (verts.size() >= kMeshBinVertexThreshold && ensureBinOpen()) {
+                            bin.write(reinterpret_cast<const char*>(verts.data()),
+                                      static_cast<std::streamsize>(verts.size() * sizeof(Vertex)));
+                            bin.write(reinterpret_cast<const char*>(inds.data()),
+                                      static_cast<std::streamsize>(inds.size() * sizeof(uint32_t)));
+                            w.writeKey("geom");
+                            w.beginObject();
+                            w.writeUInt("vc", static_cast<unsigned>(verts.size()));
+                            w.writeUInt("ic", static_cast<unsigned>(inds.size()));
+                            w.endObject();
+                        } else {
+                            // Legacy inline format: flat [pos.xyz, normal.xyz, uv.xy] per vertex.
+                            std::vector<float> flat;
+                            flat.reserve(verts.size() * 8);
+                            for (const auto& v : verts) {
+                                flat.insert(flat.end(), {v.position[0], v.position[1], v.position[2],
+                                                          v.normal[0],   v.normal[1],   v.normal[2],
+                                                          v.uv[0],       v.uv[1]});
+                            }
+                            w.writePackedFloats("vertices", flat.data(), flat.size());
+                            w.writePackedUInts("indices", inds.data(), inds.size());
+                        }
+                    }
+                }
+                w.endObject();
+                continue;
+            }
             w.writeKey(entry.name);
             w.beginObject();
             entry.serialize(comp, w);
@@ -322,40 +569,17 @@ static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& en
                 auto it = runtimeToFile.find(p->parent.id);
                 w.writeUInt("parentId", it != runtimeToFile.end() ? it->second : UINT32_MAX);
             }
-            // Custom-mesh geometry → binary sidecar, except tiny meshes (below
-            // kMeshBinVertexThreshold) which are cheap enough to inline as JSON
-            // arrays and don't justify a second file on disk.
-            if (entry.typeId == ecs::typeId<ecs::MeshRenderer>()) {
-                auto* mr = static_cast<const ecs::MeshRenderer*>(comp);
-                if (mr->mesh && mr->mesh->primitiveType == PrimitiveType::Custom
-                    && mr->mesh->sourcePath.empty() && !mr->mesh->cpuVertices.empty()) {
-                    const auto& verts = mr->mesh->cpuVertices;
-                    const auto& inds  = mr->mesh->cpuIndices;
-                    if (verts.size() >= kMeshBinVertexThreshold && ensureBinOpen()) {
-                        bin.write(reinterpret_cast<const char*>(verts.data()),
-                                  static_cast<std::streamsize>(verts.size() * sizeof(Vertex)));
-                        bin.write(reinterpret_cast<const char*>(inds.data()),
-                                  static_cast<std::streamsize>(inds.size() * sizeof(uint32_t)));
-                        w.writeKey("geom");
-                        w.beginObject();
-                        w.writeUInt("vc", static_cast<unsigned>(verts.size()));
-                        w.writeUInt("ic", static_cast<unsigned>(inds.size()));
-                        w.endObject();
-                    } else {
-                        // Legacy inline format: flat [pos.xyz, normal.xyz, uv.xy] per vertex.
-                        std::vector<float> flat;
-                        flat.reserve(verts.size() * 8);
-                        for (const auto& v : verts) {
-                            flat.insert(flat.end(), {v.position[0], v.position[1], v.position[2],
-                                                      v.normal[0],   v.normal[1],   v.normal[2],
-                                                      v.uv[0],       v.uv[1]});
-                        }
-                        w.writePackedFloats("vertices", flat.data(), flat.size());
-                        w.writePackedUInts("indices", inds.data(), inds.size());
-                    }
-                }
-            }
             w.endObject();
+        }
+
+        // Save-game runtime state: ask the live Script instance for its
+        // save_state() payload (empty for scenes/templates, or scripts without
+        // the hook). Stored as a JSON-string value, mirroring paramsBlob.
+        if (writeScriptState) {
+            if (auto* sc = reg.get<ecs::ScriptComponent>(e); sc && sc->instance) {
+                std::string state = sc->instance->serializeState();
+                if (!state.empty()) w.writeString("scriptState", state.c_str());
+            }
         }
 
         w.endObject();  // entity
@@ -373,13 +597,29 @@ static void cleanupStaleBin(const std::string& binPath, bool wroteBin) {
     std::filesystem::remove(binPath, ec);
 }
 
-bool save(const char* path, ecs::Registry& reg, World& world) {
-    JsonWriter w;
-    w.beginObject();
+// The set of entities a full-scene save should serialize.
+//   - Editor builds: user-authored entities are tagged EditorSelectable;
+//     editor-internal helpers (grid, gizmos, camera) are not, and must stay out
+//     of the file.
+//   - Shipped/runtime builds: EditorSelectable is never added (it only exists
+//     under YOPE_EDITOR), so filtering by it would save *nothing* -- the exact
+//     bug that made runtime save games write zero entities. Walk every live
+//     entity instead (entitiesWith({}) -- an empty required set matches all
+//     archetypes).
+// Both paths drop entities tagged Transient (VFX/debris/rebuilt-on-load).
+static std::vector<ecs::Entity> collectSerializableEntities(ecs::Registry& reg) {
+    std::vector<ecs::Entity> entities;
+#ifdef YOPE_EDITOR
+    for (auto [e, _sel] : reg.view<ecs::EditorSelectable>())
+        if (!reg.has<ecs::Transient>(e)) entities.push_back(e);
+#else
+    for (ecs::Entity e : reg.entitiesWith({}))
+        if (!reg.has<ecs::Transient>(e)) entities.push_back(e);
+#endif
+    return entities;
+}
 
-    w.writeInt("version", 1);
-
-    // World settings
+static void writeWorldSettings(JsonWriter& w, World& world) {
     w.writeFloat3("gravity", world.gravity.x, world.gravity.y, world.gravity.z);
     w.writeFloat("exposure", world.exposure);
     w.writeFloat("shadowBias", world.shadowBias);
@@ -391,9 +631,16 @@ bool save(const char* path, ecs::Registry& reg, World& world) {
     w.writeFloat("shadowSpotFar", world.shadowSpotFar);
     w.writeFloat("shadowPointNear", world.shadowPointNear);
     w.writeFloat("shadowPointFar", world.shadowPointFar);
+}
 
-    std::vector<ecs::Entity> entities;
-    for (auto [e, _sel] : reg.view<ecs::EditorSelectable>()) entities.push_back(e);
+bool save(const char* path, ecs::Registry& reg, World& world) {
+    JsonWriter w;
+    w.beginObject();
+
+    w.writeInt("version", 1);
+    writeWorldSettings(w, world);
+
+    std::vector<ecs::Entity> entities = collectSerializableEntities(reg);
 
     std::string binPath = std::filesystem::path(path).replace_extension(".meshbin").string();
     bool wroteBin = writeEntitiesArray(w, entities, reg, world, binPath, ecs::NullEntity);
@@ -435,6 +682,37 @@ bool saveEntities(const char* path, const std::vector<ecs::Entity>& entities,
 #ifdef YOPE_EDITOR
     Console::log(std::string("Saved template: ") + path, LogSeverity::Info);
 #endif
+    return true;
+}
+
+bool saveGame(const char* path, ecs::Registry& reg, World& world,
+              const std::string& sourceScene, const std::string& metaJson) {
+    JsonWriter w;
+    w.beginObject();
+
+    // "version" is the scene-file format version (parseScene-compatible);
+    // "saveVersion" is the save-game schema version, for future migration.
+    w.writeInt("version", 1);
+    w.writeInt("saveVersion", 1);
+    w.writeString("savedScene", sourceScene.c_str());
+    w.writeRawValue("savedAtUnix", std::to_string(std::time(nullptr)).c_str());
+    w.writeRawValue("meta", metaJson.empty() ? "null" : metaJson.c_str());
+
+    writeWorldSettings(w, world);
+
+    std::vector<ecs::Entity> entities = collectSerializableEntities(reg);
+
+    std::string binPath = std::filesystem::path(path).replace_extension(".meshbin").string();
+    bool wroteBin = writeEntitiesArray(w, entities, reg, world, binPath,
+                                       ecs::NullEntity, /*writeScriptState=*/true);
+
+    w.endObject();  // root
+
+    cleanupStaleBin(binPath, wroteBin);
+
+    std::ofstream f(path);
+    if (!f.is_open()) return false;
+    f << w.str();
     return true;
 }
 
@@ -667,6 +945,8 @@ bool parseEntityNode(const JsonNode& entNode, SubParse& out,
     }
     if (entNode.contains("isFixed") && entNode["isFixed"].asBool())
         snap.hasFixed = true;
+    if (entNode.contains("isTransient") && entNode["isTransient"].asBool())
+        snap.hasTransient = true;
     if (entNode.contains("SphereForm")) {
         snap.hasSphere = true;
         compser::deserializeSphereForm(entNode["SphereForm"], &snap.sphere);
@@ -707,7 +987,13 @@ bool parseEntityNode(const JsonNode& entNode, SubParse& out,
         snap.hasAudio = true;
         compser::deserializeAudioSource(entNode["AudioSource"], &snap.audio);
     }
-    if (entNode.contains("ScriptComponent")) {
+    // Scripts: the array shape (composite-behaviors.md §4.4) takes precedence;
+    // fall back to the legacy singular "ScriptComponent" object. The deserializer
+    // accepts both so old scenes and hand-authored stacks both load.
+    if (entNode.contains("scripts") && entNode["scripts"].isArray()) {
+        snap.hasScript = true;
+        buildScriptComponentFromArray(entNode["scripts"], snap.script);
+    } else if (entNode.contains("ScriptComponent")) {
         snap.hasScript = true;
         compser::deserializeScriptComponent(entNode["ScriptComponent"], &snap.script);
     }
@@ -833,6 +1119,11 @@ bool parseEntityNode(const JsonNode& entNode, SubParse& out,
             }
         }
     }
+
+    // Save-game runtime state (scene/template files never carry this) — kept as
+    // a raw JSON string, overlaid onto the live Script instance after init.
+    if (entNode.contains("scriptState") && entNode["scriptState"].isString())
+        ent.scriptState = entNode["scriptState"].asString();
 
     ent.fileId = entNode.contains("fileId") ? entNode["fileId"].asUInt() : UINT32_MAX;
     out.entities.push_back(std::move(ent));

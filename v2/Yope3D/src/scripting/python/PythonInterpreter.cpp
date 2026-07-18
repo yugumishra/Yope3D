@@ -9,6 +9,7 @@
 #include "platform/Window.h"
 #include "audio/AudioSystem.h"
 #include "scene/SceneManager.h"
+#include "scripting/Settings.h"
 #include <pybind11/embed.h>
 
 namespace py = pybind11;
@@ -101,6 +102,7 @@ void PythonInterpreter::bindContext(ScriptContext& ctx) {
     m.attr("audio")         = py::cast(ctx.audio,        py::return_value_policy::reference);
     m.attr("scene_manager") = py::cast(ctx.sceneManager, py::return_value_policy::reference);
     m.attr("window")        = py::cast(ctx.window,       py::return_value_policy::reference);
+    m.attr("settings")      = py::cast(ctx.settings,     py::return_value_policy::reference);
 }
 
 bool PythonInterpreter::execString(const std::string& code) {
