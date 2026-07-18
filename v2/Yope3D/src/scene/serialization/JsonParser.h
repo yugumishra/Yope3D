@@ -45,3 +45,10 @@ struct JsonNode {
 // Parse a JSON string. Throws std::runtime_error on parse failure.
 JsonNode parseJson(const char* src);
 JsonNode parseJsonFile(const char* path);
+
+// Serialize a JsonNode back to a compact (single-line, no whitespace) JSON
+// string. Numbers use std::to_chars shortest-round-trip form, so parse -> dump
+// -> parse preserves values exactly without the ugliness of %.17g. Used to
+// carve a child behavior's params sub-object out of a parsed node and hand it
+// on as a self-contained blob.
+std::string dumpJson(const JsonNode& node);

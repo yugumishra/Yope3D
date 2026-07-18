@@ -15,6 +15,7 @@
 #include "audio/AudioSystem.h"
 #include "audio/Listener.h"
 #include "scripting/ScriptContext.h"
+#include "scripting/Settings.h"
 #include "scene/SceneManager.h"
 #include "scene/serialization/SceneSerializer.h"   // ParsedScene (async load state)
 #include "ui/UIManager.h"
@@ -41,6 +42,10 @@ struct Engine {
 #endif
 
     ScriptContext scriptCtx_;
+
+    // Persisted user prefs. Loaded in init() before the window is sized (it
+    // overlays cfg); scripts reach it as yope3d.settings via scriptCtx_.
+    Settings      settings_;
 
     std::thread       physicsThread_;
     std::atomic<bool> stopPhysics_{ false };

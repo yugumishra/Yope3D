@@ -26,11 +26,26 @@ struct Hull {
     float      angularDamping = physics::ANGULAR_DAMPING;
     uint32_t   collisionLayer = 0xFFFFFFFF;
     uint32_t   collisionMask  = 0xFFFFFFFF;
+    // Global collision-observer membership (limitations.md §4.5) — the bitmask
+    // yope3d.observe_collisions(mask, cb) matches against. **Defaults to 0 = never
+    // observed**, deliberately unlike collisionLayer's all-bits default: a body
+    // opts into observation by setting a specific channel, so an observer never
+    // pays for the collisions of bodies that didn't opt in. Independent of
+    // collisionLayer/Mask (which govern what physically collides).
+    uint32_t   observeLayers  = 0;
     bool       gravity        = true;
     bool       tangible       = true;
     bool       sleepingEnabled = true;
     bool       isTrigger      = false;
     bool       asleep         = false;   // physics: body has entered sleep state
+    // Kinematic body (moving platforms — limitations.md §4.3): immovable by
+    // contacts (inverseMass/Inertia forced to 0), but its Transform is still
+    // integrated by a script-set velocity/omega each step, and the solver reads
+    // that velocity so dynamic bodies resting on it inherit the motion. Unlike a
+    // Fixed body it is NOT tagged Fixed (so it integrates + broadphase treats it
+    // as active) and it never sleeps (so anything riding it stays awake via the
+    // island wake-propagation). Gravity/damping are skipped for it.
+    bool       kinematic      = false;
 
     // Phase D fields: solve accumulators + cached tensors (populated by factory methods / publishSnapshot)
     math::Vec3 pseudoVel          {};
@@ -238,6 +253,7 @@ struct ScriptComponent {
 struct Fixed            {};   // physics: body is stationary / infinite mass
 struct EditorSelectable {};   // editor: show in hierarchy panel (Phase D)
 struct EditorPickable   {};   // editor: render in ID buffer pass (Phase D)
+struct Transient        {};   // persistence: opt out of saves (VFX/debris/rebuilt-on-load)
 
 // ---- 2D UI components ----
 // All coordinates in [0,1] screen percentage, (0,0) top-left, Y down.
