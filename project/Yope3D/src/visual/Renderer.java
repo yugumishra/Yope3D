@@ -210,6 +210,8 @@ public class Renderer {
 			Mesh m = w.getMesh(i);
 			if(m.draw()) renderMesh(m);
 		}
+		
+		renderUI();
 	}
 
 	// this method is what renders a mesh

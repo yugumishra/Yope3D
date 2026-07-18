@@ -33,3 +33,113 @@ user global configuration and to define the default location to store repositori
 not correct please set the HOME environment variable and restart Eclipse. Otherwise Git for Windows and
 EGit might behave differently since they see different configuration options.
 This warning can be switched off on the Team > Git > Confirmations and Warnings preference page.
+!SESSION 2025-03-06 17:14:08.245 -----------------------------------------------
+eclipse.buildId=4.19.0.I20210303-1800
+java.version=15.0.1
+java.vendor=Oracle Corporation
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_US
+Framework arguments:  -product org.eclipse.epp.package.java.product
+Command-line arguments:  -os win32 -ws win32 -arch x86_64 -product org.eclipse.epp.package.java.product
+
+!ENTRY org.eclipse.jface 2 0 2025-03-06 17:14:34.775
+!MESSAGE Keybinding conflicts occurred.  They may interfere with normal accelerator operation.
+!SUBENTRY 1 org.eclipse.jface 2 0 2025-03-06 17:14:34.775
+!MESSAGE A conflict occurred for CTRL+SHIFT+T:
+Binding(CTRL+SHIFT+T,
+	ParameterizedCommand(Command(org.eclipse.jdt.ui.navigate.open.type,Open Type,
+		Open a type in a Java editor,
+		Category(org.eclipse.ui.category.navigate,Navigate,null,true),
+		org.eclipse.ui.internal.WorkbenchHandlerServiceHandler@23c00420,
+		,,true),null),
+	org.eclipse.ui.defaultAcceleratorConfiguration,
+	org.eclipse.ui.contexts.window,,,system)
+Binding(CTRL+SHIFT+T,
+	ParameterizedCommand(Command(org.eclipse.lsp4e.symbolinworkspace,Go to Symbol in Workspace,
+		,
+		Category(org.eclipse.lsp4e.category,Language Servers,null,true),
+		org.eclipse.ui.internal.WorkbenchHandlerServiceHandler@22f046b,
+		,,true),null),
+	org.eclipse.ui.defaultAcceleratorConfiguration,
+	org.eclipse.ui.contexts.window,,,system)
+
+!ENTRY org.eclipse.egit.ui 2 0 2025-03-06 17:14:38.448
+!MESSAGE Warning: The environment variable HOME is not set. The following directory will be used to store the Git
+user global configuration and to define the default location to store repositories: 'C:\Users\findy'. If this is
+not correct please set the HOME environment variable and restart Eclipse. Otherwise Git for Windows and
+EGit might behave differently since they see different configuration options.
+This warning can be switched off on the Team > Git > Confirmations and Warnings preference page.
+
+!ENTRY org.apache.log4j 2 0 2025-03-06 17:14:40.598
+!MESSAGE org.apache.http.client.protocol.ResponseProcessCookies  - Cookie rejected [_cfuvid="l2dN0Msed0JwygZ6Z_xyHPxKwchbIUXztGpjlzH1Rw4-1741302880567-0.0.1.1-604800000", version:0, domain:cdn.webflow.com, path:/, expiry:null] Illegal 'domain' attribute "cdn.webflow.com". Domain of origin: "go.codetogether.com"
+
+
+!ENTRY org.apache.log4j 2 0 2025-03-06 17:14:42.837
+!MESSAGE org.apache.http.client.protocol.ResponseProcessCookies  - Cookie rejected [_cfuvid="Q_GKWxE6MUnotAPcBnPcEeTs69w8.SH8ZwbDjvaG.H8-1741302882816-0.0.1.1-604800000", version:0, domain:cdn.webflow.com, path:/, expiry:null] Illegal 'domain' attribute "cdn.webflow.com". Domain of origin: "go.codetogether.com"
+
+
+!ENTRY org.apache.log4j 2 0 2025-03-06 17:14:47.059
+!MESSAGE org.apache.http.client.protocol.ResponseProcessCookies  - Cookie rejected [_cfuvid="qJ8.1FpPyN3nD.izdnKFUGlAc8rePPWczZgO24gf5u4-1741302887038-0.0.1.1-604800000", version:0, domain:cdn.webflow.com, path:/, expiry:null] Illegal 'domain' attribute "cdn.webflow.com". Domain of origin: "go.codetogether.com"
+
+
+!ENTRY org.apache.log4j 2 0 2025-03-06 17:14:55.278
+!MESSAGE org.apache.http.client.protocol.ResponseProcessCookies  - Cookie rejected [_cfuvid="svvqSjmijqCTi3g1amiKqvau6jPZ.OgzL0jtfWp_sJY-1741302895258-0.0.1.1-604800000", version:0, domain:cdn.webflow.com, path:/, expiry:null] Illegal 'domain' attribute "cdn.webflow.com". Domain of origin: "go.codetogether.com"
+
+
+!ENTRY org.apache.log4j 2 0 2025-03-06 17:15:11.539
+!MESSAGE org.apache.http.client.protocol.ResponseProcessCookies  - Cookie rejected [_cfuvid="yOWWitADQQjJQ32clA13GtEPjV8RPlCsV__Q.QaeE_0-1741302911519-0.0.1.1-604800000", version:0, domain:cdn.webflow.com, path:/, expiry:null] Illegal 'domain' attribute "cdn.webflow.com". Domain of origin: "go.codetogether.com"
+
+!SESSION 2025-05-03 16:04:36.755 -----------------------------------------------
+eclipse.buildId=4.19.0.I20210303-1800
+java.version=15.0.1
+java.vendor=Oracle Corporation
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_US
+Framework arguments:  -product org.eclipse.epp.package.java.product
+Command-line arguments:  -os win32 -ws win32 -arch x86_64 -product org.eclipse.epp.package.java.product
+
+!ENTRY org.eclipse.jface 2 0 2025-05-03 16:04:49.530
+!MESSAGE Keybinding conflicts occurred.  They may interfere with normal accelerator operation.
+!SUBENTRY 1 org.eclipse.jface 2 0 2025-05-03 16:04:49.530
+!MESSAGE A conflict occurred for CTRL+SHIFT+T:
+Binding(CTRL+SHIFT+T,
+	ParameterizedCommand(Command(org.eclipse.jdt.ui.navigate.open.type,Open Type,
+		Open a type in a Java editor,
+		Category(org.eclipse.ui.category.navigate,Navigate,null,true),
+		org.eclipse.ui.internal.WorkbenchHandlerServiceHandler@69d902f9,
+		,,true),null),
+	org.eclipse.ui.defaultAcceleratorConfiguration,
+	org.eclipse.ui.contexts.window,,,system)
+Binding(CTRL+SHIFT+T,
+	ParameterizedCommand(Command(org.eclipse.lsp4e.symbolinworkspace,Go to Symbol in Workspace,
+		,
+		Category(org.eclipse.lsp4e.category,Language Servers,null,true),
+		org.eclipse.ui.internal.WorkbenchHandlerServiceHandler@547052,
+		,,true),null),
+	org.eclipse.ui.defaultAcceleratorConfiguration,
+	org.eclipse.ui.contexts.window,,,system)
+
+!ENTRY org.eclipse.egit.ui 2 0 2025-05-03 16:04:53.503
+!MESSAGE Warning: The environment variable HOME is not set. The following directory will be used to store the Git
+user global configuration and to define the default location to store repositories: 'C:\Users\findy'. If this is
+not correct please set the HOME environment variable and restart Eclipse. Otherwise Git for Windows and
+EGit might behave differently since they see different configuration options.
+This warning can be switched off on the Team > Git > Confirmations and Warnings preference page.
+
+!ENTRY org.apache.log4j 2 0 2025-05-03 16:04:55.535
+!MESSAGE org.apache.http.client.protocol.ResponseProcessCookies  - Cookie rejected [_cfuvid="gAaY0mgg6opdOzK0TQpqYSaHh7fZrYAcn27TMuENS.E-1746306295219-0.0.1.1-604800000", version:0, domain:cdn.webflow.com, path:/, expiry:null] Illegal 'domain' attribute "cdn.webflow.com". Domain of origin: "go.codetogether.com"
+
+
+!ENTRY org.apache.log4j 2 0 2025-05-03 16:04:57.756
+!MESSAGE org.apache.http.client.protocol.ResponseProcessCookies  - Cookie rejected [_cfuvid="JUypytBGgCAoBOwlKabovFb5qDl._Au5qko5Nc0FCV4-1746306297454-0.0.1.1-604800000", version:0, domain:cdn.webflow.com, path:/, expiry:null] Illegal 'domain' attribute "cdn.webflow.com". Domain of origin: "go.codetogether.com"
+
+
+!ENTRY org.apache.log4j 2 0 2025-05-03 16:05:01.978
+!MESSAGE org.apache.http.client.protocol.ResponseProcessCookies  - Cookie rejected [_cfuvid="1zg3CV0Ht.jLXAi7s10EKhuuI5HSOZcu22RjZ4XwAJU-1746306301676-0.0.1.1-604800000", version:0, domain:cdn.webflow.com, path:/, expiry:null] Illegal 'domain' attribute "cdn.webflow.com". Domain of origin: "go.codetogether.com"
+
+
+!ENTRY org.apache.log4j 2 0 2025-05-03 16:05:10.216
+!MESSAGE org.apache.http.client.protocol.ResponseProcessCookies  - Cookie rejected [_cfuvid="YCWTbeEKmghMKNX0TZnw0xhZdQ4BqTZD6.eqwcrwlCs-1746306309914-0.0.1.1-604800000", version:0, domain:cdn.webflow.com, path:/, expiry:null] Illegal 'domain' attribute "cdn.webflow.com". Domain of origin: "go.codetogether.com"
+
+
+!ENTRY org.apache.log4j 2 0 2025-05-03 16:05:26.461
+!MESSAGE org.apache.http.client.protocol.ResponseProcessCookies  - Cookie rejected [_cfuvid="RgN3UUZn0eMMi1R_LOtyfYW4kB6fNGxoDRpGr1gm_Ik-1746306326157-0.0.1.1-604800000", version:0, domain:cdn.webflow.com, path:/, expiry:null] Illegal 'domain' attribute "cdn.webflow.com". Domain of origin: "go.codetogether.com"
+

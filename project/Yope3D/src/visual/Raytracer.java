@@ -11,6 +11,8 @@ import org.lwjgl.opengl.GL40;
 import org.lwjgl.opengl.GL46;
 import org.lwjgl.system.MemoryUtil;
 
+import physics.Sphere;
+
 public class Raytracer extends Renderer {
 
 	// handles to shader stuff
@@ -35,6 +37,20 @@ public class Raytracer extends Renderer {
 	int vao;
 	int vbo;
 	int vertexCount;
+	
+	
+	//ssbo buffers for rendering the world
+	int[] buffers;
+	//order:
+	// 0 - meshTypeBuffer
+	// 1 - materialBuffer
+	// 2 - parametricBuffer
+	// 3 - meshBuffer
+	// 4 - sceneIndexBuffer
+	// 5 - sceneVertexBuffer
+	
+	//variable to keep track of the number of objects represented by the buffers
+	int numObjects;
 
 	@Override
 	public void init() {
@@ -141,33 +157,27 @@ public class Raytracer extends Renderer {
 
 		texture = initRGBA32F(Launch.window.getWidth(), Launch.window.getHeight());
 		
-		//add compute program uniforms
-		addUniform(Util.viewMatrix);
-		addUniform(Util.numLights);
+		numObjects = 0;
 	}
-
-	// same as superclass but instead it looks for uniforms in the compute program
-	// (since that's where the actual rendering happens)
-	@Override
-	public void addUniform(String name) {
-		// get the relevant id from the shader program using the name
-		int id = GL20.glGetUniformLocation(computeProgram, name);
-		// check if invalid
-		if (id < 0) {
-			// this means an invalid id, meaning the uniform doesn't exist in the shaders
-			// we cannot add this invalid id to the mappings
-			System.err.println("Uniform " + name + " not found");
-			return;
-		}
-		// now we add the id to the uniforms
-		// now we can access each uniform using the map and its name
-		uniforms.put(name, id);
+	
+	public void generateBuffers() {
+		GL30.glGenBuffers(buffers);
+	}
+	
+	public void cleanupBuffers() {
+		GL30.glDeleteBuffers(buffers);
 	}
 
 	@Override
 	public void render(World w) {
+		updateBuffers(w);
+		
 		raytrace(); 
 		
+		renderTexture();
+	}
+	
+	public void renderTexture() {
 		GL20.glUseProgram(program);
 		GL30.glBindVertexArray(vao);
 		GL20.glEnableVertexAttribArray(0);
@@ -183,10 +193,22 @@ public class Raytracer extends Renderer {
 		GL30.glDisableVertexAttribArray(1);
 		GL30.glBindVertexArray(0);
 	}
-
-	@Override
-	public void renderUI() {
-
+	
+	public void updateBuffers(World world) {
+		if(numObjects != world.getNumMeshes()) {
+			//populate buffers
+			populateBuffers(world);
+		}
+	}
+	
+	public void populateBuffers(World world) {
+		cleanupBuffers();
+		generateBuffers();
+		
+		numObjects = world.getNumMeshes();
+		
+		//generate temp lists to hold the buffers
+		int[] objectType = new int[numObjects];
 	}
 
 	public void raytrace() {
@@ -206,7 +228,7 @@ public class Raytracer extends Renderer {
 		GL46.glDispatchCompute((int) Math.ceil((float) (Launch.window.getWidth()) / 8.0f),
 				(int) Math.ceil((Launch.window.getHeight()) / 4.0f), 1);
 
-		GL46.glMemoryBarrier(GL46.GL_ALL_BARRIER_BITS);
+		GL46.glMemoryBarrier(GL46.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 	}
 
 	public static int initRGBA32F(int w, int h) {

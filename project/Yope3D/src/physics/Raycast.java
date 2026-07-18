@@ -7,7 +7,7 @@ import org.joml.Vector3f;
 public class Raycast {
 
 	public static float raycastSphere(Vector3f ray, Vector3f start, Sphere sphere) {
-		return raycastSphere(ray, start, sphere.getHull().getPosition(), sphere.getRadius());
+		return raycastSphere(ray, start, sphere.getPosition(), sphere.getRadius());
 	}
 	
 	public static float raycastSphere(Vector3f ray, Vector3f start, Vector3f sphereCenter, float sphereRadius) {

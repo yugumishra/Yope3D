@@ -53,8 +53,11 @@ public class CollisionTree {
 		// and has its children check it too
 		void addObject(Hull h) {
 			// if its within bounds we add it to this nodes list
-			Vector3f[] vectorsToCheck = vectorsToCheck(h);
-			if (withinBounds(vectorsToCheck, min, max)) {
+			Vector3f diff = new Vector3f(max).sub(min);
+			diff.mul(0.5f);
+			Vector3f pos = new Vector3f(min).add(diff);
+			AABB aabb = new AABB(pos, diff);
+			if (Collider.colliding(h, aabb)) {
 				objects.add(h);
 
 				if (level == 0) {
@@ -155,51 +158,5 @@ public class CollisionTree {
 			return 7;
 
 		return 0;
-	}
-
-	private static boolean withinBounds(Vector3f[] vectorsToCheck, Vector3f min, Vector3f max) {
-		//init world min and world max
-		float minX = Math.min(min.x, max.x);
-		float maxX = Math.max(min.x, max.x);
-		float minY = Math.min(min.y, max.y);
-		float maxY = Math.max(min.y, max.y);
-		float minZ = Math.min(min.z, max.z);
-		float maxZ = Math.max(min.z, max.z);
-		Vector3f worldMin = new Vector3f(minX, minY, minZ);
-		Vector3f worldMax = new Vector3f(maxX, maxY, maxZ);
-		//calculate within
-		boolean within = false;
-		for(Vector3f v: vectorsToCheck) {
-			within |= withinBoundsPoint(v, worldMin, worldMax);
-		}
-		return within;
-	}
-	
-	private static Vector3f[] vectorsToCheck(Hull h) {
-		Vector3f extent = new Vector3f(0,0,0);
-		if (h.getClass() == CSphere.class) {
-			float radius = ((CSphere) h).getRadius();
-			extent = new Vector3f(radius, radius, radius);
-		} else if(h.getClass() == COBB.class) {
-			extent = ((COBB) h).getExtent();
-		} else if(h.getClass() == BarrierHull.class) {
-			extent = ((BarrierHull) h).getExtent(); 
-		}
-		
-		Vector3f[] vectorsToCheck = {
-				   h.getPosition().add(new Vector3f(extent.x, 0, 0)),
-				   h.getPosition().add(new Vector3f(0, extent.y, 0)),
-				   h.getPosition().add(new Vector3f(0, 0, extent.z)),
-				   h.getPosition().add(new Vector3f(-extent.x, 0, 0)),
-				   h.getPosition().add(new Vector3f(0, -extent.y, 0)),
-				   h.getPosition().add(new Vector3f(0, 0, -extent.z))
-		};
-		return vectorsToCheck;
-	}
-
-	private static boolean withinBoundsPoint(Vector3f pos, Vector3f min, Vector3f max) {
-		// determine the world min (bc the min isn't necessarily the world min)
-		// simple check
-		return (pos.x >= min.x && pos.x <= max.x) && (pos.y >= min.y && pos.y <= max.y) && (pos.z >= min.z && pos.z <= max.z);
 	}
 }

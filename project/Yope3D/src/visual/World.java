@@ -4,8 +4,6 @@ import java.util.ArrayList;
 
 import org.joml.Vector3f;
 
-import physics.Barrier;
-import physics.Collider;
 import physics.CollisionTree;
 import physics.Hull;
 import physics.Spring;
@@ -16,9 +14,6 @@ import scripts.Script;
 public class World {
 	// list that stores all meshes
 	private ArrayList<Mesh> meshes;
-
-	// list that stores all barriers
-	private ArrayList<Barrier> barriers;
 
 	// list that stores all the scripts that run in the world
 	private ArrayList<Script> scripts;
@@ -42,11 +37,9 @@ public class World {
 	public World() {
 		meshes = new ArrayList<Mesh>();
 		springs = new ArrayList<Spring>();
-		barriers = new ArrayList<Barrier>();
 		scripts = new ArrayList<Script>();
 		lights = new ArrayList<Light>();
 		collisions = 0;
-		dt = 1.0f / 300.0f;
 	}
 	
 	//instantiator for the tree (must be programmer defined min,max,level)
@@ -69,11 +62,6 @@ public class World {
 		return meshes.size();
 	}
 
-	// the same but for barriers
-	public int getNumBarriers() {
-		return barriers.size();
-	}
-
 	// the same but for scritpsh
 	public int getNumScripts() {
 		return scripts.size();
@@ -83,12 +71,6 @@ public class World {
 	public Mesh getMesh(int i) {
 		// return the mesh at the point at i
 		return meshes.get(i);
-	}
-
-	// the same as above but for barriers
-	public Barrier getBarrier(int i) {
-		// return the barrier @ i
-		return barriers.get(i);
 	}
 
 	// the same as above but for scripts
@@ -109,12 +91,6 @@ public class World {
 			return;
 		}
 		meshes.add(m);
-	}
-
-	// the same but for barriers
-	public void addBarrier(Barrier b) {
-		// add
-		barriers.add(b);
 	}
 
 	// the same but for scripts
@@ -204,27 +180,10 @@ public class World {
 	public void setDT(float n) {
 		dt = n;
 	}
-	
-	public void addBarriers(Barrier[] barriers) {
-		for(Barrier b: barriers) this.barriers.add(b);
-	}
 
 	public void advance() {
-		
-		// barrier physics
-		for (int i = 0; i < barriers.size(); i++) {
-			for (int j = 0; j < meshes.size(); j++) {
-				Mesh mesh = meshes.get(j);
-				if(mesh == null) continue;
-				if(mesh.getHull() == null) continue;
-				if (mesh.getHull().fixed() == false) {
-					if(barriers.get(i) == null) continue;
-					Collider.CCDBarrier(mesh.getHull(), barriers.get(i));
-				}
-			}
-		}
-		
 		//use the tree
+		/*
 		if(tree != null) {
 			for(int i =0; i< meshes.size(); i++) {
 				Mesh mesh = meshes.get(i);
@@ -236,10 +195,20 @@ public class World {
 					if(possibles != null) {
 						for(Hull h: possibles) {
 							//do the collision
-							Collider.CCD(mesh.getHull(), h);
+							Collider.collide(mesh.getHull(), h);
 						}
 					}
 				}
+			}
+		}*/
+		
+		for(int i = 0; i< meshes.size(); i++) {
+			for(int j = i+1; j< meshes.size(); j++) {
+				if(i == j) continue;
+				Hull a = meshes.get(i).getHull();
+				Hull b = meshes.get(j).getHull();
+				if(a == null || b == null || !a.tangible || !b.tangible) continue;
+				a.collide(b);
 			}
 		}
 
@@ -251,6 +220,5 @@ public class World {
 		for(int i = 0; i< springs.size(); i++) {
 			springs.get(i).update();
 		}
-
 	}
 }
