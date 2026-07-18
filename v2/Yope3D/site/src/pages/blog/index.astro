@@ -1,5 +1,20 @@
 ---
+import { getCollection } from 'astro:content';
+
 const base = import.meta.env.BASE_URL;
+
+// Drafts appear here in `astro dev` (with a badge) but never in production.
+const posts = (
+	await getCollection('blog', ({ data }) => import.meta.env.DEV || !data.draft)
+).sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+
+const fmt = (d: Date) =>
+	d.toLocaleDateString('en-US', {
+		year: 'numeric',
+		month: 'long',
+		day: 'numeric',
+		timeZone: 'UTC',
+	});
 ---
 
 <html lang="en">
@@ -7,23 +22,62 @@ const base = import.meta.env.BASE_URL;
 		<meta charset="utf-8" />
 		<link rel="icon" type="image/svg+xml" href={`${base}/favicon.svg`} />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="generator" content={Astro.generator} />
+		<meta
+			name="description"
+			content="The Yope3D devlog — building a C++20 Vulkan game engine from scratch."
+		/>
 		<title>Devlog · Yope3D</title>
 	</head>
 	<body>
 		<main>
 			<a class="back" href={base}>← Yope3D</a>
 			<h1>Devlog</h1>
-			<p>First article coming soon.</p>
+			{posts.length === 0 && <p class="empty">First article coming soon.</p>}
+			<ul class="posts">
+				{
+					posts.map((post) => (
+						<li>
+							<a class="post" href={`${base}/blog/${post.id}/`}>
+								<div class="title-row">
+									<h2>{post.data.title}</h2>
+									{post.data.draft && <span class="draft-badge">draft</span>}
+								</div>
+								<time datetime={post.data.date.toISOString().slice(0, 10)}>
+									{fmt(post.data.date)}
+								</time>
+								<p>{post.data.description}</p>
+							</a>
+						</li>
+					))
+				}
+			</ul>
 		</main>
 	</body>
 </html>
 
 <style>
+	:root {
+		--bg: #0b0d10;
+		--surface: #12151a;
+		--border: #232830;
+		--text: #e6e9ee;
+		--muted: #9aa3b0;
+		--accent: #6ea8fe;
+	}
+	* {
+		box-sizing: border-box;
+	}
+	html,
 	body {
 		margin: 0;
-		background: #0b0d10;
-		color: #e6e9ee;
-		font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+		padding: 0;
+	}
+	body {
+		background: var(--bg);
+		color: var(--text);
+		font-family:
+			ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
 		line-height: 1.6;
 	}
 	main {
@@ -32,10 +86,60 @@ const base = import.meta.env.BASE_URL;
 		padding: 4rem 1.5rem;
 	}
 	.back {
-		color: #9aa3b0;
+		color: var(--muted);
 		text-decoration: none;
 	}
-	p {
-		color: #9aa3b0;
+	.back:hover {
+		color: var(--accent);
+	}
+	.empty {
+		color: var(--muted);
+	}
+	.posts {
+		list-style: none;
+		margin: 2rem 0 0;
+		padding: 0;
+	}
+	.posts li {
+		margin: 0 0 1rem;
+	}
+	.post {
+		display: block;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 0.75rem;
+		padding: 1.25rem 1.5rem;
+		text-decoration: none;
+		color: var(--text);
+	}
+	.post:hover {
+		border-color: var(--accent);
+	}
+	.title-row {
+		display: flex;
+		align-items: baseline;
+		gap: 0.75rem;
+	}
+	.post h2 {
+		font-size: 1.2rem;
+		margin: 0;
+	}
+	.draft-badge {
+		color: #f0b429;
+		border: 1px solid #f0b429;
+		border-radius: 0.4rem;
+		padding: 0 0.4rem;
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+	}
+	.post time {
+		color: var(--muted);
+		font-size: 0.85rem;
+	}
+	.post p {
+		color: var(--muted);
+		margin: 0.5rem 0 0;
+		font-size: 0.95rem;
 	}
 </style>
