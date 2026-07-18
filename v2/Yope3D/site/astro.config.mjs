@@ -6,4 +6,10 @@ import { defineConfig } from 'astro/config';
 export default defineConfig({
   site: 'https://yugumishra.github.io',
   base: '/Yope3D',
+  markdown: {
+    // Dark-only site; theme bg (#0d1117) sits close to the site bg (#0b0d10).
+    shikiConfig: {
+      theme: 'github-dark-default',
+    },
+  },
 });

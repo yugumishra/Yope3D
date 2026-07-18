@@ -1,0 +1,288 @@
+---
+import { getCollection, render } from 'astro:content';
+import { Image } from 'astro:assets';
+
+export async function getStaticPaths() {
+	const posts = await getCollection(
+		'blog',
+		({ data }) => import.meta.env.DEV || !data.draft,
+	);
+	return posts.map((post) => ({ params: { slug: post.id }, props: { post } }));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+const base = import.meta.env.BASE_URL;
+
+// Frontmatter dates parse as UTC midnight; format in UTC to avoid off-by-one.
+const fmt = (d: Date) =>
+	d.toLocaleDateString('en-US', {
+		year: 'numeric',
+		month: 'long',
+		day: 'numeric',
+		timeZone: 'UTC',
+	});
+---
+
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" type="image/svg+xml" href={`${base}/favicon.svg`} />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="generator" content={Astro.generator} />
+		<meta name="description" content={post.data.description} />
+		<title>{post.data.title} · Yope3D</title>
+	</head>
+	<body>
+		<main>
+			<nav class="crumbs">
+				<a href={`${base}/blog`}>← Devlog</a>
+			</nav>
+			<article>
+				<header>
+					{post.data.draft && <p class="draft-badge">draft — not published</p>}
+					<h1>{post.data.title}</h1>
+					<p class="meta">
+						<time datetime={post.data.date.toISOString().slice(0, 10)}>
+							{fmt(post.data.date)}
+						</time>
+						{
+							post.data.updated && (
+								<span> · updated {fmt(post.data.updated)}</span>
+							)
+						}
+					</p>
+				</header>
+				{
+					post.data.cover && (
+						<Image
+							class="cover"
+							src={post.data.cover}
+							alt={post.data.coverAlt ?? ''}
+							widths={[720, 1440]}
+							sizes="(max-width: 48rem) 100vw, 44rem"
+						/>
+					)
+				}
+				<div class="prose">
+					<Content />
+				</div>
+			</article>
+			<footer>
+				<a href={`${base}/blog`}>← All devlog posts</a>
+			</footer>
+		</main>
+	</body>
+</html>
+
+<style>
+	:root {
+		--bg: #0b0d10;
+		--surface: #12151a;
+		--border: #232830;
+		--text: #e6e9ee;
+		--muted: #9aa3b0;
+		--accent: #6ea8fe;
+	}
+	* {
+		box-sizing: border-box;
+	}
+	html,
+	body {
+		margin: 0;
+		padding: 0;
+	}
+	body {
+		background: var(--bg);
+		color: var(--text);
+		font-family:
+			ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+		line-height: 1.7;
+	}
+	main {
+		max-width: 44rem;
+		margin: 0 auto;
+		padding: 3rem 1.5rem 4rem;
+	}
+	.crumbs a,
+	footer a {
+		color: var(--muted);
+		text-decoration: none;
+	}
+	.crumbs a:hover,
+	footer a:hover {
+		color: var(--accent);
+	}
+	article header {
+		margin: 2rem 0 1.5rem;
+	}
+	.draft-badge {
+		display: inline-block;
+		color: #f0b429;
+		border: 1px solid #f0b429;
+		border-radius: 0.4rem;
+		padding: 0.1rem 0.5rem;
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+		margin: 0 0 1rem;
+	}
+	h1 {
+		font-size: clamp(2rem, 6vw, 2.75rem);
+		line-height: 1.15;
+		letter-spacing: -0.02em;
+		margin: 0 0 0.75rem;
+	}
+	.meta {
+		color: var(--muted);
+		font-size: 0.9rem;
+		margin: 0;
+	}
+	.cover {
+		width: 100%;
+		height: auto;
+		border-radius: 0.75rem;
+		border: 1px solid var(--border);
+		margin-bottom: 2rem;
+	}
+	footer {
+		margin-top: 3rem;
+		padding-top: 1.5rem;
+		border-top: 1px solid var(--border);
+		font-size: 0.9rem;
+	}
+
+	/* ---- Markdown body ---------------------------------------------- */
+	/* Rendered markdown is outside this component's scope, so everything
+	   below targets it via :global under the .prose wrapper. */
+	.prose :global(h2) {
+		font-size: 1.5rem;
+		margin: 2.5rem 0 0.75rem;
+		letter-spacing: -0.01em;
+	}
+	.prose :global(h3) {
+		font-size: 1.2rem;
+		margin: 2rem 0 0.5rem;
+	}
+	.prose :global(h4) {
+		font-size: 1.05rem;
+		margin: 1.5rem 0 0.5rem;
+	}
+	.prose :global(p) {
+		margin: 1rem 0;
+	}
+	.prose :global(a) {
+		color: var(--accent);
+		text-decoration: none;
+	}
+	.prose :global(a:hover) {
+		text-decoration: underline;
+	}
+	.prose :global(ul),
+	.prose :global(ol) {
+		padding-left: 1.4rem;
+		margin: 1rem 0;
+	}
+	.prose :global(li) {
+		margin: 0.35rem 0;
+	}
+	.prose :global(blockquote) {
+		margin: 1.5rem 0;
+		padding: 0.25rem 1.25rem;
+		border-left: 3px solid var(--accent);
+		background: var(--surface);
+		border-radius: 0 0.5rem 0.5rem 0;
+		color: var(--muted);
+	}
+	.prose :global(hr) {
+		border: none;
+		border-top: 1px solid var(--border);
+		margin: 2.5rem 0;
+	}
+	.prose :global(strong) {
+		color: var(--text);
+	}
+
+	/* Inline code */
+	.prose :global(:not(pre) > code) {
+		font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+		font-size: 0.875em;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 0.3rem;
+		padding: 0.05rem 0.35rem;
+	}
+
+	/* Code blocks (Shiki emits pre.astro-code with an inline theme bg) */
+	.prose :global(pre) {
+		border: 1px solid var(--border);
+		border-radius: 0.75rem;
+		padding: 1rem 1.25rem;
+		overflow-x: auto;
+		font-size: 0.85rem;
+		line-height: 1.6;
+		margin: 1.5rem 0;
+	}
+	.prose :global(pre code) {
+		font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+	}
+
+	/* Images (markdown ![](), or raw <img>) */
+	.prose :global(img) {
+		max-width: 100%;
+		height: auto;
+		border-radius: 0.75rem;
+		border: 1px solid var(--border);
+		display: block;
+		margin: 1.5rem auto;
+	}
+	.prose :global(figure) {
+		margin: 1.5rem 0;
+	}
+	.prose :global(figure img) {
+		margin: 0 auto;
+	}
+	.prose :global(figcaption) {
+		text-align: center;
+		color: var(--muted);
+		font-size: 0.85rem;
+		margin-top: 0.5rem;
+	}
+
+	/* Video embeds: a bare <iframe> (YouTube etc.) or <video> in the
+	   markdown gets full-width responsive treatment with no wrapper div. */
+	.prose :global(iframe) {
+		width: 100%;
+		aspect-ratio: 16 / 9;
+		border: 1px solid var(--border);
+		border-radius: 0.75rem;
+		background: var(--surface);
+		margin: 1.5rem 0;
+	}
+	.prose :global(video) {
+		width: 100%;
+		height: auto;
+		border-radius: 0.75rem;
+		border: 1px solid var(--border);
+		margin: 1.5rem 0;
+	}
+
+	/* Tables */
+	.prose :global(table) {
+		width: 100%;
+		border-collapse: collapse;
+		margin: 1.5rem 0;
+		font-size: 0.9rem;
+		display: block;
+		overflow-x: auto;
+	}
+	.prose :global(th),
+	.prose :global(td) {
+		border: 1px solid var(--border);
+		padding: 0.4rem 0.75rem;
+		text-align: left;
+	}
+	.prose :global(th) {
+		background: var(--surface);
+	}
+</style>
