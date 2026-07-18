@@ -1,0 +1,41 @@
+---
+const base = import.meta.env.BASE_URL;
+---
+
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" type="image/svg+xml" href={`${base}/favicon.svg`} />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Devlog · Yope3D</title>
+	</head>
+	<body>
+		<main>
+			<a class="back" href={base}>← Yope3D</a>
+			<h1>Devlog</h1>
+			<p>First article coming soon.</p>
+		</main>
+	</body>
+</html>
+
+<style>
+	body {
+		margin: 0;
+		background: #0b0d10;
+		color: #e6e9ee;
+		font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+		line-height: 1.6;
+	}
+	main {
+		max-width: 44rem;
+		margin: 0 auto;
+		padding: 4rem 1.5rem;
+	}
+	.back {
+		color: #9aa3b0;
+		text-decoration: none;
+	}
+	p {
+		color: #9aa3b0;
+	}
+</style>
