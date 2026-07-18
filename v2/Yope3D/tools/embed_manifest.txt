@@ -1,0 +1,19 @@
+# tools/embed_manifest.txt
+# Paths (relative to assets/) embedded into the executable when
+# YOPE_EMBED_SCOPE=PARTIAL. One file or directory per line; directories are
+# included recursively. Everything else under assets/ ships as loose files
+# next to the binary (see tools/make_bundle.sh) instead of being baked in.
+#
+# compiled_shaders/ is always embedded regardless of this manifest (see
+# CMakeLists.txt) — it's small and every build needs it.
+#
+# This is the "core/engine" tier: always-needed chrome plus the current
+# demo/tool scenes. As real shipping game content (levels, character models,
+# large textures/audio) lands under assets/, it should NOT be added here —
+# leave it loose so it patches independently through Steam depots. Revisit
+# this list as assets/ grows.
+
+logo/
+fonts/generated/
+textures/tnail.png
+scenes/

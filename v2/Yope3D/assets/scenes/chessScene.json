@@ -1,0 +1,1721 @@
+{
+    "version": 1,
+    "gravity": [0, -9.80665, 0],
+    "exposure": 1,
+    "entities": [
+        {
+            "fileId": 0,
+            "runtimeId": 0,
+            "Name":             {
+                "value": "PointLight"
+            },
+            "LightSource":             {
+                "type": 0,
+                "color": [1, 1, 1],
+                "intensity": 1.5,
+                "position": [0, 4, 0],
+                "direction": [0, -1, 0],
+                "constant": 1,
+                "linear": 0.09,
+                "quadratic": 0.032,
+                "innerConeAngle": 0.2,
+                "outerConeAngle": 0.5
+            }
+        },
+        {
+            "fileId": 1,
+            "runtimeId": 7,
+            "Name":             {
+                "value": "Pawn_Top_W1"
+            },
+            "Transform":             {
+                "position": [-3.72529e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 22
+            }
+        },
+        {
+            "fileId": 2,
+            "runtimeId": 9,
+            "Name":             {
+                "value": "Pawn_Top_W2"
+            },
+            "Transform":             {
+                "position": [-3.72529e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 23
+            }
+        },
+        {
+            "fileId": 3,
+            "runtimeId": 11,
+            "Name":             {
+                "value": "Pawn_Top_W3"
+            },
+            "Transform":             {
+                "position": [-3.72529e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 24
+            }
+        },
+        {
+            "fileId": 4,
+            "runtimeId": 13,
+            "Name":             {
+                "value": "Pawn_Top_W4"
+            },
+            "Transform":             {
+                "position": [-1.86265e-09, 0.0554006, 9.31323e-09],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 25
+            }
+        },
+        {
+            "fileId": 5,
+            "runtimeId": 15,
+            "Name":             {
+                "value": "Pawn_Top_W5"
+            },
+            "Transform":             {
+                "position": [-1.86265e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 26
+            }
+        },
+        {
+            "fileId": 6,
+            "runtimeId": 17,
+            "Name":             {
+                "value": "Pawn_Top_W6"
+            },
+            "Transform":             {
+                "position": [-3.72529e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 27
+            }
+        },
+        {
+            "fileId": 7,
+            "runtimeId": 19,
+            "Name":             {
+                "value": "Pawn_Top_W7"
+            },
+            "Transform":             {
+                "position": [-3.72529e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 28
+            }
+        },
+        {
+            "fileId": 8,
+            "runtimeId": 21,
+            "Name":             {
+                "value": "Pawn_Top_W8"
+            },
+            "Transform":             {
+                "position": [-3.72529e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 0.828, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 29
+            }
+        },
+        {
+            "fileId": 9,
+            "runtimeId": 23,
+            "Name":             {
+                "value": "Pawn_Top_B1"
+            },
+            "Transform":             {
+                "position": [-3.72529e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 30
+            }
+        },
+        {
+            "fileId": 10,
+            "runtimeId": 25,
+            "Name":             {
+                "value": "Pawn_Top_B2"
+            },
+            "Transform":             {
+                "position": [-3.72529e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 31
+            }
+        },
+        {
+            "fileId": 11,
+            "runtimeId": 27,
+            "Name":             {
+                "value": "Pawn_Top_B3"
+            },
+            "Transform":             {
+                "position": [-3.72529e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 32
+            }
+        },
+        {
+            "fileId": 12,
+            "runtimeId": 29,
+            "Name":             {
+                "value": "Pawn_Top_B4"
+            },
+            "Transform":             {
+                "position": [-3.72529e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 33
+            }
+        },
+        {
+            "fileId": 13,
+            "runtimeId": 31,
+            "Name":             {
+                "value": "Pawn_Top_B5"
+            },
+            "Transform":             {
+                "position": [-1.86265e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 34
+            }
+        },
+        {
+            "fileId": 14,
+            "runtimeId": 33,
+            "Name":             {
+                "value": "Pawn_Top_B6"
+            },
+            "Transform":             {
+                "position": [-3.72529e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 35
+            }
+        },
+        {
+            "fileId": 15,
+            "runtimeId": 35,
+            "Name":             {
+                "value": "Pawn_Top_B7"
+            },
+            "Transform":             {
+                "position": [-3.72529e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 36
+            }
+        },
+        {
+            "fileId": 16,
+            "runtimeId": 37,
+            "Name":             {
+                "value": "Pawn_Top_B8"
+            },
+            "Transform":             {
+                "position": [-3.72529e-09, 0.0554006, 1.11759e-08],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 1172,
+                    "ic": 6624
+                }
+            },
+            "Material":             {
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [0.2995, 0.5, 0.45, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 37
+            }
+        },
+        {
+            "fileId": 17,
+            "runtimeId": 1,
+            "Name":             {
+                "value": "King_B"
+            },
+            "Transform":             {
+                "position": [-0.0312217, 0.0492779, 0.216379],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 29162,
+                    "ic": 121440
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img6",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img7",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img8",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img8",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 18,
+            "runtimeId": 2,
+            "Name":             {
+                "value": "King_W"
+            },
+            "Transform":             {
+                "position": [-0.0315606, 0.049278, -0.223988],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 29162,
+                    "ic": 121440
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img9",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img10",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img11",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img11",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 19,
+            "runtimeId": 3,
+            "Name":             {
+                "value": "Queen_B"
+            },
+            "Transform":             {
+                "position": [0.0309325, 0.0417433, 0.216128],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 20990,
+                    "ic": 103104
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img12",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img13",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img14",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img14",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 20,
+            "runtimeId": 4,
+            "Name":             {
+                "value": "Queen_W"
+            },
+            "Transform":             {
+                "position": [0.0311068, 0.0409822, -0.223988],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 20990,
+                    "ic": 103104
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img15",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img16",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img17",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img17",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 21,
+            "runtimeId": 5,
+            "Name":             {
+                "value": "Chessboard"
+            },
+            "Transform":             {
+                "position": [0.000201266, -0.0346894, -0.00371193],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 115200,
+                    "ic": 277248
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img18",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img19",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img20",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img20",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 22,
+            "runtimeId": 6,
+            "Name":             {
+                "value": "Pawn_Body_W1"
+            },
+            "Transform":             {
+                "position": [0.218661, -0.0290199, -0.159702],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 23,
+            "runtimeId": 8,
+            "Name":             {
+                "value": "Pawn_Body_W2"
+            },
+            "Transform":             {
+                "position": [0.156534, -0.0290199, -0.159802],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 24,
+            "runtimeId": 10,
+            "Name":             {
+                "value": "Pawn_Body_W3"
+            },
+            "Transform":             {
+                "position": [0.0937846, -0.0290199, -0.097861],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 25,
+            "runtimeId": 12,
+            "Name":             {
+                "value": "Pawn_Body_W4"
+            },
+            "Transform":             {
+                "position": [0.0314513, -0.0290199, -0.0349619],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 26,
+            "runtimeId": 14,
+            "Name":             {
+                "value": "Pawn_Body_W5"
+            },
+            "Transform":             {
+                "position": [-0.0309684, -0.0290199, -0.160138],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 27,
+            "runtimeId": 16,
+            "Name":             {
+                "value": "Pawn_Body_W6"
+            },
+            "Transform":             {
+                "position": [-0.0935892, -0.0290199, -0.159955],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 28,
+            "runtimeId": 18,
+            "Name":             {
+                "value": "Pawn_Body_W7"
+            },
+            "Transform":             {
+                "position": [-0.156222, -0.0290199, -0.160134],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 29,
+            "runtimeId": 20,
+            "Name":             {
+                "value": "Pawn_Body_W8"
+            },
+            "Transform":             {
+                "position": [-0.219031, -0.0290199, -0.160008],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img23",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 30,
+            "runtimeId": 22,
+            "Name":             {
+                "value": "Pawn_Body_B1"
+            },
+            "Transform":             {
+                "position": [-0.219031, -0.0290199, 0.152673],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 31,
+            "runtimeId": 24,
+            "Name":             {
+                "value": "Pawn_Body_B2"
+            },
+            "Transform":             {
+                "position": [-0.156536, -0.0290199, 0.152461],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 32,
+            "runtimeId": 26,
+            "Name":             {
+                "value": "Pawn_Body_B3"
+            },
+            "Transform":             {
+                "position": [-0.0936173, -0.0290199, 0.152567],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 33,
+            "runtimeId": 28,
+            "Name":             {
+                "value": "Pawn_Body_B4"
+            },
+            "Transform":             {
+                "position": [-0.0311224, -0.0290199, 0.0898599],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 34,
+            "runtimeId": 30,
+            "Name":             {
+                "value": "Pawn_Body_B5"
+            },
+            "Transform":             {
+                "position": [0.0314466, -0.0290199, 0.15263],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 35,
+            "runtimeId": 32,
+            "Name":             {
+                "value": "Pawn_Body_B6"
+            },
+            "Transform":             {
+                "position": [0.0940156, -0.0290199, 0.152387],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 36,
+            "runtimeId": 34,
+            "Name":             {
+                "value": "Pawn_Body_B7"
+            },
+            "Transform":             {
+                "position": [0.15632, -0.0290199, 0.152545],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 37,
+            "runtimeId": 36,
+            "Name":             {
+                "value": "Pawn_Body_B8"
+            },
+            "Transform":             {
+                "position": [0.218963, -0.0290199, 0.152577],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 25957,
+                    "ic": 141696
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img24",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img21",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img22",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 38,
+            "runtimeId": 38,
+            "Name":             {
+                "value": "Castle_B1"
+            },
+            "Transform":             {
+                "position": [-0.21861, 0.0225995, 0.215881],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 24838,
+                    "ic": 91584
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img25",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img26",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 39,
+            "runtimeId": 39,
+            "Name":             {
+                "value": "Castle_B2"
+            },
+            "Transform":             {
+                "position": [0.220213, 0.0225995, 0.215902],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 24838,
+                    "ic": 91584
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img25",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img26",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 40,
+            "runtimeId": 40,
+            "Name":             {
+                "value": "Castle_W1"
+            },
+            "Transform":             {
+                "position": [0.219893, 0.0214171, -0.22342],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 24838,
+                    "ic": 91584
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img28",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img26",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 41,
+            "runtimeId": 41,
+            "Name":             {
+                "value": "Castle_W2"
+            },
+            "Transform":             {
+                "position": [-0.218407, 0.0216975, -0.223732],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 24838,
+                    "ic": 91584
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img28",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img26",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img27",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 42,
+            "runtimeId": 42,
+            "Name":             {
+                "value": "Knight_B1"
+            },
+            "Transform":             {
+                "position": [-0.156557, 0.0226992, 0.214318],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 6435,
+                    "ic": 33552
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img29",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img30",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 43,
+            "runtimeId": 43,
+            "Name":             {
+                "value": "Knight_B2"
+            },
+            "Transform":             {
+                "position": [0.158688, 0.0226992, 0.21405],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 6435,
+                    "ic": 33552
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img29",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img30",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 44,
+            "runtimeId": 44,
+            "Name":             {
+                "value": "Knight_W1"
+            },
+            "Transform":             {
+                "position": [0.158298, 0.0226994, -0.222714],
+                "rotation": [0, -1, 0, 4.37114e-08],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 6435,
+                    "ic": 33552
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img32",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img30",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 45,
+            "runtimeId": 45,
+            "Name":             {
+                "value": "Knight_W2"
+            },
+            "Transform":             {
+                "position": [-0.15645, 0.0226994, -0.221814],
+                "rotation": [0, -1, 0, 4.37114e-08],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 6435,
+                    "ic": 33552
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img32",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img30",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img31",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 46,
+            "runtimeId": 46,
+            "Name":             {
+                "value": "Bishop_B1"
+            },
+            "Transform":             {
+                "position": [-0.0938312, 0.0346537, 0.215387],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 42360,
+                    "ic": 224304
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img3",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img4",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img5",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img5",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 47,
+            "runtimeId": 47,
+            "Name":             {
+                "value": "Bishop_B2"
+            },
+            "Transform":             {
+                "position": [0.0897115, 0.0346537, 0.215849],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 42360,
+                    "ic": 224304
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img3",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img4",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img5",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img5",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 48,
+            "runtimeId": 48,
+            "Name":             {
+                "value": "Bishop_W1"
+            },
+            "Transform":             {
+                "position": [0.0904979, 0.0346537, -0.221335],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 42360,
+                    "ic": 224304
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img0",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img1",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img2",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img2",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 49,
+            "runtimeId": 49,
+            "Name":             {
+                "value": "Bishop_W2"
+            },
+            "Transform":             {
+                "position": [-0.0939643, 0.0346537, -0.224329],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            },
+            "MeshRenderer":             {
+                "color": [1, 1, 1],
+                "primitiveType": 0,
+                "primitiveExtents": [1, 1, 1],
+                "geom":                 {
+                    "vc": 42360,
+                    "ic": 224304
+                }
+            },
+            "Material":             {
+                "albedoPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img0",
+                "normalPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img1",
+                "metalRoughPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img2",
+                "occlusionPath": "/Users/me/Desktop/dev/Yope3D/v2/Yope3D/assets/models/ABeautifulGame.glb#img2",
+                "albedoFactor": [1, 1, 1, 1],
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
+                "emissiveFactor": [0, 0, 0],
+                "normalScale": 1
+            },
+            "Parent":             {
+                "parentId": 50
+            }
+        },
+        {
+            "fileId": 50,
+            "runtimeId": 50,
+            "Name":             {
+                "value": "ABeautifulGame"
+            },
+            "Transform":             {
+                "position": [-0.000201266, 2.61173, 0.00371193],
+                "rotation": [0, 0, 0, 1],
+                "scale": [10, 10, 10]
+            }
+        }
+    ]
+}

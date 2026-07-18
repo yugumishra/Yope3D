@@ -1,0 +1,52 @@
+{
+    "version": 1,
+    "gravity": [
+        0,
+        -9.80665,
+        0
+    ],
+    "entities": [
+        {
+            "fileId": 0,
+            "runtimeId": 0,
+            "Name": {
+                "value": "Sun"
+            },
+            "LightSource": {
+                "type": 1,
+                "color": [
+                    0.95,
+                    0.95,
+                    1
+                ],
+                "intensity": 0.9,
+                "position": [
+                    0,
+                    0,
+                    0
+                ],
+                "direction": [
+                    -0.4,
+                    -1,
+                    -0.6
+                ],
+                "constant": 1,
+                "linear": 0,
+                "quadratic": 0,
+                "innerConeAngle": 0.2,
+                "outerConeAngle": 0.5
+            }
+        },
+        {
+            "fileId": 1,
+            "runtimeId": 1,
+            "Name": {
+                "value": "SandboxGallery"
+            },
+            "ScriptComponent": {
+                "scriptClass": "PythonScript",
+                "paramsBlob": "{\n    \"module\": \"behaviors.sandbox_gallery\",\n    \"class\": \"SandboxGallery\",\n    \"start_scene\": 0,\n    \"fly_speed\": 12.0,\n    \"sprint_mult\": 3.0,\n    \"mouse_sens\": 0.002,\n    \"font\": \"fonts/monaco.ttf\",\n    \"stress_n\": 400,\n    \"stress_shape\": \"sphere\",\n    \"cloth_self_collision\": false\n}"
+            }
+        }
+    ]
+}

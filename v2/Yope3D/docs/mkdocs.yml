@@ -1,0 +1,73 @@
+# Yope3D scripting-API documentation site.
+#
+# This is a docs-only build — it is NOT part of the CMake/engine build.
+# It renders typings/yope3d/__init__.pyi (the hand-maintained scripting stub)
+# into a browsable website via mkdocs-material + mkdocstrings.
+#
+#   Build:  tools/build_docs.sh          (one-shot static site -> docs/site/)
+#   Serve:  tools/build_docs.sh serve    (live-reload dev server)
+#
+# mkdocstrings/griffe reads the stub *statically* (it never imports the
+# embedded `yope3d` module), so pointing `paths` at ../typings is all it needs.
+
+site_name: Yope3D Scripting API
+site_description: Reference for the `yope3d` embedded Python scripting module.
+docs_dir: content
+site_dir: site
+use_directory_urls: false
+
+extra_css:
+  - stylesheets/extra.css
+
+theme:
+  name: material
+  # Three-way palette: auto-follow the OS setting (CSS media query, works even
+  # from file:// with no JS/localStorage), with manual light/dark overrides.
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle: { icon: material/brightness-auto, name: Switch to light mode }
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: { icon: material/brightness-7, name: Switch to dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: { icon: material/brightness-4, name: Switch to system preference }
+  features:
+    - navigation.top
+    - navigation.tracking
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+    # NOTE: deliberately NOT using `toc.integrate` here. This is a single huge
+    # page, and integrating the TOC nests the entire member list inside the
+    # left page-nav item — a short parent scrollwrap then swallows the wheel
+    # event instead of scrolling the tall child list. Keeping the TOC in the
+    # independent right-hand sidebar scrolls correctly and avoids a duplicated
+    # page title in the left nav.
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details # renders Note:/Warning: docstring sections as callouts
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: ["../typings"]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
+            signature_crossrefs: true
+            group_by_category: true
+            heading_level: 2

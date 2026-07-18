@@ -1,0 +1,70 @@
+{
+    "version": 1,
+    "gravity": [0, -9.80665, 0],
+    "exposure": 1,
+    "shadowBias": 0.0006,
+    "shadowNormalBias": 0.035,
+    "shadowPcfRadius": 1,
+    "shadowOrthoHalfExtent": 20,
+    "shadowOrthoFar": 40,
+    "shadowSpotNear": 1,
+    "shadowSpotFar": 30,
+    "entities": [
+        {
+            "fileId": 0,
+            "runtimeId": 0,
+            "Name":             {
+                "value": "PointLight"
+            },
+            "LightSource":             {
+                "type": 0,
+                "color": [1, 1, 1],
+                "intensity": 1.5,
+                "position": [0, 5.70896, 0],
+                "direction": [0, -1, 0],
+                "constant": 1,
+                "linear": 0.09,
+                "quadratic": 0.032,
+                "innerConeAngle": 0.2,
+                "outerConeAngle": 0.5,
+                "castsShadow": false
+            }
+        },
+        {
+            "fileId": 1,
+            "runtimeId": 1,
+            "isFixed": true,
+            "Name":             {
+                "value": "AABB"
+            },
+            "Transform":             {
+                "position": [-3.27486, 2, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1.36418, 0.5, 1.95459]
+            },
+            "Hull":             {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 0.5,
+                "restitution": 0.3,
+                "gravity": false,
+                "tangible": true,
+                "isTrigger": false,
+                "velocity": [0, 0, 0]
+            },
+            "AABBForm":             {
+                "extent": [1.36418, 0.5, 1.95459]
+            },
+            "MeshRenderer":             {
+                "color": [0.75, 1, 0.55],
+                "primitiveType": 3,
+                "primitiveExtents": [1, 1, 1]
+            },
+            "ScriptComponent":             {
+                "scriptClass": "PythonScript",
+                "paramsBlob": "{\n    \"module\": \"behaviors.trigger_volume_demo\",\n    \"class\": \"TriggerVolumeDemo\",\n    \"drop_interval\": 1.62\n}"
+            }
+        }
+    ]
+}

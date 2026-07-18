@@ -1,0 +1,68 @@
+{
+    "version": 1,
+    "gravity": [0, -9.80665, 0],
+    "entities": [
+        {
+            "fileId": 0,
+            "runtimeId": 0,
+            "Name": {
+                "value": "Sun"
+            },
+            "LightSource": {
+                "type": 1,
+                "color": [0.95, 0.95, 1],
+                "intensity": 0.9,
+                "position": [0, 0, 0],
+                "direction": [-0.4, -1, -0.6],
+                "constant": 1,
+                "linear": 0,
+                "quadratic": 0,
+                "innerConeAngle": 0.2,
+                "outerConeAngle": 0.5
+            }
+        },
+        {
+            "fileId": 1,
+            "runtimeId": 1,
+            "isFixed": true,
+            "Name": {
+                "value": "Ground"
+            },
+            "Transform": {
+                "position": [0, -0.5, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [60, 0.5, 60]
+            },
+            "Hull": {
+                "mass": 1,
+                "linearDamping": 0.04,
+                "angularDamping": 0.04,
+                "friction": 1.0,
+                "restitution": 0.05,
+                "gravity": false,
+                "tangible": true,
+                "isTrigger": false,
+                "velocity": [0, 0, 0]
+            },
+            "AABBForm": {
+                "extent": [60, 0.5, 60]
+            },
+            "MeshRenderer": {
+                "color": [0.32, 0.42, 0.3],
+                "primitiveType": 3,
+                "primitiveExtents": [1, 1, 1]
+            }
+        },
+        {
+            "fileId": 2,
+            "runtimeId": 2,
+            "Name": {
+                "value": "VehicleDemo"
+            },
+            "ScriptComponent": {
+                "scriptClass": "PythonScript",
+                "paramsBlob": "{\n    \"module\": \"behaviors.vehicle_demo\",\n    \"class\": \"VehicleDemo\",\n    \"spawn_y\": 2.0\n}"
+            }
+        }
+    ]
+}

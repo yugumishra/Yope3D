@@ -1,0 +1,6 @@
+open in developer powershell for vs 2022
+run 'cmake --preset win-debug'
+then build using 'cmake --build ./build/win-debug --config Debug'
+then execute using '.\build\win-debug\Debug\yope3d.exe'
+
+replace debug with release for release

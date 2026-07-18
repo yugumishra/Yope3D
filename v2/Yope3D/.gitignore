@@ -1,0 +1,10 @@
+build/
+compiled_shaders/
+vcpkg_installed/
+.cache/
+*.spv
+vendor/
+
+# Generated documentation site (tools/build_docs.sh)
+docs/site/
+docs/.venv/
