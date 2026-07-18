@@ -1,6 +1,6 @@
 # Yope3D site
 
-Astro static site for [yugumishra.github.io/Yope3D](https://yugumishra.github.io/Yope3D) — landing page + devlog. Deployed automatically by `.github/workflows/deploy-site.yml` (repo root) on any push to `main` touching `v2/Yope3D/site/**`.
+Astro static site for [yugumishra.github.io/Yope3D](https://yugumishra.github.io/Yope3D) — landing page + blog. Deployed automatically by `.github/workflows/deploy-site.yml` (repo root) on any push to `main` touching `v2/Yope3D/site/**`.
 
 ## Commands
 
@@ -11,7 +11,7 @@ Astro static site for [yugumishra.github.io/Yope3D](https://yugumishra.github.io
 | `npm run build`   | Production build to `./dist/`               |
 | `npm run preview` | Preview the production build locally        |
 
-## Adding a devlog post
+## Adding a blog post
 
 1. Create `src/content/blog/<slug>.md`. The filename becomes the URL: `/Yope3D/blog/<slug>/`.
 2. Frontmatter (schema in `src/content.config.ts`):
