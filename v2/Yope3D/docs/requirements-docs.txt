@@ -1,0 +1,6 @@
+# Documentation toolchain for the Yope3D scripting-API site (docs/mkdocs.yml).
+# Install into a venv:  python3 -m venv docs/.venv && docs/.venv/bin/pip install -r docs/requirements-docs.txt
+# (tools/build_docs.sh does this automatically.)
+mkdocs-material>=9.5
+mkdocstrings[python]>=0.27
+ruff>=0.6          # used by mkdocstrings to format rendered signatures

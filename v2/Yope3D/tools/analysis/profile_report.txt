@@ -1,0 +1,517 @@
+wrote analysis/stage_summary.csv (738 rows)
+wrote analysis/physics_step_totals.csv (49856 rows)
+wrote analysis/parallel_efficiency.csv (16 rows)
+
+=== top5_wall: top 5 PHYSICS main-thread WALL stages per file ===
+    share_wall_pct = fraction of physics-step wall time on main thread
+                   source_file              stage   mean_us    p99_us  share_wall_pct
+   yope_profile_N1000_aabb.csv        integration    615.46    651.31           26.45
+   yope_profile_N1000_aabb.csv     broadphase_sap    434.14    498.09           18.66
+   yope_profile_N1000_aabb.csv  entity_list_build    386.24    406.81           16.60
+   yope_profile_N1000_aabb.csv narrowphase_detect    330.31    566.58           14.20
+   yope_profile_N1000_aabb.csv   publish_snapshot    290.01    305.21           12.46
+    yope_profile_N1000_obb.csv        integration    619.25    845.54           24.33
+    yope_profile_N1000_obb.csv     broadphase_sap    512.49    745.86           20.13
+    yope_profile_N1000_obb.csv  entity_list_build    398.09    434.88           15.64
+    yope_profile_N1000_obb.csv narrowphase_detect    349.20    803.69           13.72
+    yope_profile_N1000_obb.csv   publish_snapshot    287.65    311.79           11.30
+ yope_profile_N1000_sphere.csv        integration    619.65    693.89           27.52
+ yope_profile_N1000_sphere.csv  entity_list_build    390.16    436.76           17.33
+ yope_profile_N1000_sphere.csv     broadphase_sap    365.29    445.07           16.22
+ yope_profile_N1000_sphere.csv narrowphase_detect    316.27    569.20           14.05
+ yope_profile_N1000_sphere.csv   publish_snapshot    289.61    318.36           12.86
+  yope_profile_N12000_aabb.csv          pgs_solve  48474.48  93702.67           36.82
+  yope_profile_N12000_aabb.csv       island_build  23416.47  30464.92           17.79
+  yope_profile_N12000_aabb.csv narrowphase_detect  19363.75  23992.24           15.35
+  yope_profile_N12000_aabb.csv     broadphase_sap  16948.58  19582.30           13.43
+  yope_profile_N12000_aabb.csv        integration   8653.38  13014.77            6.86
+   yope_profile_N12000_obb.csv          pgs_solve  39117.10  46845.33           28.82
+   yope_profile_N12000_obb.csv narrowphase_detect  34330.15  44498.89           26.61
+   yope_profile_N12000_obb.csv     broadphase_sap  20229.52  25494.83           15.68
+   yope_profile_N12000_obb.csv       island_build  15162.01  18392.01           11.17
+   yope_profile_N12000_obb.csv        integration  10273.27  11670.18            7.96
+yope_profile_N12000_sphere.csv          pgs_solve  25764.65  32286.26           27.64
+yope_profile_N12000_sphere.csv narrowphase_detect  18304.73  21848.34           20.07
+yope_profile_N12000_sphere.csv     broadphase_sap  14678.68  17411.98           16.10
+yope_profile_N12000_sphere.csv       island_build  13723.80  18784.51           14.72
+yope_profile_N12000_sphere.csv        integration   8034.79  12149.24            8.84
+  yope_profile_N16000_aabb.csv          pgs_solve  55310.25  72662.82           32.69
+  yope_profile_N16000_aabb.csv     broadphase_sap  24955.68  28325.96           17.45
+  yope_profile_N16000_aabb.csv       island_build  28226.07  38044.21           16.68
+  yope_profile_N16000_aabb.csv narrowphase_detect  20370.30  30160.92           14.24
+  yope_profile_N16000_aabb.csv        integration  11126.93  15459.24            7.78
+   yope_profile_N16000_obb.csv          pgs_solve  44999.53  62761.85           26.35
+   yope_profile_N16000_obb.csv narrowphase_detect  35356.58  56563.12           24.40
+   yope_profile_N16000_obb.csv     broadphase_sap  27809.36  36204.88           19.20
+   yope_profile_N16000_obb.csv       island_build  17019.58  22963.40            9.97
+   yope_profile_N16000_obb.csv        integration  12821.11  14977.95            8.89
+yope_profile_N16000_sphere.csv          pgs_solve  33785.75  62200.16           25.64
+yope_profile_N16000_sphere.csv     broadphase_sap  22970.49  30721.56           19.65
+yope_profile_N16000_sphere.csv narrowphase_detect  21892.36  39585.44           18.73
+yope_profile_N16000_sphere.csv       island_build  17449.52  26789.26           13.24
+yope_profile_N16000_sphere.csv        integration  10927.75  17601.75            9.35
+   yope_profile_N2000_aabb.csv          pgs_solve   6341.97   8588.49           39.43
+   yope_profile_N2000_aabb.csv       island_build   2862.39   4283.70           17.79
+   yope_profile_N2000_aabb.csv narrowphase_detect   2577.85   3404.09           16.02
+   yope_profile_N2000_aabb.csv        integration   1317.27   3164.70            8.19
+   yope_profile_N2000_aabb.csv     broadphase_sap   1067.11   1294.61            6.63
+    yope_profile_N2000_obb.csv          pgs_solve  11178.14  18567.47           48.85
+    yope_profile_N2000_obb.csv narrowphase_detect   4459.60   5740.11           19.47
+    yope_profile_N2000_obb.csv       island_build   2496.34   3901.41           10.90
+    yope_profile_N2000_obb.csv        integration   1514.65   3016.93            6.62
+    yope_profile_N2000_obb.csv     broadphase_sap   1295.33   1508.36            5.66
+ yope_profile_N2000_sphere.csv          pgs_solve   3936.54   5824.31           30.98
+ yope_profile_N2000_sphere.csv narrowphase_detect   2605.53   3464.56           20.50
+ yope_profile_N2000_sphere.csv       island_build   1895.92   3814.47           14.92
+ yope_profile_N2000_sphere.csv        integration   1349.61   3158.19           10.62
+ yope_profile_N2000_sphere.csv     broadphase_sap    959.84   1216.19            7.55
+   yope_profile_N4000_aabb.csv          pgs_solve  17605.86  19965.50           41.09
+   yope_profile_N4000_aabb.csv       island_build   8598.81  11937.24           20.07
+   yope_profile_N4000_aabb.csv narrowphase_detect   6905.17   7649.85           16.09
+   yope_profile_N4000_aabb.csv     broadphase_sap   2925.98   3452.82            6.82
+   yope_profile_N4000_aabb.csv        integration   2814.62   6351.90            6.57
+    yope_profile_N4000_obb.csv          pgs_solve  21304.47  48337.94           39.52
+    yope_profile_N4000_obb.csv narrowphase_detect  13814.81  15840.05           25.62
+    yope_profile_N4000_obb.csv       island_build   6939.83   8414.29           12.87
+    yope_profile_N4000_obb.csv     broadphase_sap   3944.74   4889.19            7.32
+    yope_profile_N4000_obb.csv        integration   3518.66   4465.90            6.53
+ yope_profile_N4000_sphere.csv          pgs_solve  10648.32  15252.10           33.53
+ yope_profile_N4000_sphere.csv narrowphase_detect   6680.30   7945.28           21.01
+ yope_profile_N4000_sphere.csv       island_build   5278.66   8776.38           16.60
+ yope_profile_N4000_sphere.csv        integration   2744.48   6073.58            8.64
+ yope_profile_N4000_sphere.csv     broadphase_sap   2544.48   3161.92            8.00
+    yope_profile_N500_aabb.csv        integration    330.34    596.10           26.47
+    yope_profile_N500_aabb.csv     broadphase_sap    219.36    466.67           17.58
+    yope_profile_N500_aabb.csv  entity_list_build    211.05    424.13           16.91
+    yope_profile_N500_aabb.csv narrowphase_detect    178.95    431.07           14.34
+    yope_profile_N500_aabb.csv   publish_snapshot    156.89    252.01           12.57
+     yope_profile_N500_obb.csv        integration    310.70    355.19           26.23
+     yope_profile_N500_obb.csv     broadphase_sap    237.04    274.62           20.01
+     yope_profile_N500_obb.csv  entity_list_build    186.00    207.95           15.70
+     yope_profile_N500_obb.csv narrowphase_detect    168.01    398.85           14.18
+     yope_profile_N500_obb.csv   publish_snapshot    143.79    158.44           12.14
+  yope_profile_N500_sphere.csv        integration    292.13    328.52           27.61
+  yope_profile_N500_sphere.csv  entity_list_build    186.44    207.59           17.62
+  yope_profile_N500_sphere.csv     broadphase_sap    157.85    196.28           14.92
+  yope_profile_N500_sphere.csv narrowphase_detect    154.49    370.35           14.60
+  yope_profile_N500_sphere.csv   publish_snapshot    135.83    151.57           12.84
+   yope_profile_N8000_aabb.csv          pgs_solve  38569.99  81358.12           40.45
+   yope_profile_N8000_aabb.csv       island_build  18482.75  38370.38           19.38
+   yope_profile_N8000_aabb.csv narrowphase_detect  14826.99  36443.45           15.55
+   yope_profile_N8000_aabb.csv     broadphase_sap   9141.15  10557.92            9.55
+   yope_profile_N8000_aabb.csv        integration   5968.15  10019.23            6.26
+    yope_profile_N8000_obb.csv          pgs_solve  33990.91  71494.07           33.60
+    yope_profile_N8000_obb.csv narrowphase_detect  27581.82  37334.46           27.17
+    yope_profile_N8000_obb.csv     broadphase_sap  12122.33  15903.56           11.94
+    yope_profile_N8000_obb.csv       island_build  11768.94  15494.12           11.59
+    yope_profile_N8000_obb.csv        integration   7243.27   8908.97            7.16
+ yope_profile_N8000_sphere.csv          pgs_solve  20231.89  25732.12           30.86
+ yope_profile_N8000_sphere.csv narrowphase_detect  13601.04  14832.10           20.70
+ yope_profile_N8000_sphere.csv       island_build  10659.92  14734.05           16.22
+ yope_profile_N8000_sphere.csv     broadphase_sap   7780.81   8890.69           11.84
+ yope_profile_N8000_sphere.csv        integration   5503.28   9357.11            8.39
+
+=== top5_cpu: top 5 PHYSICS stages by aggregate CPU share (incl. workers) ===
+    share_cpu_pct = fraction of (main wall + worker CPU) per file
+                   source_file              stage           kind   mean_us    p99_us  share_cpu_pct
+   yope_profile_N1000_aabb.csv        integration main_wall_leaf    615.46    651.31          26.45
+   yope_profile_N1000_aabb.csv     broadphase_sap main_wall_leaf    434.14    498.09          18.66
+   yope_profile_N1000_aabb.csv  entity_list_build main_wall_leaf    386.24    406.81          16.60
+   yope_profile_N1000_aabb.csv narrowphase_detect main_wall_leaf    330.31    566.58          14.20
+   yope_profile_N1000_aabb.csv   publish_snapshot main_wall_leaf    290.01    305.21          12.46
+    yope_profile_N1000_obb.csv         pgs_island     worker_cpu    109.08    225.21          23.12
+    yope_profile_N1000_obb.csv        integration main_wall_leaf    619.25    845.54          18.71
+    yope_profile_N1000_obb.csv     broadphase_sap main_wall_leaf    512.49    745.86          15.48
+    yope_profile_N1000_obb.csv  entity_list_build main_wall_leaf    398.09    434.88          12.02
+    yope_profile_N1000_obb.csv narrowphase_detect main_wall_leaf    349.20    803.69          10.55
+ yope_profile_N1000_sphere.csv        integration main_wall_leaf    619.65    693.89          27.52
+ yope_profile_N1000_sphere.csv  entity_list_build main_wall_leaf    390.16    436.76          17.33
+ yope_profile_N1000_sphere.csv     broadphase_sap main_wall_leaf    365.29    445.07          16.22
+ yope_profile_N1000_sphere.csv narrowphase_detect main_wall_leaf    316.27    569.20          14.05
+ yope_profile_N1000_sphere.csv   publish_snapshot main_wall_leaf    289.61    318.36          12.86
+  yope_profile_N12000_aabb.csv         pgs_island     worker_cpu    318.37    913.00          76.31
+  yope_profile_N12000_aabb.csv          pgs_solve main_wall_leaf  48474.48  93702.67           8.72
+  yope_profile_N12000_aabb.csv       island_build main_wall_leaf  23416.47  30464.92           4.21
+  yope_profile_N12000_aabb.csv narrowphase_detect main_wall_leaf  19363.75  23992.24           3.64
+  yope_profile_N12000_aabb.csv     broadphase_sap main_wall_leaf  16948.58  19582.30           3.18
+   yope_profile_N12000_obb.csv         pgs_island     worker_cpu    325.72   1704.59          71.88
+   yope_profile_N12000_obb.csv          pgs_solve main_wall_leaf  39117.10  46845.33           8.11
+   yope_profile_N12000_obb.csv narrowphase_detect main_wall_leaf  34330.15  44498.89           7.48
+   yope_profile_N12000_obb.csv     broadphase_sap main_wall_leaf  20229.52  25494.83           4.41
+   yope_profile_N12000_obb.csv       island_build main_wall_leaf  15162.01  18392.01           3.14
+yope_profile_N12000_sphere.csv         pgs_island     worker_cpu    170.82    414.11          70.78
+yope_profile_N12000_sphere.csv          pgs_solve main_wall_leaf  25764.65  32286.26           8.08
+yope_profile_N12000_sphere.csv narrowphase_detect main_wall_leaf  18304.73  21848.34           5.87
+yope_profile_N12000_sphere.csv     broadphase_sap main_wall_leaf  14678.68  17411.98           4.70
+yope_profile_N12000_sphere.csv       island_build main_wall_leaf  13723.80  18784.51           4.30
+  yope_profile_N16000_aabb.csv         pgs_island     worker_cpu    353.05    840.12          74.37
+  yope_profile_N16000_aabb.csv          pgs_solve main_wall_leaf  55310.25  72662.82           8.38
+  yope_profile_N16000_aabb.csv     broadphase_sap main_wall_leaf  24955.68  28325.96           4.47
+  yope_profile_N16000_aabb.csv       island_build main_wall_leaf  28226.07  38044.21           4.28
+  yope_profile_N16000_aabb.csv narrowphase_detect main_wall_leaf  20370.30  30160.92           3.65
+   yope_profile_N16000_obb.csv         pgs_island     worker_cpu    379.74   2445.16          70.02
+   yope_profile_N16000_obb.csv          pgs_solve main_wall_leaf  44999.53  62761.85           7.90
+   yope_profile_N16000_obb.csv narrowphase_detect main_wall_leaf  35356.58  56563.12           7.32
+   yope_profile_N16000_obb.csv     broadphase_sap main_wall_leaf  27809.36  36204.88           5.75
+   yope_profile_N16000_obb.csv       island_build main_wall_leaf  17019.58  22963.40           2.99
+yope_profile_N16000_sphere.csv         pgs_island     worker_cpu    215.94    720.62          69.12
+yope_profile_N16000_sphere.csv          pgs_solve main_wall_leaf  33785.75  62200.16           7.92
+yope_profile_N16000_sphere.csv     broadphase_sap main_wall_leaf  22970.49  30721.56           6.07
+yope_profile_N16000_sphere.csv narrowphase_detect main_wall_leaf  21892.36  39585.44           5.78
+yope_profile_N16000_sphere.csv       island_build main_wall_leaf  17449.52  26789.26           4.09
+   yope_profile_N2000_aabb.csv         pgs_island     worker_cpu     72.88    163.38          76.74
+   yope_profile_N2000_aabb.csv          pgs_solve main_wall_leaf   6341.97   8588.49           9.17
+   yope_profile_N2000_aabb.csv       island_build main_wall_leaf   2862.39   4283.70           4.14
+   yope_profile_N2000_aabb.csv narrowphase_detect main_wall_leaf   2577.85   3404.09           3.73
+   yope_profile_N2000_aabb.csv        integration main_wall_leaf   1317.27   3164.70           1.91
+    yope_profile_N2000_obb.csv         pgs_island     worker_cpu    122.76    274.58          80.09
+    yope_profile_N2000_obb.csv          pgs_solve main_wall_leaf  11178.14  18567.47           9.72
+    yope_profile_N2000_obb.csv narrowphase_detect main_wall_leaf   4459.60   5740.11           3.88
+    yope_profile_N2000_obb.csv       island_build main_wall_leaf   2496.34   3901.41           2.17
+    yope_profile_N2000_obb.csv        integration main_wall_leaf   1514.65   3016.93           1.32
+ yope_profile_N2000_sphere.csv         pgs_island     worker_cpu     42.12     98.48          70.38
+ yope_profile_N2000_sphere.csv          pgs_solve main_wall_leaf   3936.54   5824.31           9.18
+ yope_profile_N2000_sphere.csv narrowphase_detect main_wall_leaf   2605.53   3464.56           6.07
+ yope_profile_N2000_sphere.csv       island_build main_wall_leaf   1895.92   3814.47           4.42
+ yope_profile_N2000_sphere.csv        integration main_wall_leaf   1349.61   3158.19           3.15
+   yope_profile_N4000_aabb.csv         pgs_island     worker_cpu    117.56    255.62          78.05
+   yope_profile_N4000_aabb.csv          pgs_solve main_wall_leaf  17605.86  19965.50           9.02
+   yope_profile_N4000_aabb.csv       island_build main_wall_leaf   8598.81  11937.24           4.40
+   yope_profile_N4000_aabb.csv narrowphase_detect main_wall_leaf   6905.17   7649.85           3.53
+   yope_profile_N4000_aabb.csv     broadphase_sap main_wall_leaf   2925.98   3452.82           1.50
+    yope_profile_N4000_obb.csv         pgs_island     worker_cpu    153.49    600.25          76.83
+    yope_profile_N4000_obb.csv          pgs_solve main_wall_leaf  21304.47  48337.94           9.15
+    yope_profile_N4000_obb.csv narrowphase_detect main_wall_leaf  13814.81  15840.05           5.94
+    yope_profile_N4000_obb.csv       island_build main_wall_leaf   6939.83   8414.29           2.98
+    yope_profile_N4000_obb.csv     broadphase_sap main_wall_leaf   3944.74   4889.19           1.70
+ yope_profile_N4000_sphere.csv         pgs_island     worker_cpu     66.93    174.38          73.19
+ yope_profile_N4000_sphere.csv          pgs_solve main_wall_leaf  10648.32  15252.10           8.99
+ yope_profile_N4000_sphere.csv narrowphase_detect main_wall_leaf   6680.30   7945.28           5.63
+ yope_profile_N4000_sphere.csv       island_build main_wall_leaf   5278.66   8776.38           4.45
+ yope_profile_N4000_sphere.csv        integration main_wall_leaf   2744.48   6073.58           2.32
+    yope_profile_N500_aabb.csv        integration main_wall_leaf    330.34    596.10          26.47
+    yope_profile_N500_aabb.csv     broadphase_sap main_wall_leaf    219.36    466.67          17.58
+    yope_profile_N500_aabb.csv  entity_list_build main_wall_leaf    211.05    424.13          16.91
+    yope_profile_N500_aabb.csv narrowphase_detect main_wall_leaf    178.95    431.07          14.34
+    yope_profile_N500_aabb.csv   publish_snapshot main_wall_leaf    156.89    252.01          12.57
+     yope_profile_N500_obb.csv        integration main_wall_leaf    310.70    355.19          26.23
+     yope_profile_N500_obb.csv     broadphase_sap main_wall_leaf    237.04    274.62          20.01
+     yope_profile_N500_obb.csv  entity_list_build main_wall_leaf    186.00    207.95          15.70
+     yope_profile_N500_obb.csv narrowphase_detect main_wall_leaf    168.01    398.85          14.18
+     yope_profile_N500_obb.csv   publish_snapshot main_wall_leaf    143.79    158.44          12.14
+  yope_profile_N500_sphere.csv        integration main_wall_leaf    292.13    328.52          27.61
+  yope_profile_N500_sphere.csv  entity_list_build main_wall_leaf    186.44    207.59          17.62
+  yope_profile_N500_sphere.csv     broadphase_sap main_wall_leaf    157.85    196.28          14.92
+  yope_profile_N500_sphere.csv narrowphase_detect main_wall_leaf    154.49    370.35          14.60
+  yope_profile_N500_sphere.csv   publish_snapshot main_wall_leaf    135.83    151.57          12.84
+   yope_profile_N8000_aabb.csv         pgs_island     worker_cpu    246.54    816.22          77.51
+   yope_profile_N8000_aabb.csv          pgs_solve main_wall_leaf  38569.99  81358.12           9.10
+   yope_profile_N8000_aabb.csv       island_build main_wall_leaf  18482.75  38370.38           4.36
+   yope_profile_N8000_aabb.csv narrowphase_detect main_wall_leaf  14826.99  36443.45           3.50
+   yope_profile_N8000_aabb.csv     broadphase_sap main_wall_leaf   9141.15  10557.92           2.15
+    yope_profile_N8000_obb.csv         pgs_island     worker_cpu    247.51   1029.76          74.03
+    yope_profile_N8000_obb.csv          pgs_solve main_wall_leaf  33990.91  71494.07           8.73
+    yope_profile_N8000_obb.csv narrowphase_detect main_wall_leaf  27581.82  37334.46           7.06
+    yope_profile_N8000_obb.csv     broadphase_sap main_wall_leaf  12122.33  15903.56           3.10
+    yope_profile_N8000_obb.csv       island_build main_wall_leaf  11768.94  15494.12           3.01
+ yope_profile_N8000_sphere.csv         pgs_island     worker_cpu    130.79    382.36          72.47
+ yope_profile_N8000_sphere.csv          pgs_solve main_wall_leaf  20231.89  25732.12           8.50
+ yope_profile_N8000_sphere.csv narrowphase_detect main_wall_leaf  13601.04  14832.10           5.70
+ yope_profile_N8000_sphere.csv       island_build main_wall_leaf  10659.92  14734.05           4.47
+ yope_profile_N8000_sphere.csv     broadphase_sap main_wall_leaf   7780.81   8890.69           3.26
+
+=== parallel: PGS parallel efficiency per file ===
+    effective_workers = sum(pgs_island µs) / pgs_solve µs
+    near hardware_concurrency-1 = fully parallel; near 1.0 = serialized
+                   source_file  steps  eff_workers_mean  eff_workers_p5  eff_workers_p95  solve_wall_mean_us  island_cpu_mean_us
+    yope_profile_N1000_obb.csv     46              8.71            8.51             8.86            12524.55           109080.98
+  yope_profile_N12000_aabb.csv    208              8.75            8.10             8.92            48474.48           423976.54
+   yope_profile_N12000_obb.csv    212              8.84            8.62             8.94            39117.10           346910.38
+yope_profile_N12000_sphere.csv    312              8.71            8.38             8.88            25764.65           225801.33
+  yope_profile_N16000_aabb.csv    164              8.81            8.50             8.93            55310.25           490934.61
+   yope_profile_N16000_obb.csv    168              8.83            8.60             8.94            44999.53           398804.54
+yope_profile_N16000_sphere.csv    228              8.67            8.04             8.90            33785.75           294994.11
+   yope_profile_N2000_aabb.csv   1719              8.38            7.71             8.73             6341.97            53049.94
+    yope_profile_N2000_obb.csv   1226              8.30            6.32             8.85            11178.14            92068.97
+ yope_profile_N2000_sphere.csv   2256              7.72            6.64             8.42             3936.54            30181.76
+   yope_profile_N4000_aabb.csv    638              8.65            8.43             8.80            17605.86           152362.92
+    yope_profile_N4000_obb.csv    522              8.52            7.59             8.85            21304.47           178806.56
+ yope_profile_N4000_sphere.csv    901              8.18            7.33             8.65            10648.32            86706.69
+   yope_profile_N8000_aabb.csv    289              8.61            7.54             8.89            38569.99           328591.58
+    yope_profile_N8000_obb.csv    280              8.58            7.53             8.89            33990.91           288332.61
+ yope_profile_N8000_sphere.csv    435              8.53            8.12             8.80            20231.89           172589.95
+
+=== pairs: query-vs-work breakdown per pair, per N ===
+    siblings: query and full are independent scopes; work = full - query
+    nested:   query is INSIDE parent; work = parent - query
+
+     N  pair                              query µs     full µs     work µs   query/full    work/N µs
+--------------------------------------------------------------------------------------------------------------
+   500  entity_list_build                     56.8       211.0       154.2        26.9%      0.3085
+   500  integration                           94.5       330.3       235.9        28.6%      0.4718
+   500  raster_cmdbuffer_record               93.4      1282.3      1188.9         7.3%      2.3779
+
+   500  entity_list_build                     49.0       186.0       137.0        26.3%      0.2740
+   500  integration                           90.0       310.7       220.6        29.0%      0.4413
+   500  raster_cmdbuffer_record               81.6      1243.0      1161.4         6.6%      2.3228
+
+   500  entity_list_build                     48.1       186.4       138.4        25.8%      0.2768
+   500  integration                           83.4       292.1       208.8        28.5%      0.4175
+   500  raster_cmdbuffer_record               82.6      1142.6      1060.0         7.2%      2.1200
+
+  1000  entity_list_build                     95.2       386.2       291.0        24.7%      0.2910
+  1000  integration                          175.4       615.5       440.1        28.5%      0.4401
+  1000  raster_cmdbuffer_record              175.7      2548.1      2372.3         6.9%      2.3723
+
+  1000  entity_list_build                     99.6       398.1       298.5        25.0%      0.2985
+  1000  integration                          176.8       619.2       442.5        28.5%      0.4425
+  1000  raster_cmdbuffer_record              170.5      2488.1      2317.6         6.9%      2.3176
+
+  1000  entity_list_build                     97.9       390.2       292.3        25.1%      0.2923
+  1000  integration                          172.7       619.7       446.9        27.9%      0.4469
+  1000  raster_cmdbuffer_record              177.8      2630.0      2452.2         6.8%      2.4522
+
+  2000  entity_list_build                    201.3       793.5       592.2        25.4%      0.2961
+  2000  integration                          354.6      1317.3       962.6        26.9%      0.4813
+  2000  raster_cmdbuffer_record              345.7      5971.2      5625.5         5.8%      2.8128
+
+  2000  entity_list_build                    202.8       814.7       612.0        24.9%      0.3060
+  2000  integration                          353.2      1514.7      1161.4        23.3%      0.5807
+  2000  raster_cmdbuffer_record              340.3      5958.7      5618.4         5.7%      2.8092
+
+  2000  entity_list_build                    204.5       811.9       607.4        25.2%      0.3037
+  2000  integration                          359.4      1349.6       990.3        26.6%      0.4951
+  2000  raster_cmdbuffer_record              342.9      6236.3      5893.4         5.5%      2.9467
+
+  4000  entity_list_build                    418.2      1669.7      1251.4        25.0%      0.3129
+  4000  integration                          737.3      2814.6      2077.3        26.2%      0.5193
+  4000  raster_cmdbuffer_record              699.3     13402.8     12703.5         5.2%      3.1759
+
+  4000  entity_list_build                    439.6      1824.9      1385.3        24.1%      0.3463
+  4000  integration                          885.2      3518.7      2633.5        25.2%      0.6584
+  4000  raster_cmdbuffer_record              723.0     13869.1     13146.1         5.2%      3.2865
+
+  4000  entity_list_build                    406.5      1602.6      1196.1        25.4%      0.2990
+  4000  integration                          720.3      2744.5      2024.2        26.2%      0.5060
+  4000  raster_cmdbuffer_record              682.5     13851.8     13169.3         4.9%      3.2923
+
+  8000  entity_list_build                    888.2      3484.9      2596.7        25.5%      0.3246
+  8000  integration                         1509.5      5968.1      4458.6        25.3%      0.5573
+  8000  raster_cmdbuffer_record             1435.9     28506.8     27071.0         5.0%      3.3839
+
+  8000  entity_list_build                    892.6      3566.1      2673.5        25.0%      0.3342
+  8000  integration                         1611.0      7243.3      5632.3        22.2%      0.7040
+  8000  raster_cmdbuffer_record             1459.0     26016.6     24557.6         5.6%      3.0697
+
+  8000  entity_list_build                    827.5      3261.5      2434.0        25.4%      0.3043
+  8000  integration                         1442.9      5503.3      4060.3        26.2%      0.5075
+  8000  raster_cmdbuffer_record             1370.8     28741.5     27370.7         4.8%      3.4213
+
+ 12000  entity_list_build                   1286.7      5159.3      3872.7        24.9%      0.3227
+ 12000  integration                         2230.2      8653.4      6423.2        25.8%      0.5353
+ 12000  raster_cmdbuffer_record             2083.4     40027.4     37944.0         5.2%      3.1620
+
+ 12000  entity_list_build                   1316.2      5256.2      3940.0        25.0%      0.3283
+ 12000  integration                         2317.8     10273.3      7955.5        22.6%      0.6630
+ 12000  raster_cmdbuffer_record             2091.9     37313.4     35221.5         5.6%      2.9351
+
+ 12000  entity_list_build                   1206.0      4767.2      3561.2        25.3%      0.2968
+ 12000  integration                         2119.9      8034.8      5914.9        26.4%      0.4929
+ 12000  raster_cmdbuffer_record             2019.8     38186.0     36166.2         5.3%      3.0138
+
+ 16000  entity_list_build                   1657.8      6640.0      4982.2        25.0%      0.3114
+ 16000  integration                         2948.5     11126.9      8178.5        26.5%      0.5112
+ 16000  raster_cmdbuffer_record             2714.7     53157.1     50442.4         5.1%      3.1526
+
+ 16000  entity_list_build                   1671.3      6726.1      5054.8        24.8%      0.3159
+ 16000  integration                         2970.6     12821.1      9850.6        23.2%      0.6157
+ 16000  raster_cmdbuffer_record             2707.3     50988.7     48281.4         5.3%      3.0176
+
+ 16000  entity_list_build                   1645.2      6536.7      4891.5        25.2%      0.3057
+ 16000  integration                         2826.7     10927.8      8101.1        25.9%      0.5063
+ 16000  raster_cmdbuffer_record             2661.8     58395.4     55733.6         4.6%      3.4834
+
+--- power-law slopes per pair (consecutive N) ---
+pair                              series  slopes
+--------------------------------------------------------------------------------
+entity_list_build                  query   1.03  1.06  0.99  1.03  0.93  1.08
+                                    work   1.08  1.06  0.98  1.03  0.94  1.10
+integration                        query   1.05  1.06  1.00  1.00  0.95  1.00
+                                    work   1.10  1.15  1.03  1.00  0.93  1.09
+raster_cmdbuffer_record            query   1.11  0.95  0.99  1.01  0.96  0.96
+                                    work   1.21  1.27  1.16  1.06  0.69  1.50
+
+=== scaling: per-stage mean µs across N + power-law slopes ===
+    N values: [500, 1000, 2000, 4000, 8000, 12000, 16000]
+
+stage                                500        1000        2000        4000        8000       12000       16000  | slopes:    500→1000   1000→2000   2000→4000   4000→8000  8000→12000  12000→16000
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+pgs_solve                              —     12524.5      6438.6     15501.0     29347.7     36084.8     43453.5  | slopes:           —       -0.96        1.27        0.92        0.51        0.65
+pgs_wait                               —     11584.6      4670.1      9847.3     22483.3     31335.7     40030.3  | slopes:           —       -1.31        1.08        1.19        0.82        0.85
+narrowphase_detect                 167.1       331.8      3033.3      8558.6     17847.5     23315.9     25545.1  | slopes:        0.99        3.19        1.50        1.06        0.66        0.32
+broadphase_sap                     204.7       436.7      1074.4      3017.5      9382.3     16958.5     25040.2  | slopes:        1.09        1.30        1.49        1.64        1.46        1.35
+island_build                           —      2006.8      2356.8      6727.9     13225.0     16894.5     20476.5  | slopes:           —        0.23        1.51        0.98        0.60        0.67
+sap_sweep                           23.8        78.2       350.3      1471.4      6144.3     12208.2     18800.7  | slopes:        1.72        2.16        2.07        2.06        1.69        1.50
+integration                        311.0       618.1      1377.8      2962.3      6122.3      8868.2     11566.9  | slopes:        0.99        1.16        1.10        1.05        0.91        0.92
+island_entity_cache                    —       988.1       960.4      2754.6      5378.9      6766.2      8330.6  | slopes:           —       -0.04        1.52        0.97        0.57        0.72
+entity_list_build                  194.5       391.4       806.5      1679.7      3410.7      5022.5      6625.5  | slopes:        1.01        1.04        1.06        1.02        0.95        0.96
+sap_build                          168.2       337.3       657.3      1397.0      2880.8      4229.3      5590.1  | slopes:        1.00        0.96        1.09        1.04        0.95        0.97
+nphase_obb_obb                       0.0         0.0       288.8      1311.7      3471.1      4873.3      5296.9  | slopes:           —           —        2.18        1.40        0.84        0.29
+publish_snapshot                   145.5       289.1       578.2      1185.0      2461.5      3576.4      4739.8  | slopes:        0.99        1.00        1.04        1.05        0.92        0.98
+island_id_assign                       —       326.3       456.9      1342.0      2695.0      3615.3      4380.2  | slopes:           —        0.49        1.55        1.01        0.72        0.67
+island_partition                       —       356.4       493.3      1431.6      2749.1      3314.7      3868.3  | slopes:           —        0.47        1.54        0.94        0.46        0.54
+pgs_dispatch                           —       939.3      1763.4      5649.0      6864.0      4744.8      3418.8  | slopes:           —        0.91        1.68        0.28       -0.91       -1.14
+integration_query                   89.3       175.0       356.4       767.3      1509.0      2209.6      2907.0  | slopes:        0.97        1.03        1.11        0.98        0.94        0.95
+island_unionfind                       —        73.7       153.4       533.0      1338.3      1876.1      2327.4  | slopes:           —        1.06        1.80        1.33        0.83        0.75
+nphase_sph_sph                       0.0         0.0       110.8       433.6      1113.1      1552.9      1804.3  | slopes:           —           —        1.97        1.36        0.82        0.52
+entity_list_build_query             51.3        97.5       203.0       418.5       863.1      1261.3      1656.9  | slopes:        0.93        1.06        1.04        1.04        0.94        0.95
+island_wake                            —       257.2       280.0       642.6      1010.8      1254.8      1477.6  | slopes:           —        0.12        1.20        0.65        0.53        0.57
+nphase_aabb_aabb                     0.0         0.0       170.7       470.2       972.4      1307.7      1413.2  | slopes:           —           —        1.46        1.05        0.73        0.27
+sap_sort                             8.5        14.8        53.2       127.9       317.8       467.9       584.8  | slopes:        0.80        1.85        1.27        1.31        0.95        0.78
+nphase_aabb_obb                      0.0         3.0       244.6       550.1       588.2       568.0       510.9  | slopes:           —        6.36        1.17        0.10       -0.09       -0.37
+pgs_island                             —       109.1        71.9       103.3       195.1       253.7       300.0  | slopes:           —       -0.60        0.52        0.92        0.65        0.58
+nphase_sph_aabb                      0.0         0.0       114.7       210.6       216.6       197.5       172.9  | slopes:           —           —        0.88        0.04       -0.23       -0.46
+spring_update                        0.0         0.0         0.1         0.2         0.3         0.2         0.2  | slopes:       -0.14        1.98        0.75        0.32       -0.28       -0.22
+spring_proxy_sync                    0.1         0.0         0.1         0.1         0.2         0.1         0.2  | slopes:       -0.04        0.60        0.85        0.46       -0.63        1.22
+
+=== load_balance: per-N pgs_island load distribution ===
+    biggest_share  = max island's share of total per-step CPU (lower=better)
+    parallel_lb_us = max(biggest_island_us, total_cpu_us / 9) per step
+    inefficiency   = (solve_wall - parallel_lb) / solve_wall (lower=better)
+
+     N   steps   mean_islands   max_island_us   sum_island_us   biggest_share  parallel_lb_us  observed_solve   inefficiency
+----------------------------------------------------------------------------------------------------------------------------------
+  1000      46         1000.0           678.1        109081.0            0.6%         12120.1         12524.5           3.2%
+  2000    1719          727.9           630.3         53049.9            1.2%          5894.4          6342.0           6.9%
+  2000    1226          750.0          1452.4         92069.0            1.6%         10250.4         11178.1           7.7%
+  2000    2256          716.6           382.8         30181.8            1.2%          3353.5          3936.5          14.2%
+  4000     638         1296.0          1518.9        152362.9            1.0%         16929.2         17605.9           3.8%
+  4000     522         1164.9          3437.9        178806.6            1.8%         19976.8         21304.5           5.1%
+  4000     901         1295.4          1169.1         86706.7            1.3%          9634.1         10648.3           9.1%
+  8000     289         1332.8          6250.6        328591.6            1.6%         36526.8         38570.0           4.3%
+  8000     280         1164.9          5613.7        288332.6            1.7%         32050.2         33990.9           4.7%
+  8000     435         1319.6          2750.1        172590.0            1.6%         19176.7         20231.9           5.2%
+ 12000     208         1331.7          4576.1        423976.5            0.9%         47108.5         48474.5           2.8%
+ 12000     212         1065.1          4143.8        346910.4            1.2%         38545.6         39117.1           1.7%
+ 12000     312         1321.9          1895.6        225801.3            0.8%         25089.0         25764.6           3.2%
+ 16000     164         1390.6          2910.3        490934.6            0.6%         54548.3         55310.2           2.1%
+ 16000     168         1050.2          5375.6        398804.5            1.2%         44311.6         44999.5           1.9%
+ 16000     228         1366.1          3308.6        294994.1            1.0%         32777.1         33785.7           3.6%
+
+=== island_buckets: contact-weighted island size distribution (N=16000) ===
+    What fraction of total solve CPU comes from islands in each size bucket.
+    (compare to plot_island_distribution which weighs by COUNT not WORK)
+
+size_bucket  n_islands  total_cpu_us  mean_us_per_island  pct_of_solve_cpu
+          1      47434     1432994.0                30.2               0.7
+        2-3      32549     2560916.3                78.7               1.2
+        4-5      37922     4851898.2               127.9               2.3
+       6-10      98824    22792792.1               230.6              10.6
+      11-20     479174   158855030.5               331.5              74.0
+      21-50      15888    13740841.9               864.9               6.4
+     51-100       3320     6467927.4              1948.2               3.0
+    101-500        845     3956363.8              4682.1               1.8
+     501-5k          7      112331.9             16047.4               0.1
+
+=== shape_compare: per-stage mean µs at N=16000 by shape ===
+    shapes present at this N: ['aabb', 'obb', 'sphere']
+
+stage                               aabb         obb      sphere  | max/min
+---------------------------------------------------------------------------
+pgs_solve                        55310.2     44999.5     33785.7  |   1.64×
+pgs_wait                         51505.1     41340.1     30811.4  |   1.67×
+narrowphase_detect               20370.3     35356.6     21892.4  |   1.74×
+broadphase_sap                   24955.7     27809.4     22970.5  |   1.21×
+island_build                     28226.1     17019.6     17449.5  |   1.66×
+sap_sweep                        18868.9     19826.3     17958.9  |   1.10×
+integration                      11126.9     12821.1     10927.8  |   1.17×
+island_entity_cache              15905.3      5644.1      4861.8  |   3.27×
+entity_list_build                 6640.0      6726.1      6536.7  |   1.03×
+nphase_obb_obb                         —     17362.2           —  |       —
+sap_build                         5639.5      6849.1      4583.0  |   1.49×
+publish_snapshot                  4738.0      4808.7      4687.8  |   1.03×
+island_id_assign                  4365.3      4143.5      4565.4  |   1.10×
+island_partition                  3927.7      3659.1      3979.7  |   1.09×
+pgs_dispatch                      3798.8      3655.2      2971.2  |   1.28×
+integration_query                 2948.5      2970.6      2826.7  |   1.05×
+island_unionfind                  2378.2      2220.5      2369.6  |   1.07×
+entity_list_build_query           1657.8      1671.3      1645.2  |   1.02×
+nphase_aabb_aabb                  4727.6           —           —  |       —
+nphase_sph_sph                         —           —      4556.4  |       —
+island_wake                       1576.2      1218.1      1598.0  |   1.31×
+sap_sort                           382.9      1070.1       362.5  |   2.95×
+nphase_aabb_obb                        —      1674.5           —  |       —
+pgs_island                         353.0       379.7       215.9  |   1.76×
+nphase_sph_aabb                        —           —       436.7  |       —
+spring_update                        0.2         0.2         0.3  |   1.65×
+spring_proxy_sync                    0.2         0.2         0.3  |   1.84×
+
+--- plots ---
+  wrote analysis/breakdown_yope_profile_N1000_aabb.png
+  wrote analysis/breakdown_yope_profile_N1000_obb.png
+  wrote analysis/breakdown_yope_profile_N1000_sphere.png
+  wrote analysis/breakdown_yope_profile_N12000_aabb.png
+  wrote analysis/breakdown_yope_profile_N12000_obb.png
+  wrote analysis/breakdown_yope_profile_N12000_sphere.png
+  wrote analysis/breakdown_yope_profile_N16000_aabb.png
+  wrote analysis/breakdown_yope_profile_N16000_obb.png
+  wrote analysis/breakdown_yope_profile_N16000_sphere.png
+  wrote analysis/breakdown_yope_profile_N2000_aabb.png
+  wrote analysis/breakdown_yope_profile_N2000_obb.png
+  wrote analysis/breakdown_yope_profile_N2000_sphere.png
+  wrote analysis/breakdown_yope_profile_N4000_aabb.png
+  wrote analysis/breakdown_yope_profile_N4000_obb.png
+  wrote analysis/breakdown_yope_profile_N4000_sphere.png
+  wrote analysis/breakdown_yope_profile_N500_aabb.png
+  wrote analysis/breakdown_yope_profile_N500_obb.png
+  wrote analysis/breakdown_yope_profile_N500_sphere.png
+  wrote analysis/breakdown_yope_profile_N8000_aabb.png
+  wrote analysis/breakdown_yope_profile_N8000_obb.png
+  wrote analysis/breakdown_yope_profile_N8000_sphere.png
+  wrote analysis/scaling_loglog.png
+  wrote analysis/query_vs_work.png
+  wrote analysis/island_distribution.png
+  wrote analysis/frametime_cdf.png
+  wrote analysis/steptime_series_yope_profile_N1000_aabb.png
+  wrote analysis/steptime_series_yope_profile_N1000_obb.png
+  wrote analysis/steptime_series_yope_profile_N1000_sphere.png
+  wrote analysis/steptime_series_yope_profile_N12000_aabb.png
+  wrote analysis/steptime_series_yope_profile_N12000_obb.png
+  wrote analysis/steptime_series_yope_profile_N12000_sphere.png
+  wrote analysis/steptime_series_yope_profile_N16000_aabb.png
+  wrote analysis/steptime_series_yope_profile_N16000_obb.png
+  wrote analysis/steptime_series_yope_profile_N16000_sphere.png
+  wrote analysis/steptime_series_yope_profile_N2000_aabb.png
+  wrote analysis/steptime_series_yope_profile_N2000_obb.png
+  wrote analysis/steptime_series_yope_profile_N2000_sphere.png
+  wrote analysis/steptime_series_yope_profile_N4000_aabb.png
+  wrote analysis/steptime_series_yope_profile_N4000_obb.png
+  wrote analysis/steptime_series_yope_profile_N4000_sphere.png
+  wrote analysis/steptime_series_yope_profile_N500_aabb.png
+  wrote analysis/steptime_series_yope_profile_N500_obb.png
+  wrote analysis/steptime_series_yope_profile_N500_sphere.png
+  wrote analysis/steptime_series_yope_profile_N8000_aabb.png
+  wrote analysis/steptime_series_yope_profile_N8000_obb.png
+  wrote analysis/steptime_series_yope_profile_N8000_sphere.png
+  wrote analysis/crossthread_yope_profile_N1000_aabb.png
+  wrote analysis/crossthread_yope_profile_N1000_obb.png
+  wrote analysis/crossthread_yope_profile_N1000_sphere.png
+  wrote analysis/crossthread_yope_profile_N12000_aabb.png
+  wrote analysis/crossthread_yope_profile_N12000_obb.png
+  wrote analysis/crossthread_yope_profile_N12000_sphere.png
+  wrote analysis/crossthread_yope_profile_N16000_aabb.png
+  wrote analysis/crossthread_yope_profile_N16000_obb.png
+  wrote analysis/crossthread_yope_profile_N16000_sphere.png
+  wrote analysis/crossthread_yope_profile_N2000_aabb.png
+  wrote analysis/crossthread_yope_profile_N2000_obb.png
+  wrote analysis/crossthread_yope_profile_N2000_sphere.png
+  wrote analysis/crossthread_yope_profile_N4000_aabb.png
+  wrote analysis/crossthread_yope_profile_N4000_obb.png
+  wrote analysis/crossthread_yope_profile_N4000_sphere.png
+  wrote analysis/crossthread_yope_profile_N500_aabb.png
+  wrote analysis/crossthread_yope_profile_N500_obb.png
+  wrote analysis/crossthread_yope_profile_N500_sphere.png
+  wrote analysis/crossthread_yope_profile_N8000_aabb.png
+  wrote analysis/crossthread_yope_profile_N8000_obb.png
+  wrote analysis/crossthread_yope_profile_N8000_sphere.png
+  wrote analysis/narrowphase_mix.png

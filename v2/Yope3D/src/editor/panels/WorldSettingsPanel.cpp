@@ -1,0 +1,108 @@
+#include "editor/panels/WorldSettingsPanel.h"
+#include "editor/EditorContext.h"
+#include "world/World.h"
+#include "Engine.h"
+#include <imgui.h>
+
+void WorldSettingsPanel::draw(EditorContext& ctx) {
+    if (!visible) return;
+    ImGui::Begin("World Settings", &visible);
+
+    if (!ctx.world) { ImGui::End(); return; }
+
+    float g[3] = { ctx.world->gravity.x, ctx.world->gravity.y, ctx.world->gravity.z };
+    if (ImGui::DragFloat3("Gravity", g, 0.1f))
+        ctx.world->gravity = { g[0], g[1], g[2] };
+
+    ImGui::SliderFloat("Exposure", &ctx.world->exposure, 0.0f, 4.0f, "%.2f");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset##exposure")) ctx.world->exposure = 1.0f;
+
+    if (ImGui::CollapsingHeader("Shadows", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::SliderFloat("Normal Bias", &ctx.world->shadowNormalBias, 0.0f, 0.5f, "%.3f");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reset##shadowNormalBias")) ctx.world->shadowNormalBias = 0.035f;
+        ImGui::TextDisabled("World-space offset along the surface normal (main acne fix)");
+
+        ImGui::SliderFloat("Depth Bias", &ctx.world->shadowBias, 0.0f, 0.02f, "%.4f");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reset##shadowBias")) ctx.world->shadowBias = 0.0006f;
+        ImGui::TextDisabled("Extra safety margin on top of normal bias");
+
+        ImGui::SliderFloat("PCF Radius", &ctx.world->shadowPcfRadius, 0.0f, 4.0f, "%.2f");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reset##shadowPcfRadius")) ctx.world->shadowPcfRadius = 1.0f;
+        ImGui::TextDisabled("Softening kernel spread, in shadow-texel multiples");
+
+        ImGui::SliderFloat("Ortho Half-Extent", &ctx.world->shadowOrthoHalfExtent, 2.0f, 100.0f, "%.1f");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reset##shadowOrthoHalfExtent")) ctx.world->shadowOrthoHalfExtent = 20.0f;
+        ImGui::TextDisabled("Directional caster's shadow box size (camera-centered); smaller = sharper");
+
+        ImGui::SliderFloat("Ortho Far", &ctx.world->shadowOrthoFar, 1.0f, 200.0f, "%.1f");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reset##shadowOrthoFar")) ctx.world->shadowOrthoFar = 40.0f;
+
+        ImGui::SliderFloat("Spot Near", &ctx.world->shadowSpotNear, 0.05f, 10.0f, "%.2f");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reset##shadowSpotNear")) ctx.world->shadowSpotNear = 1.0f;
+        ImGui::TextDisabled("Spot caster's near plane; keep as large as the scene allows for depth precision");
+
+        ImGui::SliderFloat("Spot Far", &ctx.world->shadowSpotFar, 1.0f, 200.0f, "%.1f");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reset##shadowSpotFar")) ctx.world->shadowSpotFar = 30.0f;
+        ImGui::TextDisabled("Spot caster's far plane; no larger than the light's actual reach");
+
+        ImGui::SliderFloat("Point Near", &ctx.world->shadowPointNear, 0.01f, 5.0f, "%.2f");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reset##shadowPointNear")) ctx.world->shadowPointNear = 0.05f;
+        ImGui::TextDisabled("Point caster's near plane (all 6 cube faces); same precision tradeoff as Spot Near");
+
+        ImGui::SliderFloat("Point Far", &ctx.world->shadowPointFar, 1.0f, 200.0f, "%.1f");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reset##shadowPointFar")) ctx.world->shadowPointFar = 25.0f;
+        ImGui::TextDisabled("Point caster's far plane; no larger than the light's actual reach");
+    }
+
+    if (ctx.engine) {
+        const char* modes[] = { "RASTER", "RAYTRACE" };
+        int mode = static_cast<int>(ctx.engine->renderMode_);
+        if (ImGui::Combo("Render Mode", &mode, modes, 2))
+            ctx.engine->renderMode_ = static_cast<RenderMode>(mode);
+    }
+
+    if (ImGui::Checkbox("Debug Physics", &ctx.world->debugPhysics)) {
+        if (ctx.world->debugPhysics)
+            ctx.world->rebuildDebugMeshes();
+    }
+
+    if (ImGui::CollapsingHeader("Solver", ImGuiTreeNodeFlags_DefaultOpen)) {
+        bool warm = ctx.world->getWarmStart();
+        if (ImGui::Checkbox("Warm Start", &warm)) ctx.world->setWarmStart(warm);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Reuse last step's contact impulses as this step's initial guess.\n"
+                              "Off: stacks sink and jitter — PGS can't reconverge from zero\n"
+                              "in one step's iteration budget.");
+
+        ImGui::Checkbox("Contact Points", &ctx.world->debugContacts);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Draw each solved manifold point + normal.\n"
+                              "Color/length = normal impulse, relative to the frame's peak\n"
+                              "(blue = barely loaded, red = carrying the most force).");
+
+        float scale = ctx.world->getTimeScale();
+        if (ImGui::SliderFloat("Time Scale", &scale, 0.0f, 2.0f, "%.2fx"))
+            ctx.world->setTimeScale(scale);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Scales wall-clock time, not the step size — the sim still\n"
+                              "runs at a fixed 240 Hz. 0 freezes it.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("1x")) ctx.world->setTimeScale(1.0f);
+
+        ImGui::Text("pairs %d   contacts %d (%d pts)   islands %d",
+                    ctx.world->getPairCount(), ctx.world->getContactCount(),
+                    ctx.world->getContactPointCount(), ctx.world->getIslandCount());
+    }
+
+    ImGui::End();
+}

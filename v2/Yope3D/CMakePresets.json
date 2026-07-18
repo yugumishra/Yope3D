@@ -1,0 +1,54 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_CXX_STANDARD": "20"
+      }
+    },
+    {
+    "name": "mac-release",
+    "generator": "Ninja",
+    "inherits": "base",
+    "cacheVariables": { 
+        "CMAKE_BUILD_TYPE": "Release", 
+        "YOPE_EMBED_ASSETS": "ON"
+      },
+    "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+    },
+    {
+      "name": "mac-debug",
+      "generator": "Ninja",
+      "inherits": "base",
+      "cacheVariables": { 
+        "CMAKE_BUILD_TYPE": "Debug", 
+        "YOPE_EMBED_ASSETS": "OFF"
+      },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+    },
+    {
+    "name": "win-release",
+    "generator": "Visual Studio 17 2022",
+    "inherits": "base",
+    "cacheVariables": { 
+        "CMAKE_BUILD_TYPE": "Release", 
+        "YOPE_EMBED_ASSETS": "ON"
+      },
+    "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "win-debug",
+      "generator": "Visual Studio 17 2022",
+      "inherits": "base",
+      "cacheVariables": { 
+        "CMAKE_BUILD_TYPE": "Debug", 
+        "YOPE_EMBED_ASSETS": "OFF"
+      },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    }
+  ]
+}

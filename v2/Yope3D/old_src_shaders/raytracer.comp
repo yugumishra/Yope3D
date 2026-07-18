@@ -1,0 +1,355 @@
+#version 460
+layout(local_size_x = 8, local_size_y = 4, local_size_z = 1) in;
+
+layout (binding = 0, rgba32f) writeonly uniform image2D screen;
+
+layout(binding = 1, std430) readonly buffer LightBuffer {
+	vec4 lightData[];
+};
+
+layout (location = 3) uniform int numLights;
+layout (location = 4) uniform mat4 viewMatrix;
+layout (location = 5) uniform vec4 cameraInfo;
+
+struct Ray {
+	vec3 ray;
+	vec3 rayOrigin;
+};
+
+struct Hit {
+	vec3 normal;
+	vec3 intersection;
+	float latestInteraction;
+	int objectID;
+};
+
+
+Hit defaultHit() {
+	Hit hit;
+	hit.normal = vec3(0,0,0);
+	hit.intersection = vec3(0,0,0);
+	hit.latestInteraction = 100000000;
+	hit.objectID = -1;
+	return hit;
+}
+
+float planeTest(Ray ray, vec3 planeNormal, vec3 planePos) {
+	float denominator = dot(ray.ray, planeNormal);
+	if(abs(denominator) < 0.0001f) {
+		return -1.0;
+	}
+	
+	float t = dot(planePos - ray.rayOrigin, planeNormal) / denominator;
+	return t;
+}
+
+float sphereTest(Ray ray, vec3 sphereCenter, float radius) {
+	vec3 diff = ray.rayOrigin - sphereCenter;
+	float b = dot(ray.ray, diff);
+	float c = dot(diff, diff) - radius * radius;
+	float det = b * b - c;
+	
+	if(det < 0) return -1.0;
+	
+	return min(-b + sqrt(det), -b - sqrt(det));
+}
+
+//muller trumbore algorithm (not sure how it works)
+float triangleTest(Ray ray, vec3 v0, vec3 v1, vec3 v2, out vec3 hitNormal) {
+    vec3 edge1 = v1 - v0;
+    vec3 edge2 = v2 - v0;
+    vec3 h = cross(ray.ray, edge2);
+    float a = dot(edge1, h);
+    if (abs(a) < 0.0001) return -1.0;  //parallel, reject
+
+    float f = 1.0 / a;
+    vec3 s = ray.rayOrigin - v0;
+    float u = f * dot(s, h);
+    if (u < 0.0 || u > 1.0) return -1.0;
+
+    vec3 q = cross(s, edge1);
+    float v = f * dot(ray.ray, q);
+    if (v < 0.0 || u + v > 1.0) return -1.0;
+
+    float t = f * dot(edge2, q);
+    if (t > 0.0001) {  //intersect
+        hitNormal = normalize(cross(edge1, edge2));
+        return t;
+    } else {
+        return -1.0;
+    }
+}
+
+vec4 blinnPhongDirectional(vec3 lightDir, vec3 lightColor, float intensity, vec3 viewRay, vec3 point, vec3 normal) {
+	//no ambient calculation yet
+	
+	float diffuse = max(dot(normal, -lightDir), 0.0);
+	vec3 diffuseColor = lightColor * diffuse * intensity;
+	//specular
+	vec3 viewDir = -viewRay;
+	vec3 reflectDir = reflect(lightDir, normal);
+	float specular = pow(max(dot(viewDir, reflectDir), 0.0), 64);
+	vec3 specularColor = specular * lightColor * intensity;
+	
+	return vec4(specularColor + diffuseColor, 1.0);
+}
+
+vec4 blinnPhongPoint(vec3 lightPos, vec3 lightColor, vec3 attenuationFactors, float intensity, vec3 viewRay, vec3 point, vec3 normal) {
+	//calc the distance between light & point
+	vec3 diff = lightPos - point;
+	float distance = length(diff);
+	
+	//calc attenuation
+	float attenuation = 1.0 / (attenuationFactors.x + attenuationFactors.y * distance + attenuationFactors.z * distance * distance);
+	
+	//apply it to the color
+	vec3 color = lightColor * intensity * attenuation;
+	
+	//diffuse
+	vec3 lightDirection = normalize(diff);
+  	float diffuse = max(dot(lightDirection, normal), 0.0);
+  	vec3 diffuseColor = diffuse * color;
+  	
+  	//specular
+	vec3 viewDir = -viewRay;
+   	vec3 h = normalize(lightDirection + viewDir);
+   	float specular = pow(max(dot(normal, h), 0.0), 64);
+ 	vec3 specularColor = specular * color;
+ 	
+ 	//return
+ 	return vec4(specularColor + diffuseColor, 1.0);
+}
+
+vec4 blinnPhongSpot(vec3 lightPos, vec3 spotLightDir, vec3 lightColor, vec3 attenuationFactors, vec3 intensity_and_angles, vec3 viewRay, vec3 point, vec3 normal) {
+	//calc distance
+	vec3 diff = vec3(lightPos - point);
+	float distance = length(diff);
+	
+	//calc attenuation
+	float attenuation = 1.0 / (attenuationFactors.x + attenuationFactors.y * distance + attenuationFactors.z * distance * distance);
+
+	//find cosine of the angle
+	vec3 lightDir = normalize(diff);
+	float dot = dot(-lightDir, spotLightDir);
+	
+	
+	//penumbra intensity
+	float e = intensity_and_angles.y - intensity_and_angles.z;
+   	float intensity = clamp((dot - intensity_and_angles.z)/e, 0.0, 1.0);
+   	
+   	//apply to color
+	vec3 color = lightColor * intensity * intensity_and_angles.x * attenuation;
+   	
+   	//diffuse	
+   	float diffuse = max(dot(lightDir, normal), 0.0);
+ 	vec3 diffuseColor = diffuse * color;
+		    
+	//specular		
+ 	vec3 viewDir = -viewRay;
+   	vec3 h = normalize(lightDir + viewDir);
+   	float specular = pow(max(dot(normal, h), 0.0), 64);
+   	vec3 specularColor = specular * color;
+   	
+   	return vec4(specularColor + diffuseColor, 1.0);
+}
+
+Hit traceThroughScene(Ray ray) {
+    Hit hit = defaultHit();
+    
+    // Plane intersections
+    float t = planeTest(ray, vec3(0,1,0), vec3(0,0,0));
+    if(t > 0 && t < hit.latestInteraction) {
+        vec3 tempInter = ray.rayOrigin + ray.ray * t;
+        vec3 normal = vec3(0,1,0); // Normal for this plane
+        if(abs(tempInter.x) < 50 && abs(tempInter.z) < 50 && dot(ray.ray, normal) < 0.0) {
+            hit.latestInteraction = t;
+            hit.intersection = tempInter;
+            hit.normal = normal;
+            hit.objectID = 0;
+        }
+    }
+    
+    t = planeTest(ray, vec3(1,0,0), vec3(0,5,0));
+    if(t > 0 && t < hit.latestInteraction) {
+        vec3 tempInter = ray.rayOrigin + ray.ray * t;
+        vec3 normal = vec3(1,0,0);
+        if(abs(tempInter.y - 3) < 4 && abs(tempInter.z) < 10 && dot(ray.ray, normal) < 0.0) {
+            hit.latestInteraction = t;
+            hit.intersection = tempInter;
+            hit.normal = normal;
+            hit.objectID = 1;
+        }
+    }
+    
+    t = planeTest(ray, vec3(1,0,0), vec3(0,5,0));
+	if(t > 0 && t < hit.latestInteraction) {
+		vec3 tempInter = ray.rayOrigin + ray.ray *t;
+		if(abs(tempInter.y - 3) < 6 && abs(tempInter.z) < 12) {
+			hit.latestInteraction = t;
+			hit.intersection = ray.rayOrigin + ray.ray * t;
+			hit.normal = vec3(1,0,0);
+			hit.objectID = 4;
+		}
+	}
+	
+	t = planeTest(ray, vec3(-1,0,0), vec3(0,5,0));
+	if(t > 0 && t < hit.latestInteraction) {
+		vec3 tempInter = ray.rayOrigin + ray.ray *t;
+		if(abs(tempInter.y - 3) < 6 && abs(tempInter.z) < 12) {
+			hit.latestInteraction = t;
+			hit.intersection = ray.rayOrigin + ray.ray * t;
+			hit.normal = vec3(1,0,0);
+			hit.objectID = 4;
+		}
+	}
+    
+    // Sphere intersections
+    t = sphereTest(ray, vec3(5,5,-4), 1.5);
+    if(t > 0 && t < hit.latestInteraction) {
+        vec3 intersection = ray.rayOrigin + ray.ray * t;
+        vec3 normal = normalize(intersection - vec3(5,5,-4));
+        if(dot(ray.ray, normal) < 0.0) {  // Only consider front-facing
+            hit.latestInteraction = t;
+            hit.intersection = intersection;
+            hit.normal = normal;
+            hit.objectID = 2;
+        }
+    }
+    
+    t = sphereTest(ray, vec3(5,5,4), 1.5);
+    if(t > 0 && t < hit.latestInteraction) {
+        vec3 intersection = ray.rayOrigin + ray.ray * t;
+        vec3 normal = normalize(intersection - vec3(5,5,4));
+        if(dot(ray.ray, normal) < 0.0) {
+            hit.latestInteraction = t;
+            hit.intersection = intersection;
+            hit.normal = normal;
+            hit.objectID = 3;
+        }
+    }
+    
+    // Triangle intersection
+    vec3 hitNormal;
+    t = triangleTest(ray, vec3(8, 6, 6), vec3(8, 6, 2), vec3(8, 10, 4), hitNormal);
+    if(t > 0 && t < hit.latestInteraction && dot(ray.ray, hitNormal) < 0.0) {
+        hit.latestInteraction = t;
+        hit.intersection = ray.rayOrigin + ray.ray * t;
+        hit.normal = hitNormal;
+        hit.objectID = 5;
+    }
+
+    return hit;
+}
+
+bool isPositiveInfinity(float value) {
+  	return value > 1000000000;
+}
+
+vec4 calcLighting(Ray ray, Hit hit) {
+	vec4 color = vec4(0,0,0,1);
+	
+	if(hit.objectID == 1 || hit.objectID == 2 || hit.objectID == 3) return color;
+	
+	//now run through the lights
+	for(int index = 0; index < numLights; index++) {
+		vec4 a = lightData[index*3 + 0];
+		vec4 b = lightData[index*3 + 1];
+		vec4 c = lightData[index*3 + 2];
+		
+		if(isPositiveInfinity(c.x)){
+			//its the same as a spot light but its a flashlight so its in the camera direction
+			vec3 lightPos = vec3(viewMatrix[3].xyz);
+			vec3 lightDir = a.xyz;
+			vec3 lightColor = b.xyz;
+			vec3 attenuationFactors = c.yzw;
+			vec3 intensity_and_angles = vec3(1.0f, a.w, b.w);
+			
+			color = color + blinnPhongSpot(lightPos, lightDir, lightColor, attenuationFactors, intensity_and_angles, ray.ray, hit.intersection, hit.normal);
+		} else if(!isPositiveInfinity(a.x) && isPositiveInfinity(a.w)) {
+			//point
+			vec3 lightPos = a.xyz;
+			vec3 lightColor = b.xyz;
+			vec3 attenuationFactors = c.xyz;
+			float intensity = 1.0f;
+
+			color = color + blinnPhongPoint(lightPos, lightColor, attenuationFactors, 1.0f, ray.ray, hit.intersection, hit.normal);
+		}else if(isPositiveInfinity(a.x) && isPositiveInfinity(a.w)) {
+		    //directional light
+		   	vec3 lightDir = c.yzw;
+			vec3 lightColor = b.xyz;
+			
+			color = color + blinnPhongDirectional(lightDir, lightColor, 1.0f, ray.ray, hit.intersection, hit.normal);
+		}else if(!isPositiveInfinity(a.x) && !isPositiveInfinity(a.w)) {
+			//spot
+			float co = cos(b.w);
+			
+			vec3 lightPos = a.xyz;
+			vec3 lightDir = vec3(co * cos(a.w), sin(b.w), co * sin(a.w));
+			vec3 lightColor = b.xyz;
+			vec3 attenuationFactors = c.xyz;
+			vec3 intensity_and_angles = vec3(1.0f, c.w, 0.8);
+			
+			color = color + blinnPhongSpot(lightPos, lightDir, lightColor, attenuationFactors, intensity_and_angles, ray.ray, hit.intersection, hit.normal);
+		}
+	}
+
+	return color;
+}
+
+
+void main() {
+	ivec2 storePos = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 dimensions = imageSize(screen);
+	
+	vec3 cameraPos = vec3(viewMatrix[3].xyz);
+	
+	float x = storePos.x / (float(dimensions.x)) - 0.5;
+	x *= cameraInfo.y * cameraInfo.x;
+	float y = 0.5f - storePos.y / (float(dimensions.y));
+	y *= cameraInfo.x;
+	
+	vec3 rayy = mat3(viewMatrix) * vec3(x,y,-1);
+	rayy = normalize(rayy);
+
+	Ray rayArray[5];
+	Hit hitArray[5];
+	for(int i =0 ;i < 5; i++) {
+		hitArray[i] = defaultHit();
+	}
+	
+	rayArray[0].ray = rayy;
+	rayArray[0].rayOrigin = cameraPos;
+	
+    for (int i = 0; i < 5; ++i) {
+        //trace the ray and store hit
+        hitArray[i] = traceThroughScene(rayArray[i]);
+
+        //check for the intersection
+        if (hitArray[i].objectID == -1) {
+            //no intersection, stop the recursion
+            break;
+        }
+		
+		if(hitArray[i].objectID == 1 || hitArray[i].objectID == 2 || hitArray[i].objectID == 3) {
+			//calc reflection
+        	vec3 reflectionDir = reflect(rayArray[i].ray, hitArray[i].normal);
+       		vec3 reflectionOrigin = hitArray[i].intersection + reflectionDir * 0.001;
+
+        	//store reflected ray for next iteration
+        	rayArray[i + 1].ray = reflectionDir;
+        	rayArray[i + 1].rayOrigin = reflectionOrigin;
+        }
+
+    }
+
+    //combine lighting contributions
+    vec4 finalColor = vec4(0.0);
+    float finalDepth = 0.0;
+    for (int i = 0; i < 5; ++i) {
+    	if(hitArray[i].objectID != -1) {
+        	finalColor = calcLighting(rayArray[i], hitArray[i]);
+        }
+    }
+    finalColor = clamp(finalColor, 0, 1);
+	imageStore(screen, ivec2(gl_GlobalInvocationID.xy), finalColor);
+}
