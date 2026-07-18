@@ -1,22 +1,75 @@
 ---
 const base = import.meta.env.BASE_URL;
 
+// Content copied from the repo-root README (2026-07-18). Update by hand when
+// the README's feature list changes.
 const features = [
 	{
-		title: 'Physics, from scratch',
-		body: '240 Hz rigid-body simulation on its own thread — sweep-and-prune broadphase, analytical narrowphase, island-parallel PGS solver. Joints, springs, vehicles, ragdolls, compound colliders.',
+		title: 'Physics',
+		wide: true,
+		items: [
+			'A 240 Hz fixed timestep rigid body simulation independent of rendering, on its own thread',
+			'An acceleration structure with sweep-and-prune as the broadphase',
+			"An SAT-based narrowphase with clipping for rich contact manifolds and feature ID'ing for solver warm starting",
+			'A parallelizable (island splitting based) Projected Gauss Seidel solver with lambda warm starting and body sleeping',
+			'Various constraint types with regular contacts as well as joints (supported: hinge, cone-twist, point-to-point, suspension, wheel friction) allowing for ragdolls and driven vehicles',
+			'Hookean springs, enabling ropes, cloths, and soft body lite',
+			'Static and Dynamic Compound Colliders with baking to accelerate',
+			'Collision layers support with masks (natural collision filtering) alongside collision enter/exit events carrying critical contact info',
+			'Built-in query support for raycasts, capsule-casts, and overlaps',
+			'GJK/EPA narrowphase pipeline for capsules/cylinders <em>(in development)</em>',
+		],
 	},
 	{
-		title: 'PBR renderer',
-		body: 'Vulkan raster + compute-raytrace modes. Cook-Torrance materials, glTF import, shadow mapping, cubemap skyboxes, MSDF text in UI and world space.',
+		title: 'Entity, Component, System Architecture (The Data Oriented Design)',
+		items: [
+			'An Archetype-based registry with contiguous component storage, generational entity handles, tagged components: yielding extremely fast iteration over archetypes and wonderful data locality',
+			"What's in the DOD Registry? everything (Physics, UI, Meshes, Scripts). Everything is fast and you don't chase ANY pointers",
+		],
 	},
 	{
-		title: 'Python behaviors',
-		body: 'Per-entity gameplay scripts through embedded Python with a fully typed stub — autocomplete for the whole engine surface in any editor.',
+		title: 'Rendering Capabilities',
+		items: [
+			'Vulkan based backend, with raster and compute-raytrace modes',
+			'Forward renderer with 32 Byte Vertices while supporting Cook-Torrance Physically Based Rendering (PBR) with full material maps',
+			'Shadow mapping (directional/spot + point-light cubemaps); skyboxes',
+			'Rigid animation clips; world-space debug-line pipeline',
+		],
 	},
 	{
-		title: 'An editor that plays fair',
-		body: 'Entity inspectors, undo/redo, ID-buffer picking, and Play/Stop that snapshots and restores the whole world.',
+		title: 'Scripting',
+		items: [
+			'Per-entity Python behaviors via an embedded pybind11 module, with params loaded into the Editor GUI',
+			'A fully typed stub so an IDE autocompletes for the entire engine surface',
+			'Access to callbacks for collision & UI events, as well as object lifecycle',
+		],
+	},
+	{
+		title: 'Editor (debug builds)',
+		items: [
+			'Inspectors for every component; undo/redos',
+			'glTF 2.0 and OBJ import alongside drop-in primitives and automatic collider fitters (primitives as well as compounds on glTF imports)',
+			'An entire 3D viewport with a freely manipulatable camera for scene authoring and Play/Stop to demo scenes quickly',
+			'Easy object selection via mouse picking in the viewport',
+			'Easily parseable JSON scene format (reloadable) & entity templates',
+			'Async scene loading with an animated splash; cross-scene handoff payloads',
+		],
+	},
+	{
+		title: 'Misc',
+		items: [
+			'UI with input routing (hover / press / click, text input), anchoring as well as pixel layouts, built-in fades',
+			'MSDF text rendering in both 2D UI and 3D world space',
+			'OpenAL 3D spatial audio with Doppler, streamed music with fades; Music/SFX/Voice buses',
+		],
+	},
+	{
+		title: 'Tooling & tests',
+		items: [
+			'In-engine profiler with CSV export for pandas analysis and a stage-by-stage analyzer',
+			'Standalone macOS <code>.app</code> bundling',
+			'6 Catch2 test suites (math, physics, ECS, glTF, text, packaging), most fully headless',
+		],
 	},
 ];
 ---
@@ -29,18 +82,19 @@ const features = [
 		<meta name="generator" content={Astro.generator} />
 		<meta
 			name="description"
-			content="Yope3D — a C++20 / Vulkan game engine, built from scratch and documented in public."
+			content="Yope3D — a C++20 Vulkan game engine from scratch: physics, 3D rendering, scripting, UI, and an in-house ImGui editor."
 		/>
 		<title>Yope3D</title>
 	</head>
 	<body>
 		<main>
 			<section class="hero">
-				<p class="kicker">Work in progress · built in public</p>
+				<p class="kicker">Solo project · in active development · not yet release-ready</p>
 				<h1>Yope3D</h1>
 				<p class="tagline">
-					A C++20 / Vulkan game engine, built from scratch — physics, renderer,
-					editor, and scripting, all one codebase.
+					A C++20 Vulkan game engine from scratch — physics, 3D rendering,
+					scripting, UI, and an in-house ImGui editor. Initially an old Java
+					engine.
 				</p>
 				<div class="cta">
 					<a class="button primary" href="https://github.com/yugumishra/Yope3D">GitHub</a>
@@ -52,20 +106,37 @@ const features = [
 			</section>
 
 			<section class="features">
-				{features.map((f) => (
-					<article class="card">
-						<h2>{f.title}</h2>
-						<p>{f.body}</p>
-					</article>
-				))}
+				<h2>Features</h2>
+				<div class="grid">
+					{features.map((f) => (
+						<article class={`card${f.wide ? ' wide' : ''}`}>
+							<h3>{f.title}</h3>
+							<ul>
+								{f.items.map((item) => (
+									<li set:html={item} />
+								))}
+							</ul>
+						</article>
+					))}
+				</div>
 			</section>
 
-			<section class="status">
-				<h2>Where it stands</h2>
+			<section class="plans">
+				<h2>Future Plans</h2>
 				<p>
-					Yope3D is a solo project in active development. It is not
-					release-ready. What's on this page exists and runs today; everything
-					else is roadmap, and the devlog documents the difference.
+					Now: GJK/EPA narrowphase, headless execution, and ensuring
+					determinism (scene replay).
+				</p>
+			</section>
+
+			<section class="notes">
+				<h2>Development Notes</h2>
+				<p>
+					Yope3D was built by me, using AI coding tools. All changes:
+					architectural, design, optics, etc, are reviewed and understood
+					before they land. Any and all additions also run through the 6-test
+					gauntlet and performance profiler, who really decide whether it
+					stays or goes.
 				</p>
 			</section>
 		</main>
@@ -101,7 +172,7 @@ const features = [
 		line-height: 1.6;
 	}
 	main {
-		max-width: 60rem;
+		max-width: 64rem;
 		margin: 0 auto;
 		padding: 0 1.5rem;
 	}
@@ -124,7 +195,7 @@ const features = [
 	.tagline {
 		color: var(--muted);
 		font-size: 1.15rem;
-		max-width: 34rem;
+		max-width: 38rem;
 		margin: 1rem auto 2rem;
 	}
 	.cta {
@@ -162,38 +233,53 @@ const features = [
 		font-size: 0.9rem;
 		background: var(--surface);
 	}
-	.features {
+	section h2 {
+		font-size: 1.5rem;
+		margin: 2.5rem 0 1rem;
+	}
+	.grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+		grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
 		gap: 1rem;
-		padding: 2rem 0;
 	}
 	.card {
 		background: var(--surface);
 		border: 1px solid var(--border);
 		border-radius: 0.75rem;
-		padding: 1.5rem;
+		padding: 1.25rem 1.5rem;
 	}
-	.card h2 {
+	.card.wide {
+		grid-column: 1 / -1;
+	}
+	.card h3 {
 		font-size: 1.05rem;
 		margin: 0 0 0.5rem;
 	}
-	.card p {
+	.card ul {
+		margin: 0;
+		padding-left: 1.1rem;
+	}
+	.card li {
 		color: var(--muted);
 		font-size: 0.95rem;
-		margin: 0;
+		margin: 0.3rem 0;
 	}
-	.status {
-		padding: 2rem 0 4rem;
-		text-align: center;
+	.card li :global(code),
+	.notes code {
+		font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+		font-size: 0.875em;
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 0.3rem;
+		padding: 0.05rem 0.3rem;
 	}
-	.status h2 {
-		font-size: 1.2rem;
-	}
-	.status p {
+	.plans p,
+	.notes p {
 		color: var(--muted);
-		max-width: 40rem;
-		margin: 0 auto;
+		max-width: 44rem;
+	}
+	.notes {
+		padding-bottom: 3rem;
 	}
 	footer {
 		border-top: 1px solid var(--border);
