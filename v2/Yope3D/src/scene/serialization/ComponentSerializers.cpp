@@ -48,8 +48,11 @@ void serializeHull(const void* comp, JsonWriter& w) {
     w.writeBool ("tangible",       h->tangible);
     w.writeBool ("sleepingEnabled", h->sleepingEnabled);
     w.writeBool ("isTrigger",      h->isTrigger);
+    w.writeBool ("kinematic",      h->kinematic);
     w.writeUInt ("collisionLayer", h->collisionLayer);
     w.writeUInt ("collisionMask",  h->collisionMask);
+    // Opt-in observer membership — 0 for almost every body, so only emit when set.
+    if (h->observeLayers != 0) w.writeUInt("observeLayers", h->observeLayers);
     w.writeFloat3("velocity", h->velocity.x, h->velocity.y, h->velocity.z);
     w.writeFloat3("omega",    h->omega.x,    h->omega.y,    h->omega.z);
 }
@@ -65,8 +68,10 @@ bool deserializeHull(const JsonNode& n, void* comp) {
     if (n.contains("tangible"))       h->tangible       = n["tangible"].asBool();
     if (n.contains("sleepingEnabled")) h->sleepingEnabled = n["sleepingEnabled"].asBool();
     if (n.contains("isTrigger"))      h->isTrigger      = n["isTrigger"].asBool();
+    if (n.contains("kinematic"))      h->kinematic      = n["kinematic"].asBool();
     if (n.contains("collisionLayer")) h->collisionLayer = n["collisionLayer"].asUInt();
     if (n.contains("collisionMask"))  h->collisionMask  = n["collisionMask"].asUInt();
+    if (n.contains("observeLayers"))  h->observeLayers  = n["observeLayers"].asUInt();
     if (n.contains("velocity")) {
         auto& arr = n["velocity"].asArray();
         if (arr.size() >= 3) { h->velocity.x = arr[0].asFloat(); h->velocity.y = arr[1].asFloat(); h->velocity.z = arr[2].asFloat(); }

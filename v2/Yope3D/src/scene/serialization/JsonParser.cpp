@@ -4,6 +4,8 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
+#include <charconv>
+#include <array>
 
 static const JsonNode g_nullNode;
 
@@ -212,4 +214,71 @@ JsonNode parseJsonFile(const char* path) {
     ss << f.rdbuf();
     std::string s = ss.str();
     return parseJson(s.c_str());
+}
+
+// ---------------------------------------------------------------------------
+// Compact serialization (dumpJson)
+// ---------------------------------------------------------------------------
+
+static void dumpString(std::ostringstream& out, const std::string& s) {
+    out << '"';
+    for (char c : s) {
+        switch (c) {
+            case '"':  out << "\\\""; break;
+            case '\\': out << "\\\\"; break;
+            case '\n': out << "\\n";  break;
+            case '\r': out << "\\r";  break;
+            case '\t': out << "\\t";  break;
+            default:   out << c;      break;
+        }
+    }
+    out << '"';
+}
+
+static void dumpNode(std::ostringstream& out, const JsonNode& node) {
+    switch (node.type) {
+        case JsonNode::Type::Object: {
+            out << '{';
+            bool first = true;
+            for (const auto& [k, v] : node.asObject()) {
+                if (!first) out << ',';
+                first = false;
+                dumpString(out, k);
+                out << ':';
+                dumpNode(out, v);
+            }
+            out << '}';
+            break;
+        }
+        case JsonNode::Type::Array: {
+            out << '[';
+            bool first = true;
+            for (const auto& v : node.asArray()) {
+                if (!first) out << ',';
+                first = false;
+                dumpNode(out, v);
+            }
+            out << ']';
+            break;
+        }
+        case JsonNode::Type::String: dumpString(out, node.asString()); break;
+        case JsonNode::Type::Bool:   out << (node.asBool() ? "true" : "false"); break;
+        case JsonNode::Type::Number: {
+            // Shortest form that round-trips exactly (to_chars), so integers stay
+            // "100" and 0.1 stays "0.1" rather than %.17g's 0.100000000...1.
+            std::array<char, 32> buf;
+            auto [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), node.asDouble());
+            if (ec == std::errc()) out.write(buf.data(), ptr - buf.data());
+            else                   out << node.asDouble();
+            break;
+        }
+        case JsonNode::Type::Null:
+        default:                     out << "null"; break;
+    }
+}
+
+std::string dumpJson(const JsonNode& node) {
+    std::ostringstream out;
+    dumpNode(out, node);
+    return out.str();
 }

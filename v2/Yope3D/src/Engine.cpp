@@ -2,6 +2,9 @@
 #include "platform/BundlePaths.h"
 #include "scripting/Config.h"
 #include "scripting/Script.h"
+#ifdef YOPE_PYTHON
+#include "scripting/python/CollisionObservers.h"
+#endif
 #include "scene/SceneManager.h"
 #include "physics/PhysicsConstants.h"
 #include "math/Math.h"
@@ -630,16 +633,25 @@ void Engine::updateScripts(float dt) {
         }
         for (auto& [e, inst] : active) inst->update(scriptCtx_, e, dt);
 
-        // Collision events only matter when a behavior is live — enabling lazily keeps
-        // script-less / stress scenes at zero cost (physics skips the whole diff).
-        world->setCollisionEventsEnabled(!active.empty());
+        // Collision events matter when a behavior is live OR a global observer is
+        // subscribed — enabling lazily keeps script-less / stress scenes with no
+        // observers at zero cost (physics skips the whole diff). The observe mask
+        // (§4.5) is the OR of every yope3d.observe_collisions subscription.
+#ifdef YOPE_PYTHON
+        const uint32_t observeMask = collisionobs::observerMask();
+#else
+        const uint32_t observeMask = 0;
+#endif
+        world->setCollisionObserveMask(observeMask);
+        world->setCollisionEventsEnabled(!active.empty() || observeMask != 0);
 
         // Drain physics-thread collision events and dispatch enter/exit to both
         // entities' behaviors. reg.valid guards against destruction between tick & drain.
         auto events = world->drainCollisionEvents();
         if (!events.empty()) {
             auto& reg = world->getRegistry();
-            auto dispatch = [&](ecs::Entity self, ecs::Entity other, bool enter) {
+            auto dispatch = [&](ecs::Entity self, ecs::Entity other, bool enter,
+                                const physics::ContactInfo& ci) {
                 // Resolve the behavior under the structure lock (the reg.get races
                 // archetype migrations on the physics thread), then release it
                 // before running Python — the Script* is a stable heap pointer.
@@ -650,12 +662,22 @@ void Engine::updateScripts(float dt) {
                     if (auto* sc = reg.get<ecs::ScriptComponent>(self)) inst = sc->instance;
                 }
                 if (!inst) return;
-                if (enter) inst->onCollisionEnter(scriptCtx_, self, other);
-                else       inst->onCollisionExit (scriptCtx_, self, other);
+                if (enter) inst->onCollisionEnter(scriptCtx_, self, other, ci);
+                else       inst->onCollisionExit (scriptCtx_, self, other, ci);
             };
             for (auto& ev : events) {
-                dispatch(ev.a, ev.b, ev.enter);
-                dispatch(ev.b, ev.a, ev.enter);
+                // The stored normal is a→b; orient it from `other` toward `self` for
+                // each recipient so a script's contact.normal always points at self.
+                physics::ContactInfo ciForA = ev.contact;
+                ciForA.normal = ciForA.normal * -1.0f;   // self=a: from b(other) → a
+                physics::ContactInfo ciForB = ev.contact; // self=b: from a(other) → b
+                dispatch(ev.a, ev.b, ev.enter, ciForA);
+                dispatch(ev.b, ev.a, ev.enter, ciForB);
+                // Global observers see the pair in stored order (normal a→b). No-op
+                // when nobody is subscribed.
+#ifdef YOPE_PYTHON
+                collisionobs::dispatch(ev.a, ev.b, ev.enter, ev.contact, ev.layers);
+#endif
             }
         }
     }

@@ -105,6 +105,23 @@ void drawHullComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
         ctx.history->execute(ctx, std::make_unique<SetComponentCommand<ecs::Hull>>(e, beforeEdit, *h, "Toggle Trigger"));
     }
 
+    // Kinematic (moving-platform) toggle — immovable body integrated by a
+    // script-set velocity; riders inherit its motion. Mirrors World::makeKinematic:
+    // enabling zeroes inverse mass/inertia + gravity and disables sleep.
+    bool kinematic = h->kinematic;
+    if (ImGui::Checkbox("Kinematic", &kinematic)) {
+        beforeEdit = *h;
+        h->kinematic = kinematic;
+        if (kinematic) {
+            h->inverseMass     = 0.0f;
+            h->inverseInertia  = math::Mat3::zero();
+            h->gravity         = false;
+            h->sleepingEnabled = false;
+            h->asleep          = false;
+        }
+        ctx.history->execute(ctx, std::make_unique<SetComponentCommand<ecs::Hull>>(e, beforeEdit, *h, "Toggle Kinematic"));
+    }
+
     float vel[3] = { h->velocity.x, h->velocity.y, h->velocity.z };
     ImGui::DragFloat3("Velocity", vel, 0.05f);
     if (ImGui::IsItemActivated()) beforeEdit = *h;
