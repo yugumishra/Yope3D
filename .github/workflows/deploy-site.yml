@@ -2,8 +2,8 @@ name: Deploy site to GitHub Pages
 
 on:
   push:
-    branches: [main, cppvers]
-    paths: ['site/**']
+    branches: [main]
+    paths: ['v2/Yope3D/site/**', '.github/workflows/deploy-site.yml']
   workflow_dispatch:
 
 permissions:
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: withastro/action@v3
         with:
-          path: ./site
+          path: ./v2/Yope3D/site
 
   deploy:
     needs: build
