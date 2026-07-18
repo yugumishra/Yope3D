@@ -149,9 +149,6 @@ public class Loop {
 
 		//render the world
 		renderer.render(world);
-		
-		//render ui after (so it appears on top)
-		renderer.renderUI();
 	}
 
 	// gets the time from the start in seconds

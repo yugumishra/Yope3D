@@ -7,6 +7,15 @@ layout(binding = 1, std430) readonly buffer LightBuffer {
 	vec4 lightData[];
 };
 
+layout(binding = 2, std430) readonly buffer SceneBuffer {
+	int numObjects;
+	int typesAndOffsets[]; //first type, then the offset into the data buffer
+}
+
+layout(binding = 3, std430) readonly buffer SceneData {
+	float sceneData[];
+}
+
 layout (location = 3) uniform int numLights;
 layout (location = 4) uniform mat4 viewMatrix;
 layout (location = 5) uniform vec4 cameraInfo;
