@@ -9,6 +9,7 @@ class AssetManager;
 class Window;
 class UIManager;
 class SceneManager;
+class Settings;
 
 // ScriptContext — restricted view of Engine internals exposed to scripts.
 // Renderer and GpuDevice are intentionally omitted; mesh creation goes
@@ -23,4 +24,5 @@ struct ScriptContext {
     UIManager*    ui            = nullptr;
     RenderMode*   renderMode    = nullptr;   // points to Engine::renderMode_
     SceneManager* sceneManager  = nullptr;   // scripts call queueLoad to transition scenes
+    Settings*     settings      = nullptr;   // persisted user prefs; points to Engine::settings_
 };

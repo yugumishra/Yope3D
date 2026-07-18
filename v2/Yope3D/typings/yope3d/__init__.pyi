@@ -924,6 +924,7 @@ ComponentName = Literal[
     "AnimationPlayer",
     "AudioSource",
     "Fixed",
+    "Transient",
 ]
 """Component names accepted by ``view()`` / ``reg_get()`` / ``reg_has()``.
 
@@ -931,6 +932,10 @@ ComponentName = Literal[
 ``reg_get`` returns ``True`` / ``None``. Prefer ``fix_entity`` over ``reg_add``-ing
 it. Sleep state is a plain ``Hull.asleep`` field, not a tag — read it directly
 or via ``is_sleeping`` / ``wake``.
+
+``"Transient"`` is a zero-size tag marking an entity to be **excluded from saves**
+(VFX, debris, HUD rebuilt on load). ``reg_add(e, "Transient")`` opts a
+runtime-spawned entity out; a full-scene save skips every tagged entity.
 """
 
 # ==============================================================================
@@ -2187,6 +2192,79 @@ class SceneManager:
                 (the default) clears any previously stashed payload.
         """
 
+class Settings:
+    """Persisted user preferences. Singleton ``yope3d.settings``.
+
+    A typed key/value store backed by ``settings.cfg`` in the per-platform
+    writable data dir (the same directory :func:`save_path` resolves into) —
+    *not* next to ``yope3d.cfg``, which a shipped ``.app`` bundle cannot write
+    to. Use it for volume, sensitivity, resolution, key bindings: anything the
+    player chooses and expects to survive a restart.
+
+    The engine reads five keys of its own at startup and overlays them on
+    ``yope3d.cfg``, so a value set here wins over the shipped default:
+    ``width``, ``height``, ``escapeCloses``, ``tabPauses``, ``f11Fullscreen``.
+    Every other key is yours. ``startupScene`` is deliberately *not* overlayable
+    — a corrupt preference must not be able to make the game unlaunchable.
+
+    Writes are explicit. Mutate with the ``set_*`` methods, then call
+    :meth:`save` once — a volume slider dragged across frames would otherwise
+    hit the disk every tick.
+
+    Example:
+        >>> vol = yope3d.settings.get_float("music_volume", 0.8)
+        >>> yope3d.settings.set_float("music_volume", 0.5)
+        >>> yope3d.settings.save()
+    """
+
+    def get_str(self, key: str, default: str = "") -> str:
+        """Return the value of ``key``, or ``default`` if unset."""
+    def get_float(self, key: str, default: float = 0.0) -> float:
+        """Return ``key`` as a float, or ``default`` if unset or unparseable."""
+    def get_int(self, key: str, default: int = 0) -> int:
+        """Return ``key`` as an int, or ``default`` if unset or unparseable."""
+    def get_bool(self, key: str, default: bool = False) -> bool:
+        """Return ``key`` as a bool, or ``default`` if unset.
+
+        Truthy spellings are ``1``, ``true``, ``True``, ``TRUE``; anything
+        else reads as ``False``.
+        """
+    def set_str(self, key: str, value: str) -> None:
+        """Set ``key``. Call :meth:`save` to persist."""
+    def set_float(self, key: str, value: float) -> None:
+        """Set ``key``. Call :meth:`save` to persist."""
+    def set_int(self, key: str, value: int) -> None:
+        """Set ``key``. Call :meth:`save` to persist."""
+    def set_bool(self, key: str, value: bool) -> None:
+        """Set ``key``. Call :meth:`save` to persist."""
+    def has(self, key: str) -> bool:
+        """Return whether ``key`` is present in the store."""
+    def remove(self, key: str) -> None:
+        """Delete ``key`` if present. Call :meth:`save` to persist."""
+    def clear(self) -> None:
+        """Drop every key — a "restore defaults" button. :meth:`save` to persist."""
+    def keys(self) -> list[str]:
+        """Return every key currently in the store, sorted."""
+    def save(self) -> bool:
+        """Write the store to disk.
+
+        Returns:
+            ``False`` if the data directory could not be resolved or the file
+            could not be opened — worth surfacing in an options menu rather
+            than failing silently.
+        """
+    def load(self) -> bool:
+        """Re-read from disk, discarding unsaved changes (an options-menu Cancel).
+
+        Returns:
+            ``False`` only if no writable data directory could be resolved. A
+            *missing* file is not a failure — it just means first launch, and
+            the store ends up empty.
+        """
+    @property
+    def path(self) -> str:
+        """Absolute path of the backing ``settings.cfg``."""
+
 world: World
 """The engine World (always set by the time behavior ``init()`` / ``update()`` run)."""
 camera: Camera
@@ -2199,6 +2277,8 @@ scene_manager: SceneManager
 """Deferred scene loader."""
 window: Window
 """The application window."""
+settings: Settings
+"""Persisted user preferences (volume, sensitivity, bindings, resolution)."""
 
 # ==============================================================================
 # ECS queries
@@ -2525,6 +2605,52 @@ def save_path(name: str) -> str:
 
     Returns:
         Absolute path suitable for ``open(..., "w")``.
+    """
+
+def save_game(name: str, meta: Any | None = None) -> bool:
+    """Write a full save game to `name` under the sanctioned save directory.
+
+    Captures the entire live world — every entity except those tagged
+    ``"Transient"`` (see ``reg_add(e, "Transient")``), the world settings, and
+    each scripted entity's ``save_state()`` payload — into one save file
+    (``name`` plus a co-located ``.meshbin`` sidecar for any bulky custom
+    geometry). Restore it with :func:`load_game`.
+
+    A behavior opts into save games by implementing::
+
+        def save_state(self) -> dict: ...        # returns JSON-able runtime state
+        def load_state(self, state: dict): ...   # called after init() on load
+
+    ``save_state`` should return only the script's own runtime state; it must
+    not need engine calls (though reentrant ones are safe). The dict travels as
+    JSON and never touches the 2048-byte params blob, so it can be large.
+
+    Args:
+        name: Filename or relative subpath, e.g. ``"saves/slot1.ysave"``.
+        meta: Optional JSON-serializable value (score, playtime, level name, ...)
+            stored in the save-file header so a load-game menu can list slots
+            without loading the world. Read it in pure Python via
+            ``json.load(open(save_path(name)))["meta"]``.
+
+    Returns:
+        True on success, False if the file could not be written.
+
+    Safe to call from a script's ``update()`` — it runs under the physics lock
+    and briefly stalls the physics thread while writing.
+    """
+
+def load_game(name: str) -> None:
+    """Restore a save file written by :func:`save_game`.
+
+    Deferred to the next safe frame boundary (like :func:`load_scene`), so it is
+    safe to call from a script. The current world is torn down and rebuilt from
+    the save; after every script's ``init()`` runs, each script that saved state
+    receives it back via ``load_state(dict)`` (ordering: params → init →
+    load_state). There is no separate scene-vs-save distinction on disk — a save
+    file is a complete scene plus per-entity script state.
+
+    Slot management (listing, deleting saves) is plain Python over the save
+    directory — e.g. ``os.listdir(os.path.dirname(save_path("saves/x")))``.
     """
 
 # ==============================================================================

@@ -9,6 +9,7 @@
 #include "world/World.h"
 #include "world/Transform.h"
 #include "world/TransformHierarchy.h"
+#include "scripting/Script.h"
 #include "audio/AudioSystem.h"
 #include "audio/Source.h"
 #include "assets/AssetManager.h"
@@ -21,6 +22,8 @@
 #include <fstream>
 #include <filesystem>
 #include <stdexcept>
+#include <ctime>
+#include <string>
 #include <cstring>
 #include <vector>
 #include <map>
@@ -202,7 +205,7 @@ static void computeOverrides(const ComponentSnapshot& live, const ComponentSnaps
 // template it already came from.
 static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& entities,
                                ecs::Registry& reg, World& world, const std::string& binPath,
-                               ecs::Entity exemptRoot) {
+                               ecs::Entity exemptRoot, bool writeScriptState = false) {
     auto table = buildSerTable();
 
     // Build a runtime-id → fileId map so SpringConstraint (and Parent/other
@@ -285,6 +288,10 @@ static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& en
 
         // Tag: fixed
         if (reg.has<ecs::Fixed>(e)) w.writeBool("isFixed", true);
+        // Tag: transient (opt-out of persistence). Top-level saves filter these
+        // out before they reach this loop; round-tripped here for the explicit
+        // saveEntities/subtree paths that may still include a tagged child.
+        if (reg.has<ecs::Transient>(e)) w.writeBool("isTransient", true);
 
         // Components
         for (auto& entry : table) {
@@ -358,6 +365,16 @@ static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& en
             w.endObject();
         }
 
+        // Save-game runtime state: ask the live Script instance for its
+        // save_state() payload (empty for scenes/templates, or scripts without
+        // the hook). Stored as a JSON-string value, mirroring paramsBlob.
+        if (writeScriptState) {
+            if (auto* sc = reg.get<ecs::ScriptComponent>(e); sc && sc->instance) {
+                std::string state = sc->instance->serializeState();
+                if (!state.empty()) w.writeString("scriptState", state.c_str());
+            }
+        }
+
         w.endObject();  // entity
     }
     w.endArray();  // entities
@@ -373,13 +390,29 @@ static void cleanupStaleBin(const std::string& binPath, bool wroteBin) {
     std::filesystem::remove(binPath, ec);
 }
 
-bool save(const char* path, ecs::Registry& reg, World& world) {
-    JsonWriter w;
-    w.beginObject();
+// The set of entities a full-scene save should serialize.
+//   - Editor builds: user-authored entities are tagged EditorSelectable;
+//     editor-internal helpers (grid, gizmos, camera) are not, and must stay out
+//     of the file.
+//   - Shipped/runtime builds: EditorSelectable is never added (it only exists
+//     under YOPE_EDITOR), so filtering by it would save *nothing* -- the exact
+//     bug that made runtime save games write zero entities. Walk every live
+//     entity instead (entitiesWith({}) -- an empty required set matches all
+//     archetypes).
+// Both paths drop entities tagged Transient (VFX/debris/rebuilt-on-load).
+static std::vector<ecs::Entity> collectSerializableEntities(ecs::Registry& reg) {
+    std::vector<ecs::Entity> entities;
+#ifdef YOPE_EDITOR
+    for (auto [e, _sel] : reg.view<ecs::EditorSelectable>())
+        if (!reg.has<ecs::Transient>(e)) entities.push_back(e);
+#else
+    for (ecs::Entity e : reg.entitiesWith({}))
+        if (!reg.has<ecs::Transient>(e)) entities.push_back(e);
+#endif
+    return entities;
+}
 
-    w.writeInt("version", 1);
-
-    // World settings
+static void writeWorldSettings(JsonWriter& w, World& world) {
     w.writeFloat3("gravity", world.gravity.x, world.gravity.y, world.gravity.z);
     w.writeFloat("exposure", world.exposure);
     w.writeFloat("shadowBias", world.shadowBias);
@@ -391,9 +424,16 @@ bool save(const char* path, ecs::Registry& reg, World& world) {
     w.writeFloat("shadowSpotFar", world.shadowSpotFar);
     w.writeFloat("shadowPointNear", world.shadowPointNear);
     w.writeFloat("shadowPointFar", world.shadowPointFar);
+}
 
-    std::vector<ecs::Entity> entities;
-    for (auto [e, _sel] : reg.view<ecs::EditorSelectable>()) entities.push_back(e);
+bool save(const char* path, ecs::Registry& reg, World& world) {
+    JsonWriter w;
+    w.beginObject();
+
+    w.writeInt("version", 1);
+    writeWorldSettings(w, world);
+
+    std::vector<ecs::Entity> entities = collectSerializableEntities(reg);
 
     std::string binPath = std::filesystem::path(path).replace_extension(".meshbin").string();
     bool wroteBin = writeEntitiesArray(w, entities, reg, world, binPath, ecs::NullEntity);
@@ -435,6 +475,37 @@ bool saveEntities(const char* path, const std::vector<ecs::Entity>& entities,
 #ifdef YOPE_EDITOR
     Console::log(std::string("Saved template: ") + path, LogSeverity::Info);
 #endif
+    return true;
+}
+
+bool saveGame(const char* path, ecs::Registry& reg, World& world,
+              const std::string& sourceScene, const std::string& metaJson) {
+    JsonWriter w;
+    w.beginObject();
+
+    // "version" is the scene-file format version (parseScene-compatible);
+    // "saveVersion" is the save-game schema version, for future migration.
+    w.writeInt("version", 1);
+    w.writeInt("saveVersion", 1);
+    w.writeString("savedScene", sourceScene.c_str());
+    w.writeRawValue("savedAtUnix", std::to_string(std::time(nullptr)).c_str());
+    w.writeRawValue("meta", metaJson.empty() ? "null" : metaJson.c_str());
+
+    writeWorldSettings(w, world);
+
+    std::vector<ecs::Entity> entities = collectSerializableEntities(reg);
+
+    std::string binPath = std::filesystem::path(path).replace_extension(".meshbin").string();
+    bool wroteBin = writeEntitiesArray(w, entities, reg, world, binPath,
+                                       ecs::NullEntity, /*writeScriptState=*/true);
+
+    w.endObject();  // root
+
+    cleanupStaleBin(binPath, wroteBin);
+
+    std::ofstream f(path);
+    if (!f.is_open()) return false;
+    f << w.str();
     return true;
 }
 
@@ -667,6 +738,8 @@ bool parseEntityNode(const JsonNode& entNode, SubParse& out,
     }
     if (entNode.contains("isFixed") && entNode["isFixed"].asBool())
         snap.hasFixed = true;
+    if (entNode.contains("isTransient") && entNode["isTransient"].asBool())
+        snap.hasTransient = true;
     if (entNode.contains("SphereForm")) {
         snap.hasSphere = true;
         compser::deserializeSphereForm(entNode["SphereForm"], &snap.sphere);
@@ -833,6 +906,11 @@ bool parseEntityNode(const JsonNode& entNode, SubParse& out,
             }
         }
     }
+
+    // Save-game runtime state (scene/template files never carry this) — kept as
+    // a raw JSON string, overlaid onto the live Script instance after init.
+    if (entNode.contains("scriptState") && entNode["scriptState"].isString())
+        ent.scriptState = entNode["scriptState"].asString();
 
     ent.fileId = entNode.contains("fileId") ? entNode["fileId"].asUInt() : UINT32_MAX;
     out.entities.push_back(std::move(ent));

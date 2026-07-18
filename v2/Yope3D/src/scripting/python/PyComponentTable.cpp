@@ -64,6 +64,7 @@ void build() {
         entryFor<ecs::AnimationPlayer>  ("AnimationPlayer"),
         entryFor<ecs::AudioSource>      ("AudioSource"),
         tagEntryFor<ecs::Fixed>         ("Fixed"),
+        tagEntryFor<ecs::Transient>     ("Transient"),
     };
 }
 

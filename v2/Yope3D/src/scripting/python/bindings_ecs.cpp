@@ -162,12 +162,20 @@ void bind_ecs(py::module_& m) {
         .def_property("script_class",
             [](const ecs::ScriptComponent& s) { return std::string(s.scriptClass); },
             [](ecs::ScriptComponent& s, const std::string& v) {
+                if (v.size() >= sizeof(s.scriptClass))
+                    throw std::runtime_error("script_class exceeds 64 bytes");
                 std::strncpy(s.scriptClass, v.c_str(), sizeof(s.scriptClass) - 1);
+                s.scriptClass[sizeof(s.scriptClass) - 1] = '\0';
             })
         .def_property("params_blob",
             [](const ecs::ScriptComponent& s) { return std::string(s.paramsBlob); },
             [](ecs::ScriptComponent& s, const std::string& v) {
+                // Silent truncation here yields unparseable JSON -- fail loudly
+                // instead, matching attach_script's overflow guard.
+                if (v.size() >= sizeof(s.paramsBlob))
+                    throw std::runtime_error("params_blob exceeds paramsBlob (2048 bytes)");
                 std::strncpy(s.paramsBlob, v.c_str(), sizeof(s.paramsBlob) - 1);
+                s.paramsBlob[sizeof(s.paramsBlob) - 1] = '\0';
             });
 
     // ---- UI + 3D-text components (mutate after creation via reg_get / set_text) ----

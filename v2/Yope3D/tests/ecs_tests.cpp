@@ -440,3 +440,51 @@ TEST_CASE("collectSubtree is parent-before-child; isDescendantOf detects cycles"
     CHECK_FALSE(hierarchy::isDescendantOf(reg, c, b));
     CHECK_FALSE(hierarchy::isDescendantOf(reg, root, c)); // ancestor is not descendant
 }
+
+// ---------------------------------------------------------------------------
+// entitiesWith({}) — the all-entities enumeration the runtime save basis uses
+// (SceneSerializer::collectSerializableEntities in a shipped build). An empty
+// required set must match every archetype, and a tag filter (has<Tag>) must
+// exclude tagged entities without dropping the rest — mirroring the Transient
+// opt-out.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("entitiesWith empty set returns all live entities across archetypes", "[ecs][view]") {
+    Registry reg;
+    Entity a = reg.create(); reg.add<Position>(a, {});                         // archetype {Position}
+    Entity b = reg.create(); reg.add<Position>(b, {}); reg.add<Velocity>(b, {}); // {Position,Velocity}
+    Entity c = reg.create(); reg.add<Health>(c, {});                          // {Health}
+    Entity d = reg.create(); reg.add<Tag>(d);                                 // {Tag} — zero-size tag only
+
+    auto all = reg.entitiesWith({});
+    REQUIRE(all.size() == 4);
+
+    auto contains = [&](Entity e) {
+        for (Entity x : all) if (x == e) return true;
+        return false;
+    };
+    CHECK(contains(a));
+    CHECK(contains(b));
+    CHECK(contains(c));
+    CHECK(contains(d));   // an entity whose only component is a tag is still enumerated
+}
+
+TEST_CASE("entitiesWith empty set with a tag filter excludes only tagged entities", "[ecs][view]") {
+    Registry reg;
+    Entity keep1 = reg.create(); reg.add<Position>(keep1, {});
+    Entity keep2 = reg.create(); reg.add<Health>(keep2, {});
+    Entity drop  = reg.create(); reg.add<Position>(drop, {}); reg.add<Tag>(drop);   // "Transient"
+
+    std::vector<Entity> saved;
+    for (Entity e : reg.entitiesWith({}))
+        if (!reg.has<Tag>(e)) saved.push_back(e);
+
+    REQUIRE(saved.size() == 2);
+    auto contains = [&](Entity e) {
+        for (Entity x : saved) if (x == e) return true;
+        return false;
+    };
+    CHECK(contains(keep1));
+    CHECK(contains(keep2));
+    CHECK_FALSE(contains(drop));
+}

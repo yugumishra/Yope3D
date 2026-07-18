@@ -41,6 +41,13 @@ bool Engine::init(const std::string& sceneOverride) {
 #endif
 
     Config cfg = Config::load(resDir.empty() ? "yope3d.cfg" : resDir + "/yope3d.cfg");
+
+    // User settings overlay the cfg defaults (see Settings::applyTo), so a
+    // player's saved resolution/hotkey choices win. Loaded before the window is
+    // sized below. --scene is applied after: an explicit CLI arg outranks both.
+    settings_.load();
+    settings_.applyTo(cfg);
+
     if (!sceneOverride.empty()) cfg.startupScene = sceneOverride;
 
     int screenW = 1920, screenH = 1080;
@@ -109,6 +116,7 @@ bool Engine::init(const std::string& sceneOverride) {
     scriptCtx_.ui            = uiManager.get();
     scriptCtx_.renderMode    = &renderMode_;
     scriptCtx_.sceneManager  = sceneManager.get();
+    scriptCtx_.settings      = &settings_;
 
 #ifdef YOPE_PYTHON
     python->bindContext(scriptCtx_);

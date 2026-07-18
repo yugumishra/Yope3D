@@ -14,6 +14,10 @@ public:
 
     void writeKey  (const char* key);
     void writeString(const char* key, const char* value);
+    // Emit a pre-rendered, already-valid JSON fragment as the value for `key`
+    // (e.g. a nested object/array or a numeric literal from elsewhere). The
+    // caller owns validity — nothing is escaped or quoted.
+    void writeRawValue(const char* key, const char* rawJson);
     void writeInt  (const char* key, int value);
     void writeUInt (const char* key, unsigned value);
     void writeFloat(const char* key, float value);

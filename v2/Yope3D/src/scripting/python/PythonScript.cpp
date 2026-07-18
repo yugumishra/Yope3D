@@ -183,6 +183,40 @@ bool PythonScript::deserializeParams(const JsonNode& n) {
 }
 
 // ---------------------------------------------------------------------------
+// Save-game state — bridges to the Python class's optional save_state()/
+// load_state(dict). The dict is carried as a json.dumps/loads string so it
+// never has to round-trip through ScriptComponent's fixed paramsBlob.
+// ---------------------------------------------------------------------------
+
+std::string PythonScript::serializeState() const {
+    if (!pyObj_ || !pyObj_->instance || pyObj_->instance.is_none()) return {};
+    try {
+        if (!py::hasattr(pyObj_->instance, "save_state")) return {};
+        py::object result = pyObj_->instance.attr("save_state")();
+        if (result.is_none()) return {};
+        return py::module_::import("json").attr("dumps")(result).cast<std::string>();
+    } catch (py::error_already_set& e) {
+        Console::log(std::string("[PythonScript::save_state] ") + e.what(), LogSeverity::Error);
+    } catch (std::exception& e) {
+        Console::log(std::string("[PythonScript::save_state] ") + e.what(), LogSeverity::Error);
+    }
+    return {};
+}
+
+void PythonScript::deserializeState(const std::string& json) {
+    if (!pyObj_ || !pyObj_->instance || pyObj_->instance.is_none() || json.empty()) return;
+    try {
+        if (!py::hasattr(pyObj_->instance, "load_state")) return;
+        py::object dict = py::module_::import("json").attr("loads")(json);
+        pyObj_->instance.attr("load_state")(dict);
+    } catch (py::error_already_set& e) {
+        Console::log(std::string("[PythonScript::load_state] ") + e.what(), LogSeverity::Error);
+    } catch (std::exception& e) {
+        Console::log(std::string("[PythonScript::load_state] ") + e.what(), LogSeverity::Error);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Editor inspector
 // ---------------------------------------------------------------------------
 

@@ -37,6 +37,9 @@ public:
     void serializeParams  (JsonWriter& w)        const override;
     bool deserializeParams(const JsonNode& node)       override;
 
+    std::string serializeState() const override;
+    void        deserializeState(const std::string& json) override;
+
     void drawInspector(EditorContext& ctx) override;
 
 private:
