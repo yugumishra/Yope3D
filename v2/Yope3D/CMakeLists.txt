@@ -267,6 +267,7 @@ set(ENGINE_SOURCES
     src/rendering/CameraController.cpp
     src/scripting/ScriptFactory.cpp
     src/scripting/Config.cpp
+    src/scripting/Settings.cpp
     src/scripting/EmptyScript.cpp
     src/scene/ComponentSnapshot.cpp
     src/scene/SceneManager.cpp

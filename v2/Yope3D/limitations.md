@@ -275,6 +275,18 @@ Widgets, scroll views, 9-slice, and rich text layer on top incrementally.
 
 ## 3. No save / persistence layer
 
+> **Status: RESOLVED (2026-07-17).** All four items shipped. (1) Scene handoff
+> payload — `load_scene(path, payload)` + `scene_payload()`. (2) Sanctioned save
+> dir — `save_path(name)`. (3) **Runtime world snapshot / save games** —
+> `yope3d.save_game(name, meta=None)` + `load_game(name)` capture and restore the
+> whole live world (every non-`Transient` entity + world settings + each script's
+> `save_state()`), with a `save_state`/`load_state` script-hook pair whose dict
+> bypasses `paramsBlob` (order on load: params → init → load_state). (4) Settings
+> file — `yope3d.settings` + Config overlay. Verified end-to-end via
+> `_savegame_smoketest.py`. Details below are the original audit this resolved;
+> the runtime-save basis + `Transient` opt-out tag + Hull-fidelity fixes are in
+> `composite-behaviors.md` §6 and the memory note.
+
 ### What exists today
 
 - **Scene save is editor-only**: `SceneSerializer::save(path, registry, world)`
@@ -642,6 +654,24 @@ maintenance trap.
    Nested prefabs and property overrides are v2 — don't build them first.
 
 ## 10. One behavior script per entity
+
+> **Status: superseded by `composite-behaviors.md` (repo root), 2026-07-17.** The
+> problem statement below still stands; the *recommendation* does not. Option 1
+> (a pure-Python `CompositeBehavior` host) is **rejected** — because ~every
+> entity would be a composite, it would collapse `ScriptComponentInspector`'s
+> typed param editor into a nested-JSON textarea on every entity: sub-behaviors
+> living inside a params blob aren't `Script`s, so `BehaviorRegistry` can't
+> harvest their `PARAMS` and `drawInspector`/`serializeParams` are unreachable.
+> The agreed direction is option 2 — an engine-managed C++
+> `CompositeScript : Script` that fans out the `Script` vtable to child
+> `PythonScript`s, hiding composition from the editor, scene JSON, and the
+> Python API. Option 3 (true multi-`ScriptComponent`) stays rejected for the
+> reason given below. See `composite-behaviors.md` for the design, the decisions
+> (identity = Python class name §4.1, serialized shape = `"scripts"` array §4.4
+> — both settled 2026-07-17; the `paramsBlob[2048]` budget and update-order UI
+> remain open), and the touch list. **It no longer gates §3's save-game work**:
+> save-state dicts stream directly into save-file JSON (`"scriptState"`),
+> bypassing `paramsBlob` — see `composite-behaviors.md` §6.
 
 ### What exists today
 

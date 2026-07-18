@@ -3,6 +3,7 @@
 #include "world/Transform.h"
 #include "world/RenderMesh.h"
 #include <cstring>
+#include <cstdio>
 #include <vector>
 
 namespace compser {
@@ -45,8 +46,12 @@ void serializeHull(const void* comp, JsonWriter& w) {
     w.writeFloat("restitution",    h->restitution);
     w.writeBool ("gravity",        h->gravity);
     w.writeBool ("tangible",       h->tangible);
+    w.writeBool ("sleepingEnabled", h->sleepingEnabled);
     w.writeBool ("isTrigger",      h->isTrigger);
+    w.writeUInt ("collisionLayer", h->collisionLayer);
+    w.writeUInt ("collisionMask",  h->collisionMask);
     w.writeFloat3("velocity", h->velocity.x, h->velocity.y, h->velocity.z);
+    w.writeFloat3("omega",    h->omega.x,    h->omega.y,    h->omega.z);
 }
 
 bool deserializeHull(const JsonNode& n, void* comp) {
@@ -58,10 +63,17 @@ bool deserializeHull(const JsonNode& n, void* comp) {
     if (n.contains("restitution"))    h->restitution    = n["restitution"].asFloat();
     if (n.contains("gravity"))        h->gravity        = n["gravity"].asBool();
     if (n.contains("tangible"))       h->tangible       = n["tangible"].asBool();
+    if (n.contains("sleepingEnabled")) h->sleepingEnabled = n["sleepingEnabled"].asBool();
     if (n.contains("isTrigger"))      h->isTrigger      = n["isTrigger"].asBool();
+    if (n.contains("collisionLayer")) h->collisionLayer = n["collisionLayer"].asUInt();
+    if (n.contains("collisionMask"))  h->collisionMask  = n["collisionMask"].asUInt();
     if (n.contains("velocity")) {
         auto& arr = n["velocity"].asArray();
         if (arr.size() >= 3) { h->velocity.x = arr[0].asFloat(); h->velocity.y = arr[1].asFloat(); h->velocity.z = arr[2].asFloat(); }
+    }
+    if (n.contains("omega")) {
+        auto& arr = n["omega"].asArray();
+        if (arr.size() >= 3) { h->omega.x = arr[0].asFloat(); h->omega.y = arr[1].asFloat(); h->omega.z = arr[2].asFloat(); }
     }
     if (h->mass > 0.f) h->inverseMass = 1.f / h->mass;
     return true;
@@ -175,9 +187,18 @@ void serializeMeshRenderer(const void* comp, JsonWriter& w) {
     w.writeFloat3("primitiveExtents", mr->mesh->primitiveExtents.x,
                   mr->mesh->primitiveExtents.y, mr->mesh->primitiveExtents.z);
 
-    if (mr->mesh->primitiveType == PrimitiveType::Custom &&
-        !mr->mesh->sourcePath.empty()) {
-        w.writeString("sourcePath", mr->mesh->sourcePath.c_str());
+    if (mr->mesh->primitiveType == PrimitiveType::Custom) {
+        if (!mr->mesh->sourcePath.empty()) {
+            w.writeString("sourcePath", mr->mesh->sourcePath.c_str());
+        } else {
+            // Custom geometry with no source path cannot be reloaded (verts/indices
+            // are not packed into JSON). This node saves as an empty stub. Scripts
+            // that generate meshes at runtime should tag the entity ecs::Transient
+            // so it is excluded from saves instead of persisting broken.
+            std::fprintf(stderr,
+                "MeshRenderer: custom mesh has no sourcePath -- it will not reload "
+                "from this save (tag the entity Transient to exclude it).\n");
+        }
     }
 }
 
@@ -453,12 +474,31 @@ void serializeScriptComponent(const void* comp, JsonWriter& w) {
 
 bool deserializeScriptComponent(const JsonNode& n, void* comp) {
     auto* sc = static_cast<ecs::ScriptComponent*>(comp);
-    if (n.contains("scriptClass"))
-        std::strncpy(sc->scriptClass, n["scriptClass"].asString().c_str(),
-                     sizeof(sc->scriptClass) - 1);
-    if (n.contains("paramsBlob"))
-        std::strncpy(sc->paramsBlob, n["paramsBlob"].asString().c_str(),
-                     sizeof(sc->paramsBlob) - 1);
+    if (n.contains("scriptClass")) {
+        const std::string& s = n["scriptClass"].asString();
+        if (s.size() >= sizeof(sc->scriptClass)) {
+            std::fprintf(stderr,
+                "ScriptComponent: scriptClass '%s' exceeds %zu bytes -- script left unset.\n",
+                s.c_str(), sizeof(sc->scriptClass));
+        } else {
+            std::strncpy(sc->scriptClass, s.c_str(), sizeof(sc->scriptClass) - 1);
+        }
+    }
+    if (n.contains("paramsBlob")) {
+        const std::string& s = n["paramsBlob"].asString();
+        // A truncated blob is not lossy JSON -- it is unparseable, which kills
+        // the entity's whole script on load. Leave the default "{}" (parseable,
+        // default params) rather than write garbage, and say so loudly.
+        if (s.size() >= sizeof(sc->paramsBlob)) {
+            std::fprintf(stderr,
+                "ScriptComponent: paramsBlob for '%s' is %zu bytes, exceeds the %zu-byte "
+                "limit -- params dropped (kept default \"{}\").\n",
+                sc->scriptClass[0] ? sc->scriptClass : "<unknown>",
+                s.size(), sizeof(sc->paramsBlob));
+        } else {
+            std::strncpy(sc->paramsBlob, s.c_str(), sizeof(sc->paramsBlob) - 1);
+        }
+    }
     sc->instance = nullptr;
     return true;
 }

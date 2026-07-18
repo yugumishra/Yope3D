@@ -207,6 +207,8 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
             h->isTrigger       = hull.isTrigger;
         }
     }
+    if (hasTransient && !reg.has<ecs::Transient>(e))
+        reg.add<ecs::Transient>(e);
     if (hasFixed) {
         if (!reg.has<ecs::Fixed>(e))
             reg.add<ecs::Fixed>(e);
@@ -389,6 +391,7 @@ ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world
     if (auto* tf = reg.get<Transform>(e))        { s.hasTransform = true; s.transform = *tf; }
     if (auto* h  = reg.get<ecs::Hull>(e))        { s.hasHull = true;      s.hull = *h; }
     if (             reg.has<ecs::Fixed>(e))       { s.hasFixed = true; }
+    if (             reg.has<ecs::Transient>(e))   { s.hasTransient = true; }
     if (auto* sf = reg.get<ecs::SphereForm>(e))   { s.hasSphere = true;    s.sphere = *sf; }
     if (auto* af = reg.get<ecs::AABBForm>(e))    { s.hasAABB = true;      s.aabb = *af; }
     if (auto* of = reg.get<ecs::OBBForm>(e))     { s.hasOBB = true;       s.obb = *of; }

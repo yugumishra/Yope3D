@@ -129,7 +129,7 @@ These are usable in `yope3d.view()` and `yope3d.reg_get()`:
 | `"SpringConstraint"` | `ecs::SpringConstraint` | `target` (Entity), `k`, `rest_length` |
 | `"ScriptComponent"` | `ecs::ScriptComponent` | `script_class`, `params_blob` |
 
-**Not bound:** `MeshRenderer` (holds `RenderMesh*`), `AudioSource` (holds `Source*`), `Fixed`, `Sleeping` (zero-size tags — use `world.fix_entity(e)` instead).
+**Not bound:** `MeshRenderer` (holds `RenderMesh*`), `AudioSource` (holds `Source*`), `Fixed` (zero-size tag — use `world.fix_entity(e)` instead). `Sleeping` no longer exists: sleep state is the `Hull.asleep` field, reachable through the bound `Hull`.
 
 ---
 

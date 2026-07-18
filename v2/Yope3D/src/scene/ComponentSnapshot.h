@@ -17,6 +17,7 @@ struct ComponentSnapshot {
     bool hasTransform = false;  Transform        transform;
     bool hasHull      = false;  ecs::Hull        hull;
     bool hasFixed     = false;
+    bool hasTransient = false;
     bool hasSphere    = false;  ecs::SphereForm  sphere;
     bool hasAABB      = false;  ecs::AABBForm    aabb;
     bool hasOBB       = false;  ecs::OBBForm     obb;

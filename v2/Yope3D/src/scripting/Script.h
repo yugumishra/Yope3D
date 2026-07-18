@@ -1,6 +1,7 @@
 #pragma once
 #include "ScriptContext.h"
 #include "ecs/Entity.h"
+#include <string>
 
 class JsonWriter;
 struct JsonNode;
@@ -56,6 +57,16 @@ public:
     // Per-script param serialization. Default = no params.
     virtual void serializeParams  (JsonWriter& /*w*/) const {}
     virtual bool deserializeParams(const JsonNode& /*n*/) { return true; }
+
+    // Runtime save-game state — distinct from authoring params. serializeState
+    // returns a JSON object string to persist in a save file (empty = nothing to
+    // save); deserializeState receives that same string back, after the script
+    // has been constructed and init()'d, to overlay the saved runtime state.
+    // Only PythonScript overrides these (bridging Python save_state/load_state);
+    // the state travels dict→JSON→dict and never touches ScriptComponent's
+    // fixed paramsBlob.
+    virtual std::string serializeState() const { return {}; }
+    virtual void        deserializeState(const std::string& /*json*/) {}
 
     // Editor-only inspector hook (no-op in runtime). EditorContext is a forward decl;
     // the editor build links the real definition and supplies it.

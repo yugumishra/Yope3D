@@ -28,6 +28,12 @@ public:
     // Defer a scene swap to the next flush() call. Last queue wins.
     void queueLoad(std::string scenePath);
 
+    // Defer loading a runtime save game (yope3d.load_game) to the next flush().
+    // Same deferral + safe-boundary guarantee as queueLoad; the difference is
+    // flush() routes it through loadGameSynchronous, which overlays each script's
+    // saved save_state after init. Last queue wins (game or scene).
+    void queueLoadGame(std::string savePath);
+
     // Apply a queued load if any. Returns true iff a load happened.
     // initScripts: invoke init() on freshly-created Script instances. Runtime mode
     //              passes true; editor edit mode passes false (Play does init later).
@@ -37,6 +43,13 @@ public:
     // we're in a safe context already. Returns empty string on success.
     std::string loadSynchronous(const std::string& scenePath,
                                 ScriptContext& ctx, bool initScripts);
+
+    // Synchronous save-game load: parse + commit the save file (a complete scene),
+    // instantiate + init every script, then dispatch Script::deserializeState with
+    // each entity's saved save_state — strictly after init, so scripts build
+    // normally and the saved runtime state overlays on top. Always runs in runtime
+    // mode (scripts live). Returns empty string on success.
+    std::string loadGameSynchronous(const std::string& savePath, ScriptContext& ctx);
 
     // Called by EditorApp on Play: instantiate Script* for every ScriptComponent
     // currently in the registry, deserialize params, then call init() on each.
@@ -78,4 +91,5 @@ private:
     AssetManager*              assets_;
     std::string                currentPath_;
     std::optional<std::string> pendingLoad_;
+    bool                       pendingIsGame_ = false;   // pendingLoad_ is a save game, not a scene
 };

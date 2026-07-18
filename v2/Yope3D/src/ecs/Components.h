@@ -238,6 +238,7 @@ struct ScriptComponent {
 struct Fixed            {};   // physics: body is stationary / infinite mass
 struct EditorSelectable {};   // editor: show in hierarchy panel (Phase D)
 struct EditorPickable   {};   // editor: render in ID buffer pass (Phase D)
+struct Transient        {};   // persistence: opt out of saves (VFX/debris/rebuilt-on-load)
 
 // ---- 2D UI components ----
 // All coordinates in [0,1] screen percentage, (0,0) top-left, Y down.

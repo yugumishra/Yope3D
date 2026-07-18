@@ -16,6 +16,12 @@ SceneManager::SceneManager(World& world, AudioSystem* audio, AssetManager* asset
 
 void SceneManager::queueLoad(std::string scenePath) {
     pendingLoad_ = std::move(scenePath);
+    pendingIsGame_ = false;
+}
+
+void SceneManager::queueLoadGame(std::string savePath) {
+    pendingLoad_ = std::move(savePath);
+    pendingIsGame_ = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,9 +111,50 @@ std::string SceneManager::loadSynchronous(const std::string& scenePath,
 bool SceneManager::flush(ScriptContext& ctx, bool initScripts) {
     if (!pendingLoad_) return false;
     std::string path = std::move(*pendingLoad_);
+    bool isGame = pendingIsGame_;
     pendingLoad_.reset();
-    loadSynchronous(path, ctx, initScripts);
+    pendingIsGame_ = false;
+    // A save game always loads in runtime mode (scripts live + state overlaid);
+    // the editor never queues one, so initScripts is irrelevant on this branch.
+    if (isGame) loadGameSynchronous(path, ctx);
+    else        loadSynchronous(path, ctx, initScripts);
     return true;
+}
+
+std::string SceneManager::loadGameSynchronous(const std::string& savePath, ScriptContext& ctx) {
+    // Tear down existing scripts first (same reason as loadSynchronous: the parse
+    // that follows resets physics, which nulls Script* at the archetype level and
+    // would otherwise leak the heap instances).
+    destroyAllInstances(world_.getRegistry(), ctx);
+
+    // A save file is a complete scene; run the standard parse → commit pipeline,
+    // but keep the ParsedScene alive so its per-entity scriptState survives until
+    // after script init().
+    SceneSerializer::ParsedScene ps = SceneSerializer::parseScene(savePath.c_str());
+    if (!ps.ok) {
+        std::fprintf(stderr, "SceneManager: failed to load save game '%s': %s\n",
+                     savePath.c_str(), ps.error.c_str());
+        return ps.error;
+    }
+    SceneSerializer::commitBegin(ps, world_);
+    SceneSerializer::commitEntities(ps, world_, ps.entities.size());
+    SceneSerializer::commitFinalize(ps, world_, audio_, assets_, /*startAudio=*/true);
+
+    // Instantiate + deserializeParams + init(), exactly like a runtime scene load.
+    instantiateAll(world_.getRegistry(), ctx, /*runInit=*/true);
+
+    // Overlay saved runtime state AFTER init: deserializeParams → init → load_state.
+    auto& reg = world_.getRegistry();
+    for (const auto& ent : ps.entities) {
+        if (ent.scriptState.empty()) continue;
+        auto it = ps.fileIdToEntity.find(ent.fileId);
+        if (it == ps.fileIdToEntity.end() || !reg.valid(it->second)) continue;
+        auto* sc = reg.get<ecs::ScriptComponent>(it->second);
+        if (sc && sc->instance) sc->instance->deserializeState(ent.scriptState);
+    }
+
+    currentPath_ = savePath;
+    return "";
 }
 
 void SceneManager::instantiateAndInitAllScripts(ScriptContext& ctx) {
