@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Scanner;
 
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.lwjgl.stb.STBImage;
 import org.lwjgl.stb.STBVorbis;
@@ -227,8 +228,6 @@ public class Util {
 			}
 			// smooth check
 			if (token.equals("s")) {
-				// smooth is true
-				smooth = true;
 				// skip the index
 				scan.next();
 				// continue
@@ -251,7 +250,7 @@ public class Util {
 					// texture coordinates)
 					// otherwise the whole vertex representation gets placed
 					if (smooth) {
-						String realKey = vertex.substring(0, vertex.lastIndexOf("/"));
+						String realKey = vertex.substring(0, vertex.indexOf('/'));
 						boolean vertExists = vertsToInds.containsKey(realKey);
 						if (vertExists) {
 							// get the normal indexed by this vertex
@@ -308,12 +307,13 @@ public class Util {
 							vertsToInds.put(realKey, index);
 						}
 					} else {
-						boolean vertExists = vertsToInds.containsKey(vertex);
+						String realKey = vertex;
+						boolean vertExists = vertsToInds.containsKey(realKey);
 						if (vertExists) {
-							// already exists so no need to create an additional vertex
-							indexes.add(vertsToInds.get(vertex));
+							indexes.add(vertsToInds.get(realKey));
 						} else {
-							// we don't have it in the map so it must be defined
+							// we don't have an existing vertex for this vertex representation, so we just
+							// add this one to it
 							// get the vertex
 							String[] components = vertex.split("/");
 							int positionIndex = Integer.valueOf(components[0]);
@@ -337,10 +337,10 @@ public class Util {
 							vertexes.add(textureCoordinates.get(textureIndex * 2));
 							vertexes.add(textureCoordinates.get(textureIndex * 2 + 1));
 							// place this vertex into the indices array and the map
-							int index = prevSize / 9;
+							int index = prevSize / 8;
 							indexes.add(index);
 							// map adding
-							vertsToInds.put(vertex, index);
+							vertsToInds.put(realKey, index);
 						}
 					}
 				}
@@ -358,13 +358,14 @@ public class Util {
 			indices[i] = indexes.get(i);
 		}
 		// normalize the normals
-
-		for (int i = 0; i < vertices.length; i += 8) {
-			Vector3f normal = new Vector3f(vertices[i + 3], vertices[i + 4], vertices[i + 5]);
-			normal.normalize();
-			vertices[i + 3] = normal.x;
-			vertices[i + 4] = normal.y;
-			vertices[i + 5] = normal.z;
+		if(smooth) {
+			for (int i = 0; i < vertices.length; i += 8) {
+				Vector3f normal = new Vector3f(vertices[i + 3], vertices[i + 4], vertices[i + 5]);
+				normal.normalize();
+				vertices[i + 3] = normal.x;
+				vertices[i + 4] = normal.y;
+				vertices[i + 5] = normal.z;
+			}
 		}
 		// create the mesh and return it
 		Mesh m = new Mesh(vertices, indices);
@@ -504,6 +505,18 @@ public class Util {
 		}
 		return sound;
 	}
+	
+	public static Quaternionf xyzRotToQuat(Vector3f rot) {
+        //create rotation quats for each axis
+        Quaternionf pitch = new Quaternionf().rotationAxis(rot.x, 1, 0, 0); // x
+        Quaternionf yaw = new Quaternionf().rotationAxis(rot.y, 0, 1, 0);   // y
+        Quaternionf roll = new Quaternionf().rotationAxis(rot.z, 0, 0, 1); // z
+
+        // Combine the quaternions in the desired order (e.g., yaw * pitch * roll)
+        Quaternionf result = roll.mul(yaw).mul(pitch);
+
+        return result;
+    }
 	
 	public static void processCollisionMesh(Mesh m) {
 		

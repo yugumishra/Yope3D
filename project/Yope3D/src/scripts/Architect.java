@@ -108,9 +108,9 @@ public class Architect extends Script{
 			world.addLight(new SpotLight(new Vector3f(x,y,z), new Vector3f(0,-y,0).normalize(), 0.99f, 0.21943996211f, new Vector3f((float) Math.random(), (float) Math.random(), (float) Math.random()), new Vector3f(1f, 0.01f, 0.001f)));
 		}
 		
-		world.addLight(new PointLight(new Vector3f( 40,10,-40), new Vector3f(1,1,1), new Vector3f(0.5f,0.01f, 0.00001f)));
-		world.addLight(new PointLight(new Vector3f( 40,10, 40), new Vector3f(1,1,1), new Vector3f(0.5f,0.01f, 0.00001f)));
-		world.addLight(new PointLight(new Vector3f(-40,10, 40), new Vector3f(1,1,1), new Vector3f(0.5f,0.01f, 0.00001f)));
+		world.addLight(new PointLight(new Vector3f( 40,10,-40), new Vector3f(1,1,1), new Vector3f(0.25f,0.01f, 0.00001f)));
+		world.addLight(new PointLight(new Vector3f( 40,10, 40), new Vector3f(1,1,1), new Vector3f(0.25f,0.01f, 0.00001f)));
+		world.addLight(new PointLight(new Vector3f(-40,10, 40), new Vector3f(1,1,1), new Vector3f(0.25f,0.01f, 0.00001f)));
 		
 		Launch.world.lightChanged();
 		
