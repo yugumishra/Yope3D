@@ -508,6 +508,33 @@ public:
     void  setTimeScale(float s) { timeScale_.store(std::max(0.0f, s), std::memory_order_relaxed); }
     float getTimeScale() const  { return timeScale_.load(std::memory_order_relaxed); }
 
+    // ---- Fixed-timestep instrumentation (the Article-2 demos) ----
+    // Unlike time_scale, physics_hz changes the STEP SIZE: the sim itself gets
+    // coarser or finer. Wall-clock pacing is unchanged, so motion stays
+    // real-time — what changes is how often the render thread gets a fresh
+    // snapshot, and how the solver behaves on a coarser grid.
+    void  setPhysicsHz(float hz) {
+        physicsDt_.store(1.0f / std::clamp(hz, 1.0f, 1000.0f), std::memory_order_relaxed);
+    }
+    float getPhysicsHz() const { return 1.0f / physicsDt_.load(std::memory_order_relaxed); }
+    float getPhysicsDt() const { return physicsDt_.load(std::memory_order_relaxed); }
+
+    // Artificial cost added to every step (spin-wait in the physics thread) —
+    // stands in for "the sim got more expensive" in the death-spiral demo.
+    void     setStepBurdenUs(uint32_t us) { stepBurdenUs_.store(us, std::memory_order_relaxed); }
+    uint32_t getStepBurdenUs() const      { return stepBurdenUs_.load(std::memory_order_relaxed); }
+
+    // The accumulator clamp is the guard rail that turns "physics can't keep
+    // up" into bounded time dilation. Disabling it (demo only!) restores the
+    // classic spiral of death: the backlog compounds without limit.
+    void setAccumulatorClamp(bool on) { accumClamp_.store(on, std::memory_order_relaxed); }
+    bool getAccumulatorClamp() const  { return accumClamp_.load(std::memory_order_relaxed); }
+
+    // Backlog (seconds of unsimulated time) stored by the physics thread each
+    // outer iteration; read by script HUDs.
+    void  storeAccumulatorBacklog(float s) { accumBacklog_.store(s, std::memory_order_relaxed); }
+    float getAccumulatorBacklog() const    { return accumBacklog_.load(std::memory_order_relaxed); }
+
     // Last tick's solver-load counters. pairCount = broadphase candidate pairs;
     // contactCount = manifolds surviving narrowphase (matches the profiler CSV's
     // contact_count); contactPointCount = individual points inside those
@@ -718,6 +745,10 @@ private:
     int                                                  lastContactCount_ = 0;
     int                                                  lastContactPointCount_ = 0;
     std::atomic<float>                                   timeScale_{ 1.0f };
+    std::atomic<float>    physicsDt_{ physics::PHYSICS_DT };
+    std::atomic<uint32_t> stepBurdenUs_{ 0 };
+    std::atomic<bool>     accumClamp_{ true };
+    std::atomic<float>    accumBacklog_{ 0.0f };
     // Written by the physics thread at the end of advance(), drained by the main
     // thread in emitContactDebugLines(). Its own mutex rather than structureMtx_:
     // the main thread would otherwise block on a whole physics step just to draw.

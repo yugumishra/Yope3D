@@ -1,0 +1,36 @@
+{
+    "version": 1,
+    "gravity": [0, -9.80665, 0],
+    "entities": [
+        {
+            "fileId": 0,
+            "runtimeId": 0,
+            "Name":             {
+                "value": "Sun"
+            },
+            "LightSource":             {
+                "type": 1,
+                "color": [0.95, 0.95, 1],
+                "intensity": 0.9,
+                "position": [0, 0, 0],
+                "direction": [-0.4, -1, -0.6],
+                "constant": 1,
+                "linear": 0,
+                "quadratic": 0,
+                "innerConeAngle": 0.2,
+                "outerConeAngle": 0.5
+            }
+        },
+        {
+            "fileId": 1,
+            "runtimeId": 1,
+            "Name":             {
+                "value": "SmoothnessDemo"
+            },
+            "ScriptComponent":             {
+                "scriptClass": "PythonScript",
+                "paramsBlob": "{\n    \"module\": \"behaviors.article2_smoothness\",\n    \"class\": \"Smoothness\"\n}"
+            }
+        }
+    ]
+}

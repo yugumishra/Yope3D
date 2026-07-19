@@ -1979,7 +1979,26 @@ void World::removeLight(ecs::Entity e) {
 }
 
 void World::setMeshVisible(ecs::Entity e, bool visible) {
-    if (RenderMesh* m = getMesh(e)) m->visible = visible;
+    std::lock_guard lk(structureMtx_);
+    auto* mr = registry_.get<ecs::MeshRenderer>(e);
+    RenderMesh* m = mr ? mr->mesh : nullptr;
+    if (!m) return;
+    if (visible && !m->visible) {
+        // Mesh-only entities' modelMatrix is otherwise only refreshed by the
+        // physics thread's publishSnapshot(), throttled to world.physics_hz
+        // (as low as 1 Hz in the tick-rate demos). Without this, a pooled
+        // mesh that was hidden mid-trajectory and later recycled flashes its
+        // stale pre-hide matrix for up to a full tick period the instant it
+        // goes visible again, before the next snapshot snaps it to the
+        // freshly-written Transform.
+        if (auto* tf = registry_.get<Transform>(e)) {
+            Transform w = registry_.has<ecs::Hull>(e)
+                ? *tf : hierarchy::worldTransform(registry_, e);
+            m->modelMatrix    = w.getModelMatrix();
+            m->transformReady = true;
+        }
+    }
+    m->visible = visible;
 }
 
 // ---- resetPhysics ----

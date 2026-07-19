@@ -172,17 +172,34 @@ void Engine::startPhysicsThread() {
         float  accum   = 0.0f;
         while (!stopPhysics_.load(std::memory_order_relaxed)) {
             double now = glfwGetTime();
-            float  dt  = std::min(static_cast<float>(now - last), 0.05f);
+            float  dt  = static_cast<float>(now - last);
             last = now;
+            // Step size is normally physics::PHYSICS_DT; scripts can retune it
+            // live (world.physics_hz) for the fixed-timestep demos.
+            const float stepDt = world->getPhysicsDt();
+            const bool  clamp  = world->getAccumulatorClamp();
+            // Both guard rails come off together in the death-spiral demo: the
+            // frame-dt cap would otherwise hide the feedback loop (time spent
+            // stepping must re-enter the accumulator in full for the backlog
+            // to compound).
+            if (clamp) dt = std::min(dt, 0.05f);
             // Time scale bends wall-clock dt only — the step handed to advance()
-            // below is still PHYSICS_DT, so slow-mo replays the same deterministic
+            // below is still stepDt, so slow-mo replays the same deterministic
             // sim more slowly instead of simulating a different one.
-            accum = std::min(accum + dt * world->getTimeScale(),
-                             physics::MAX_PHYSICS_ACCUMULATOR);
-            while (accum >= physics::PHYSICS_DT) {
-                world->advance(physics::PHYSICS_DT);
-                accum -= physics::PHYSICS_DT;
+            accum += dt * world->getTimeScale();
+            if (clamp) accum = std::min(accum, 4.0f * stepDt);   // max 4 sub-steps per frame
+            while (accum >= stepDt &&
+                   !stopPhysics_.load(std::memory_order_relaxed)) {
+                world->advance(stepDt);
+                // Artificial per-step cost for the death-spiral demo.
+                if (uint32_t burden = world->getStepBurdenUs()) {
+                    auto spinEnd = std::chrono::steady_clock::now() +
+                                   std::chrono::microseconds(burden);
+                    while (std::chrono::steady_clock::now() < spinEnd) {}
+                }
+                accum -= stepDt;
             }
+            world->storeAccumulatorBacklog(accum);
             std::this_thread::sleep_for(100us);
         }
     });
