@@ -560,6 +560,20 @@ target_include_directories(yope_ecs_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(yope_ecs_tests PRIVATE Catch2::Catch2WithMain)
 
 # ---------------------------------------------------------------------------
+# ECS iteration benchmark — Article 3 measurement artifact. Runs only from
+# release builds (the binary refuses NDEBUG-less builds). CSV output feeds
+# tools/articleAnalysis/plot_ecs_bench.py.
+# ---------------------------------------------------------------------------
+
+add_executable(yope_ecs_bench
+    tests/ecs_bench.cpp
+    src/ecs/Registry.cpp
+    src/math/MathImpl.cpp
+)
+
+target_include_directories(yope_ecs_bench PRIVATE "${CMAKE_SOURCE_DIR}/src")
+
+# ---------------------------------------------------------------------------
 # Package version test — verifies external dependencies are linked correctly
 # ---------------------------------------------------------------------------
 
