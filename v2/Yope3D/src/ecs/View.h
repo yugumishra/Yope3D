@@ -5,6 +5,8 @@
 #include <tuple>
 #include <array>
 #include <algorithm>
+#include <cstddef>
+#include <utility>
 
 namespace ecs {
 
@@ -53,31 +55,53 @@ public:
         std::vector<Archetype*>* matched_;
         size_t archIdx_;
         size_t row_;
+        // Column base pointers for the current archetype, one per Include, so
+        // dereference is a stride-multiply instead of a per-row colIndex()
+        // binary search per component. Valid under the existing contract (no
+        // structural mutation while iterating — a push/migration would
+        // reallocate the column and dangle these).
+        size_t cachedArch_ = static_cast<size_t>(-1);
+        std::array<std::byte*, sizeof...(Includes)> colBase_{};
 
         Iterator(std::vector<Archetype*>* m, size_t ai, size_t r)
             : matched_(m), archIdx_(ai), row_(r) { skipEmpty(); }
 
-        // Advance past exhausted archetypes.
+        void cacheColumns() {
+            Archetype* arch = (*matched_)[archIdx_];
+            size_t k = 0;
+            ((colBase_[k++] = static_cast<std::byte*>(
+                  arch->cols[arch->colIndex(typeId<Includes>())].at(0))), ...);
+            cachedArch_ = archIdx_;
+        }
+
+        // Advance past exhausted archetypes; refresh column pointers when the
+        // archetype changes (skipped archetypes are empty, so caching only
+        // ever happens on one with rows).
         void skipEmpty() {
             while (archIdx_ < matched_->size() &&
                    row_ >= (*matched_)[archIdx_]->size()) {
                 ++archIdx_;
                 row_ = 0;
             }
+            if (archIdx_ < matched_->size() && archIdx_ != cachedArch_)
+                cacheColumns();
         }
 
         bool operator==(const Sentinel&) const { return archIdx_ >= matched_->size(); }
         bool operator!=(const Sentinel&) const { return archIdx_ < matched_->size(); }
 
         TupleRef operator*() const {
+            return deref(std::index_sequence_for<Includes...>{});
+        }
+
+        template<size_t... Is>
+        TupleRef deref(std::index_sequence<Is...>) const {
             Archetype* arch = (*matched_)[archIdx_];
-            Entity e = arch->entities[row_];
-            // Expand Includes pack: dereference pointer into each component column.
+            // sizeof(Includes) matches the column's registered element size
+            // (Registry::add registers sizeof(T)), so the stride is static.
             return TupleRef(
-                e,
-                *static_cast<Includes*>(
-                    arch->cols[arch->colIndex(typeId<Includes>())].at(row_)
-                )...
+                arch->entities[row_],
+                *reinterpret_cast<Includes*>(colBase_[Is] + row_ * sizeof(Includes))...
             );
         }
 

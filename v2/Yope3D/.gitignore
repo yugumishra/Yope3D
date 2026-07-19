@@ -8,3 +8,6 @@ vendor/
 # Generated documentation site (tools/build_docs.sh)
 docs/site/
 docs/.venv/
+
+# Article plot output (tools/articleAnalysis/) — regenerable, keep off-repo
+tools/articleAnalysis/plots/
