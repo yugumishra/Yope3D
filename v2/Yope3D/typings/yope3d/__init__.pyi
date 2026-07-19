@@ -1107,6 +1107,31 @@ class World:
     simulation, not a softer one. Values above 1 saturate against the substep clamp
     rather than exploding."""
 
+    physics_hz: float
+    """Physics tick rate (default ``240``, clamped to ``[1, 1000]``). Unlike
+    ``time_scale`` this changes the STEP SIZE: wall-clock pacing is unchanged
+    (motion stays real-time), but the sim grid gets coarser or finer — at low
+    rates the render thread visibly repeats stale snapshots. Demo/instrumentation
+    control; solver tuning assumes 240."""
+
+    step_burden_us: int
+    """Artificial spin-wait (microseconds) added to every physics step (default
+    ``0``). Stands in for "the sim got more expensive" in the death-spiral demo:
+    raise it past the per-step budget (``1e6 / physics_hz``) and the accumulator
+    can no longer drain."""
+
+    accumulator_clamp: bool
+    """The fixed-timestep guard rail (default ``True``): caps the accumulator at 4
+    sub-steps per frame, turning overload into bounded time dilation. ``False``
+    (demo only!) removes it — and the frame-dt cap with it — restoring the classic
+    spiral of death where the backlog compounds without limit."""
+
+    accumulator_backlog: float
+    """Seconds of wall-clock time the physics thread has accepted but not yet
+    simulated (read-only; stored once per accumulator iteration). Healthy: below
+    ``4 / physics_hz``. Growing without bound: you are watching the spiral of
+    death."""
+
     def get_pair_count(self) -> int:
         """Broadphase candidate pairs from the last tick (SAP output, pre-narrowphase)."""
     def get_contact_count(self) -> int:

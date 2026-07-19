@@ -439,6 +439,11 @@ void bind_world(py::module_& m) {
         .def_readwrite("debug_contacts", &World::debugContacts)
         .def_property("warm_start", &World::getWarmStart, &World::setWarmStart)
         .def_property("time_scale", &World::getTimeScale, &World::setTimeScale)
+        // ---- Fixed-timestep instrumentation (Article-2 demos) ----
+        .def_property("physics_hz", &World::getPhysicsHz, &World::setPhysicsHz)
+        .def_property("step_burden_us", &World::getStepBurdenUs, &World::setStepBurdenUs)
+        .def_property("accumulator_clamp", &World::getAccumulatorClamp, &World::setAccumulatorClamp)
+        .def_property_readonly("accumulator_backlog", &World::getAccumulatorBacklog)
         .def("get_pair_count",          &World::getPairCount)
         .def("get_contact_count",       &World::getContactCount)
         .def("get_contact_point_count", &World::getContactPointCount)
