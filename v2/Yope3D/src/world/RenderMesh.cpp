@@ -40,6 +40,12 @@ RenderMesh::RenderMesh(GpuDevice& gpu, BufferUploadBatch& batch,
     indexCount = static_cast<uint32_t>(indices.size());
 }
 
+RenderMesh::RenderMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
+    : cpuVertices(vertices), cpuIndices(indices)
+{
+    indexCount = static_cast<uint32_t>(indices.size());
+}
+
 void RenderMesh::destroy(VkDevice device) {
     indexBuffer.destroy(device);
     vertexBuffer.destroy(device);

@@ -84,6 +84,14 @@ public:
                const std::vector<Vertex>&   vertices,
                const std::vector<uint32_t>& indices);
 
+    // Headless variant: no GpuDevice, no GPU buffers. Used when World runs
+    // without a renderer (gpu_ == nullptr). cpuVertices/cpuIndices/indexCount
+    // are populated identically to the GPU constructors; vertexBuffer/indexBuffer
+    // stay default-constructed (VK_NULL_HANDLE) and are never destroy()'d — every
+    // destroy() call site is already gated on gpu_ being non-null.
+    RenderMesh(const std::vector<Vertex>&   vertices,
+               const std::vector<uint32_t>& indices);
+
     void destroy(VkDevice device);
 
     // Bind vertex + index buffers and issue vkCmdDrawIndexed.

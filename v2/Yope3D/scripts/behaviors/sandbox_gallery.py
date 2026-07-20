@@ -169,7 +169,11 @@ class SandboxGallery(GalleryBase):
                     color = (0.9 - 0.4 * fi, 0.3 + 0.4 * fj, 0.15 + 0.3 * fi)
                     e = self.sphere(world, NODE_MASS, NODE_HALF, pos, color)
                 elif shape == 1:
-                    color = (0.1 + 0.2 * fj, 0.5 + 0.3 * fi, 0.8 - 0.3 * fj)
+                    # The Java-era cloth gradient (SpringDemo.java, 30x30 grid):
+                    # setColor(i/30, j/30, 0.4 + (i+j)/120) — i.e. i/N, j/N,
+                    # 0.4 + (i+j)/(4N), generalized to GRID_N.
+                    color = (i / GRID_N, j / GRID_N,
+                             0.4 + (i + j) / (4.0 * GRID_N))
                     e = self.box(world, half, NODE_MASS, pos, color)
                 else:
                     color = (fi, fj, 0.4 + 0.3 * (fi + fj) * 0.5)
