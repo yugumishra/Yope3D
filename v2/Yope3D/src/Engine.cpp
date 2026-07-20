@@ -245,7 +245,13 @@ void Engine::beginAsyncLoad(const std::string& scenePath, bool initScripts) {
 void Engine::updateSplash() {
     // Timeline / policy constants (agreed design). All reactive to elapsed time —
     // the load ETA is unknowable (texture streaming is indeterminate).
-    constexpr float MIN_SPLASH = 3.0f;    // guarantee legibility; kills the fast-load flash
+    // startPhysicsThread() doesn't fire until finishAsyncLoad(), which itself
+    // waits on this MIN_SPLASH floor — so stress/profiling runs pay it as pure
+    // dead time with zero physics ticks, before profiling even starts. Gated
+    // under YOPE_SKIP_SPLASH (set by run_scaling_sweep.sh) so scaling-sweep
+    // wall-clock budgets aren't spent on a UX floor that's irrelevant headless.
+    static const bool skipSplash = std::getenv("YOPE_SKIP_SPLASH") != nullptr;
+    const float MIN_SPLASH = skipSplash ? 0.0f : 3.0f; // guarantee legibility; kills the fast-load flash
     constexpr float T_CUE      = 3.0f;    // idle time before the ball drops (long loads)
     constexpr float FADE_DUR   = 0.35f;   // outro cross-fade
 

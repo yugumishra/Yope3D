@@ -122,7 +122,11 @@ PHYSICS_WORKER_CPU = {"pgs_island"}
 # denominator so they don't double-count.
 PHYSICS_SUB_BREAKDOWN = {
     "pgs_dispatch", "pgs_wait",            # children of pgs_solve
-    "sap_build", "sap_sort", "sap_sweep",  # decompose broadphase_sap
+    # decompose broadphase_sap — dual-method dispatch: sap_build/sap_grid_* below is the
+    # grid path (entities.size() >= SAP_METHOD_SWITCH_N); sap_sweep_* is the incremental
+    # sweep-and-prune path used below that threshold. Only one set has nonzero rows per file.
+    "sap_build", "sap_grid_bucket", "sap_grid_sort", "sap_grid_query", "sap_giants", "sap_finalize",
+    "sap_sweep_build", "sap_sweep_sort", "sap_sweep_query",
     "island_id_assign", "island_unionfind",
     "island_partition", "island_entity_cache", "island_wake",
     "island_partition_n", "island_entity_cache_n",  # zero-duration stamps
