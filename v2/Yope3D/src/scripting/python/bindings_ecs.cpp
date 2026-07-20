@@ -91,6 +91,7 @@ void bind_ecs(py::module_& m) {
         .def_readwrite("tangible",        &ecs::Hull::tangible)
         .def_readwrite("is_trigger",      &ecs::Hull::isTrigger)
         .def_readwrite("asleep",          &ecs::Hull::asleep)
+        .def_readwrite("sleeping_enabled", &ecs::Hull::sleepingEnabled)
         .def_readwrite("kinematic",       &ecs::Hull::kinematic)
         .def_readwrite("collision_layer", &ecs::Hull::collisionLayer)
         .def_readwrite("collision_mask",  &ecs::Hull::collisionMask)
