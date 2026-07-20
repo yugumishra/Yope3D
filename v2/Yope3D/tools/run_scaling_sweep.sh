@@ -95,7 +95,13 @@ for SHAPE_IDX in "${!SHAPE_VALUES[@]}"; do
         START=$(date +%s)
         LOG="$OUT_DIR/engine_N${N}_${SHAPE}.log"
         set +e
+        # YOPE_SKIP_SPLASH: the loading-screen splash holds for a fixed MIN_SPLASH
+        # (3s) before the physics thread even starts (see Engine::updateSplash) —
+        # pure dead time against DURATION that gets worse as N grows and scene
+        # commit takes longer. Skipped here so the sweep's wall-clock budget goes
+        # to actual physics ticks, not a UX floor that's irrelevant headless.
         YOPE_STRESS_N=$N YOPE_STRESS_SHAPE=$SHAPE YOPE_STRESS_SCENARIO=$SCENARIO \
+            YOPE_SKIP_SPLASH=1 \
             YOPE_PROFILE_DURATION=$DURATION "$BIN" --scene "$SCENE" 2>&1 | tee "$LOG"
         EXIT=${PIPESTATUS[0]}
         set -e

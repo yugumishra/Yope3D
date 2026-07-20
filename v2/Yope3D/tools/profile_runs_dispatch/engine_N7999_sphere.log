@@ -1,0 +1,10 @@
+[Python] interpreter started
+=== Vulkan Physical Device ===
+  Name:    Apple M4
+  Type:    Integrated GPU
+  API:     1.2.334
+  Queues:  graphics=0  present=0  compute=0
+  Device extensions enabled:
+    VK_KHR_swapchain
+    VK_KHR_portability_subset
+==============================

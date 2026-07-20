@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 
 namespace physics {
     inline constexpr float PHYSICS_DT                    = 1.0f / 240.0f;
@@ -66,4 +67,15 @@ namespace physics {
     inline constexpr int MAX_GJK_ITERATIONS = 32;
     //make sure GJK isn't doing an unnecessary amount of iterations moving toward an origin incredibly slowly
     inline constexpr float GJK_EPS = 0.0001f;
+
+    // BroadphaseSAP uniform grid. Fixed (not data-derived) so cell assignment stays
+    // deterministic regardless of entity iteration order — see BroadphaseSAP.cpp.
+    inline constexpr float SAP_GRID_CELL_SIZE       = 4.0f;  // world units; ~body scale for grid/tile scenes
+    inline constexpr int   SAP_GRID_GIANT_CELL_SPAN = 4;     // entries spanning more cells than this on any axis are "giants"
+
+    // BroadphaseSAP dispatch: entities.size() at or above this uses the uniform grid;
+    // below it uses sweep-and-prune. Crossover is scenario/density-dependent (see
+    // tools/CLAUDE.md Phase E findings) — 8000 matches the measured near-parity point
+    // for the grid stress scenario. No hysteresis: a single comparison, by design.
+    inline constexpr size_t SAP_METHOD_SWITCH_N = 8000;
 }
