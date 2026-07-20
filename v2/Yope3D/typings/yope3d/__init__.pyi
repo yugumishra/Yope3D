@@ -593,6 +593,14 @@ class Hull:
     composition change. Prefer ``world.wake`` over setting it directly, since
     ``wake`` also zeros ``sleepFrames`` so the body doesn't immediately re-sleep.
     """
+    sleeping_enabled: bool
+    """Whether this body is allowed to fall asleep at all (default ``True``).
+    Set ``False`` on script-driven bodies whose velocity is written directly
+    every frame (e.g. a physics-driven player) — otherwise the body parks
+    itself whenever the player stands still and the writes stop landing (see
+    the Hull Warning above). Unlike ``asleep`` (the current parked state),
+    this is the standing policy; setting it ``False`` on an already-sleeping
+    body does not wake it — call ``world.wake`` once as well."""
     kinematic: bool
     """If ``True`` this is a *kinematic* rigid body (moving platform): immovable by
     contacts (its inverse mass/inertia are held at 0), but its Transform is still
@@ -1342,6 +1350,7 @@ class World:
         r: float = 1.0,
         g: float = 1.0,
         b: float = 1.0,
+        subdivisions: int = 3,
     ) -> None:
         """Give an entity an icosphere render mesh with a flat color.
 
@@ -1351,6 +1360,10 @@ class World:
             r: Red in ``[0, 1]``.
             g: Green in ``[0, 1]``.
             b: Blue in ``[0, 1]``.
+            subdivisions: Icosphere subdivision level (default ``3`` = 1280
+                tris). Each level quadruples the triangle count; drop to ``2``
+                (320 tris) or ``1`` (80) for crowd scenes — there is no
+                instancing, so every sphere pays its own vertex bill.
         """
     def attach_box_mesh(
         self,
@@ -2015,6 +2028,10 @@ class Camera:
     position: Vec3
     rotation: Vec3
     """Euler angles in radians (pitch/yaw/roll as a Vec3)."""
+    fov: float
+    """Vertical field of view in **radians** (read/write; same units as
+    ``set_fov``). Read it once at init to cache the base value for temporary
+    effects (dash/zoom FOV kicks) that must restore the original."""
 
     def set_position(self, p: Vec3) -> None:
         """Set the camera world position."""

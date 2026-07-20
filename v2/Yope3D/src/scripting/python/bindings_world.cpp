@@ -156,11 +156,12 @@ void bind_world(py::module_& m) {
         // Mesh-attachment helpers — call after add_sphere/add_obb/add_aabb
         .def("attach_sphere_mesh",
              [](World& w, ecs::Entity e, float r,
-                float cr = 1.f, float cg = 1.f, float cb = 1.f) {
-                 RenderMesh* m = w.attachMesh(e, Primitives::icosphere(r));
+                float cr, float cg, float cb, int subdivisions) {
+                 RenderMesh* m = w.attachMesh(e, Primitives::icosphere(r, subdivisions));
                  if (m) { m->color[0]=cr; m->color[1]=cg; m->color[2]=cb; m->state=0; }
              }, py::arg("entity"), py::arg("radius"),
-                py::arg("r")=1.f, py::arg("g")=1.f, py::arg("b")=1.f)
+                py::arg("r")=1.f, py::arg("g")=1.f, py::arg("b")=1.f,
+                py::arg("subdivisions")=3)
         .def("attach_box_mesh",
              [](World& w, ecs::Entity e, math::Vec3 half,
                 float cr = 1.f, float cg = 1.f, float cb = 1.f) {
@@ -480,7 +481,8 @@ void bind_world(py::module_& m) {
             return py::make_tuple(o, d);
         }, py::arg("px"), py::arg("py"))
         .def_property("position", &Camera::getPosition, &Camera::setPosition)
-        .def_property("rotation", &Camera::getRotation, &Camera::setRotation);
+        .def_property("rotation", &Camera::getRotation, &Camera::setRotation)
+        .def_property("fov",      &Camera::getFov,      &Camera::setFOV);
 
     // Window — pixel dimensions + cursor position (for screen_to_ray / picking).
     py::class_<Window>(m, "Window")
