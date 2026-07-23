@@ -503,8 +503,9 @@ public:
     // thread), NOT the step size — advance() still runs at a fixed PHYSICS_DT, so
     // slow motion is a slowed-down replay of the same deterministic sim rather
     // than a different (softer / stiffer) one. 0 freezes the sim; values above 1
-    // are capped by MAX_PHYSICS_ACCUMULATOR's substep clamp, so a big number just
-    // saturates instead of exploding.
+    // are bounded by MAX_CATCHUP_STEPS (substeps per iteration) and
+    // MAX_PHYSICS_ACCUMULATOR (retained-backlog ceiling), so a big number just
+    // saturates the catch-up rate instead of exploding.
     void  setTimeScale(float s) { timeScale_.store(std::max(0.0f, s), std::memory_order_relaxed); }
     float getTimeScale() const  { return timeScale_.load(std::memory_order_relaxed); }
 
