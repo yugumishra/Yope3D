@@ -3,7 +3,19 @@
 
 namespace physics {
     inline constexpr float PHYSICS_DT                    = 1.0f / 240.0f;
-    inline constexpr float MAX_PHYSICS_ACCUMULATOR       = 4.0f * PHYSICS_DT; // max 4 sub-steps per frame
+    // Fixed-timestep accumulator bounds (physics thread; see Engine::startPhysicsThread).
+    // Two independent limits — the old single `4*PHYSICS_DT` cap conflated them:
+    //   MAX_CATCHUP_STEPS       — substeps advanced per thread iteration. Bounds work-per-iter
+    //                             so the thread keeps publishing snapshots / polling the stop
+    //                             flag, and a post-hitch catch-up is a smooth bounded-rate
+    //                             fast-forward rather than one giant batch. Does NOT drop backlog.
+    //   MAX_PHYSICS_ACCUMULATOR — ceiling on RETAINED backlog. Transient hitches (< this) stay in
+    //                             the accumulator and are repaid over the next few iterations;
+    //                             only sustained overload beyond this is discarded (bounded time
+    //                             dilation). Also a float-precision safety bound. (A single stall's
+    //                             contribution is already capped by the per-frame dt cap below.)
+    inline constexpr int   MAX_CATCHUP_STEPS             = 4;
+    inline constexpr float MAX_PHYSICS_ACCUMULATOR       = 0.25f; // seconds of retained backlog
 
     inline constexpr float SPRING_DAMPING_COEFF          = 0.0075f;
     inline constexpr float GRAVITY_Y                     = -9.80665f;

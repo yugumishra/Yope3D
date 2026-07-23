@@ -179,9 +179,15 @@ void Engine::startPhysicsThread() {
             // sim more slowly instead of simulating a different one.
             accum = std::min(accum + dt * world->getTimeScale(),
                              physics::MAX_PHYSICS_ACCUMULATOR);
-            while (accum >= physics::PHYSICS_DT) {
+            // Cap steps PER ITERATION (responsiveness / catch-up rate), but keep any
+            // leftover backlog in `accum` so a transient hitch is repaid over the next
+            // few iterations instead of being dropped. Debt is only discarded when it
+            // exceeds MAX_PHYSICS_ACCUMULATOR above (sustained overload → bounded dilation).
+            int steps = 0;
+            while (accum >= physics::PHYSICS_DT && steps < physics::MAX_CATCHUP_STEPS) {
                 world->advance(physics::PHYSICS_DT);
                 accum -= physics::PHYSICS_DT;
+                ++steps;
             }
             std::this_thread::sleep_for(100us);
         }
