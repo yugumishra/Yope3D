@@ -488,3 +488,167 @@ TEST_CASE("entitiesWith empty set with a tag filter excludes only tagged entitie
     CHECK(contains(keep2));
     CHECK_FALSE(contains(drop));
 }
+
+// ---------------------------------------------------------------------------
+// Archetype-migration hazard (CLAUDE.md's #1 ECS trap, and Hazard #1 in the
+// Python stub): adding/removing ANY component memcpy-moves the entity's rows to
+// a new archetype block, so every pointer/reference previously obtained from
+// get<T>() / view() is silently invalidated. These pin the *actionable* half of
+// that contract — re-fetch after a composition change yields the right value —
+// and use the migration counter to prove a move actually happened.
+//
+// Note on double-add / remove-of-absent: at the Registry layer both are
+// assert-guarded contract violations (Registry.h add/remove asserts), so they
+// abort a debug build rather than no-op — they are deliberately NOT exercised
+// here. The "no-op if absent" semantics the Python `reg_remove` documents live
+// in the binding layer (bindings_ecs.cpp guards with has() first), not in
+// Registry, and so belong to a binding-level test, not this one.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("add migrates the entity to a new archetype (counter proves the move)", "[ecs][migration]") {
+    Registry reg;
+    Entity e = reg.create();
+
+    reg.add<Position>(e, {1, 2, 3});          // empty -> {Position}: one migration
+    uint64_t before = reg.archetypeMigrationCount();
+
+    reg.add<Velocity>(e, {4, 5, 6});          // {Position} -> {Position,Velocity}
+    CHECK(reg.archetypeMigrationCount() > before);
+}
+
+TEST_CASE("component pointer is invalidated by migration but the value survives re-fetch",
+          "[ecs][migration][hazard]") {
+    Registry reg;
+    Entity e = reg.create();
+    reg.add<Position>(e, {1, 2, 3});
+
+    Position* stale = reg.get<Position>(e);   // caching this across the next add is the bug
+    REQUIRE(stale != nullptr);
+
+    reg.add<Velocity>(e, {7, 8, 9});          // composition change -> row is memcpy-moved
+
+    // The actionable contract: re-fetch, don't reuse `stale`. The re-fetched
+    // pointer sees the preserved value.
+    Position* fresh = reg.get<Position>(e);
+    REQUIRE(fresh != nullptr);
+    CHECK(fresh->x == 1.0f);
+    CHECK(fresh->y == 2.0f);
+    CHECK(fresh->z == 3.0f);
+
+    // ...and the freshly written second component is coherent in the same row.
+    Velocity* v = reg.get<Velocity>(e);
+    REQUIRE(v != nullptr);
+    CHECK(v->x == 7.0f);
+    CHECK(v->z == 9.0f);
+
+    // Writes through the re-fetched reference stick.
+    fresh->x = 99.0f;
+    CHECK(reg.get<Position>(e)->x == 99.0f);
+}
+
+TEST_CASE("removal-driven migration preserves the surviving component's value", "[ecs][migration]") {
+    Registry reg;
+    Entity e = reg.create();
+    reg.add<Position>(e, {1, 2, 3});
+    reg.add<Velocity>(e, {4, 5, 6});
+    reg.add<Health>(e, {42});
+
+    uint64_t before = reg.archetypeMigrationCount();
+    reg.remove<Velocity>(e);                  // {P,V,H} -> {P,H}: one migration
+    CHECK(reg.archetypeMigrationCount() > before);
+
+    // Both remaining components keep their values after the row relocates.
+    CHECK(reg.get<Position>(e)->x == 1.0f);
+    CHECK(reg.get<Health>(e)->value == 42);
+    CHECK_FALSE(reg.has<Velocity>(e));
+}
+
+TEST_CASE("read-only queries perform no archetype migration", "[ecs][migration]") {
+    Registry reg;
+    for (int i = 0; i < 5; ++i) {
+        Entity e = reg.create();
+        reg.add<Position>(e, {float(i), 0, 0});
+    }
+    uint64_t before = reg.archetypeMigrationCount();
+
+    // get / has / view are pure reads — none may relocate a row.
+    int seen = 0;
+    for (auto [e, p] : reg.view<Position>()) { (void)p; ++seen; }
+    (void)reg.has<Velocity>(Entity{0, 0});
+    CHECK(seen == 5);
+    CHECK(reg.archetypeMigrationCount() == before);
+}
+
+// ---------------------------------------------------------------------------
+// Multi-archetype view value correctness. A view<Position> must gather the
+// component from EVERY archetype that contains it — with correct values — which
+// is the per-archetype column-rebasing path (the iterator caches a fresh column
+// base pointer per archetype). The existing batch test lives in one archetype;
+// this deliberately spreads Position across three.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("view<T> gathers T from every archetype with correct values", "[ecs][view][archetype]") {
+    Registry reg;
+    Entity a = reg.create(); reg.add<Position>(a, {10, 0, 0});                                  // {Position}
+    Entity b = reg.create(); reg.add<Position>(b, {20, 0, 0}); reg.add<Velocity>(b, {0,0,0});   // {Position,Velocity}
+    Entity c = reg.create(); reg.add<Position>(c, {30, 0, 0}); reg.add<Health>(c, {1});         // {Position,Health}
+
+    float sum = 0.0f;
+    int count = 0;
+    bool sawA = false, sawB = false, sawC = false;
+    for (auto [e, p] : reg.view<Position>()) {
+        sum += p.x;
+        ++count;
+        if (e == a) { sawA = true; CHECK(p.x == 10.0f); }
+        if (e == b) { sawB = true; CHECK(p.x == 20.0f); }
+        if (e == c) { sawC = true; CHECK(p.x == 30.0f); }
+    }
+    CHECK(count == 3);
+    CHECK(sum == 60.0f);
+    CHECK((sawA && sawB && sawC));
+
+    // The two-component view must hit ONLY the {Position,Velocity} archetype.
+    int both = 0;
+    for (auto [e, p, v] : reg.view<Position, Velocity>()) { (void)p; (void)v; ++both; CHECK(e == b); }
+    CHECK(both == 1);
+}
+
+// ---------------------------------------------------------------------------
+// Parent-chain cycle safety. `worldTransform` and `isDescendantOf` are both
+// depth-capped (TransformHierarchy.h) precisely so a malformed Parent cycle
+// can't hang the engine — isDescendantOf IS the reparent cycle guard. The
+// existing "detects cycles" case never actually builds one; this does.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("isDescendantOf terminates and reports true on a real Parent cycle", "[ecs][hierarchy][cycle]") {
+    Registry reg;
+    Entity a = reg.create(); reg.add<Transform>(a);
+    Entity b = reg.create(); reg.add<Transform>(b);
+    // Malformed cycle: a's parent is b, b's parent is a.
+    reg.add<ecs::Parent>(a, ecs::Parent{b});
+    reg.add<ecs::Parent>(b, ecs::Parent{a});
+
+    // Must terminate (depth cap) AND find the ancestor while walking the loop.
+    CHECK(hierarchy::isDescendantOf(reg, a, b));
+    CHECK(hierarchy::isDescendantOf(reg, b, a));
+    CHECK(hierarchy::isDescendantOf(reg, a, a));   // self
+
+    // A target that isn't in the cycle must return false without hanging.
+    Entity outside = reg.create(); reg.add<Transform>(outside);
+    CHECK_FALSE(hierarchy::isDescendantOf(reg, a, outside));
+}
+
+TEST_CASE("worldTransform on a Parent cycle is depth-capped, not infinite", "[ecs][hierarchy][cycle]") {
+    Registry reg;
+    Entity a = reg.create(); { Transform t; t.position = {1, 0, 0}; reg.add<Transform>(a, t); }
+    Entity b = reg.create(); { Transform t; t.position = {0, 1, 0}; reg.add<Transform>(b, t); }
+    reg.add<ecs::Parent>(a, ecs::Parent{b});
+    reg.add<ecs::Parent>(b, ecs::Parent{a});
+
+    // The only contract under a cycle is termination with a finite result —
+    // reaching this line at all is the assertion (an uncapped walker would hang).
+    Transform w = hierarchy::worldTransform(reg, a);
+    CHECK(std::isfinite(w.position.x));
+    CHECK(std::isfinite(w.position.y));
+    CHECK(std::isfinite(w.position.z));
+}

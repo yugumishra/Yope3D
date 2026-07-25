@@ -99,6 +99,8 @@ TEST_CASE("Mat3 Operations", "[math][mat3]") {
         }
 
         CheckIdentity(rot * inv);
+    }
+
     SECTION("Euler and Quaternion Conversion") {
         Vec3 euler{toRadians(30.0f), 0, 0};
         Mat3 m1 = Mat3::rotation(euler);
@@ -109,7 +111,7 @@ TEST_CASE("Mat3 Operations", "[math][mat3]") {
             CHECK_THAT(m1.m[i], WithinAbs(m2.m[i], 0.0001f));
         }
     }
-}}
+}
 
 TEST_CASE("Mat4 Transformations", "[math][mat4]") {
     SECTION("Translation and Scale") {
@@ -164,6 +166,8 @@ TEST_CASE("Quaternion Logic", "[math][quat]") {
         Vec4 aa{0, 1, 0, toRadians(60.0f)};
         Quat q = Quat::fromAxisAngle(aa);
         CHECK_THAT(q.w, WithinAbs(std::cos(toRadians(30.0f)), 0.0001f));
+    }
+
     SECTION("Conjugate and Multiplicative Inverse") {
         //define an appropriate axis to test first
         Vec3 axis = Vec3{1,2,3}.normalize();
@@ -175,7 +179,6 @@ TEST_CASE("Quaternion Logic", "[math][quat]") {
         CHECK_THAT(identity.w, WithinAbs(1.0f, 0.0001f));
         CHECK_THAT(identity.x, WithinAbs(0.0f, 0.0001f));
     }
-}
 }
 
 TEST_CASE("Quaternion slerp", "[math][quat]") {
