@@ -16,8 +16,16 @@ ThreadPool::ThreadPool(unsigned int n) {
                     tasks_.pop();
                 }
                 task();
-                if (--active_ == 0)
-                    doneCv_.notify_all();
+                // Mutate the predicate variable (active_) and notify UNDER the
+                // lock. Doing either without mutex_ races wait(): if the last
+                // worker's decrement+notify slips into the window after wait()
+                // evaluates `active_ == 0` but before it parks on doneCv_, the
+                // wakeup is lost and wait() blocks forever (intermittent deadlock).
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    if (--active_ == 0)
+                        doneCv_.notify_all();
+                }
             }
         });
     }

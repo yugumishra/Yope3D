@@ -7,6 +7,7 @@
 #include "../src/physics/PhysicsConstants.h"
 #include "../src/ecs/Registry.h"
 #include "../src/ecs/Components.h"
+#include "../src/world/World.h"
 #include "../src/world/Transform.h"
 #include "../src/math/Vec3.h"
 #include "../src/math/Math.h"
@@ -731,9 +732,9 @@ TEST_CASE("Compound narrowphase: sphere over a gap generates no contact", "[comp
 // ============================================================================
 // Trigger volumes (Hull.isTrigger) — narrowphase-level behavior
 //
-// The solver-skip / event-routing itself lives in World::advance() (not part of
-// this headless target, which has no GpuDevice), so these tests cover what is
-// testable at this level: isTrigger is orthogonal to tangible and does not
+// The solver-skip / event-routing itself lives in World::advance() and is
+// covered at the loop level elsewhere; these narrowphase-level cases pin the
+// invariant they rest on: isTrigger is orthogonal to tangible and does not
 // suppress ColliderDiscrete::detect() the way tangible=false does.
 // ============================================================================
 
@@ -1127,122 +1128,69 @@ TEST_CASE("AABB-AABB manifold carries stable per-corner feature ids", "[narrowph
 }
 
 // ============================================================================
-// End-to-end resting stability: OBB pyramid at 240 Hz
+// End-to-end simulation behavior — driven by the REAL World::advance() loop.
 //
-// Mirrors World::advance's per-step order (detect -> solve -> integrate with
-// gravity/damping/split-impulse) minus broadphase/islands/sleep, which don't
-// affect a 7-body scene. Regression for the pyramid-collapse failure mode:
-// corner-containment manifolds + index-keyed warm start ratcheted micro-jitter
-// into sliding and topple within a couple of simulated seconds.
+// Everything below builds its scene through the World factories and steps the
+// genuine physics loop (World::advance) — the exact code path the running
+// engine executes at 240 Hz. Earlier revisions hand-copied advance()'s
+// detect -> solve -> integrate body inline; that mirror silently drifted from
+// the real step (it omitted gravity in some cases, and never exercised the
+// island build, sleep, or the split-impulse/damping ordering the engine
+// actually uses), so it measured a *different* program that merely resembled
+// the engine. These tests drive the actual loop, headless (World
+// default-constructs with no GpuDevice; init() is never called — the same way
+// yope_determinism_tests runs it).
+//
+// The geometry / broadphase / BVH / mass-property cases ABOVE call real engine
+// functions directly (Raycast::*, BroadphaseSAP::*, ColliderDiscrete::detect,
+// buildCompoundBvh, computeCompoundMassProperties). Those are not
+// re-implementations of the loop — they exercise real engine code one level
+// below advance(), and remain the right tool for those units.
 // ============================================================================
 
-static ecs::Entity makePyramidBox(ecs::Registry& reg, Vec3 pos, Vec3 ext) {
-    ecs::Entity e = reg.create();
-    reg.add<Transform>(e, Transform{pos, {0,0,0,1}, {1,1,1}});
-    ecs::Hull hc;
-    hc.mass        = 1.0f;
-    hc.inverseMass = 1.0f;
-    // Box inertia from half-extents: I_x = (1/3) m (ey^2 + ez^2), etc.
-    hc.inverseInertia = Mat3::scale({
-        3.0f / (hc.mass * (ext.y*ext.y + ext.z*ext.z)),
-        3.0f / (hc.mass * (ext.x*ext.x + ext.z*ext.z)),
-        3.0f / (hc.mass * (ext.x*ext.x + ext.y*ext.y))});
-    reg.add<ecs::Hull>(e, hc);
-    reg.add<ecs::OBBForm>(e, {ext});
-    return e;
+namespace {
+
+// Step the real physics loop n times at the engine's fixed timestep.
+void step(World& w, int n) {
+    for (int i = 0; i < n; ++i) w.advance(physics::PHYSICS_DT);
 }
 
-TEST_CASE("OBB pyramid rests stably for 8 simulated seconds at 240 Hz", "[narrowphase][solver][stability]") {
-    ecs::Registry reg;
-    std::vector<ecs::Entity> ents;
+// Rotation angle about world Z, recovered from a body's quaternion (valid for
+// the pure-about-Z motion the hinge cases produce).
+float zAngle(const math::Quat& q) { return 2.0f * std::atan2(q.z, q.w); }
 
-    // Static ground (AABB) — exercises the AABB-OBB clipped path.
-    {
-        ecs::Entity g = reg.create();
-        reg.add<Transform>(g, Transform{{0,-0.5f,0}, {0,0,0,1}, {1,1,1}});
-        ecs::Hull hc;
-        hc.mass = 0.0f; hc.inverseMass = 0.0f;
-        hc.inverseInertia = Mat3::zero();
-        reg.add<ecs::Hull>(g, hc);
-        reg.add<ecs::AABBForm>(g, {{20.0f, 0.5f, 20.0f}});
-        reg.add<ecs::Fixed>(g);
-        ents.push_back(g);
-    }
+} // namespace
+
+// ============================================================================
+// End-to-end resting stability: OBB pyramid at 240 Hz
+//
+// Regression for the pyramid-collapse failure mode: corner-containment
+// manifolds + index-keyed warm start ratcheted micro-jitter into sliding and
+// topple within a couple of simulated seconds. Runs the real loop (broadphase,
+// islands, sleep, split-impulse) — not a subset.
+// ============================================================================
+
+TEST_CASE("OBB pyramid rests stably for 8 simulated seconds at 240 Hz", "[world][solver][stability]") {
+    World w;
+    w.addStaticAABB({0.0f, -0.5f, 0.0f}, {20.0f, 0.5f, 20.0f});   // static ground
 
     // 3-2-1 pyramid of unit boxes (half-extent 0.5), each upper box straddling
     // two supports — the manifold shape that used to degrade to 2-point lines.
     const Vec3 ext{0.5f, 0.5f, 0.5f};
-    std::vector<Vec3> starts;
-    auto spawn = [&](float x, float y) {
-        starts.push_back({x, y, 0.0f});
-        ents.push_back(makePyramidBox(reg, starts.back(), ext));
+    const std::vector<Vec3> starts = {
+        {-1.05f, 0.5f, 0.0f}, {0.0f, 0.5f, 0.0f}, {1.05f, 0.5f, 0.0f},
+        {-0.525f, 1.5f, 0.0f}, {0.525f, 1.5f, 0.0f},
+        {0.0f, 2.5f, 0.0f},
     };
-    spawn(-1.05f, 0.5f); spawn(0.0f, 0.5f); spawn(1.05f, 0.5f);
-    spawn(-0.525f, 1.5f); spawn(0.525f, 1.5f);
-    spawn(0.0f, 2.5f);
+    std::vector<ecs::Entity> boxes;
+    for (const Vec3& p : starts) boxes.push_back(w.addOBB(ext, 1.0f, p));
 
-    physics::EntityContactCache cache;
-    const float dt = physics::PHYSICS_DT;
-    const Vec3  gravity{0.0f, physics::GRAVITY_Y, 0.0f};
-
-    auto normalizeQuat = [](math::Quat q) {
-        float len = std::sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w);
-        if (len > 1e-7f) { q.x/=len; q.y/=len; q.z/=len; q.w/=len; }
-        return q;
-    };
-
-    for (int step = 0; step < 1920; ++step) {
-        // World-space inverse inertia (entity_list_build equivalent).
-        for (ecs::Entity e : ents) {
-            auto* hc = reg.get<ecs::Hull>(e);
-            auto* tf = reg.get<Transform>(e);
-            if (reg.has<ecs::Fixed>(e)) { hc->inertiaTensorWorld = Mat3::zero(); continue; }
-            Mat3 R = Mat3::rotation(tf->rotation);
-            hc->inertiaTensorWorld = R * hc->inverseInertia * R.transpose();
-        }
-
-        // Narrowphase over all pairs (7 bodies — broadphase unnecessary).
-        std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
-        for (size_t i = 0; i < ents.size(); ++i)
-            for (size_t j = i + 1; j < ents.size(); ++j)
-                physics::ColliderDiscrete::detect(ents[i], ents[j], reg, contacts);
-
-        std::vector<physics::Joint*> noJoints;
-        physics::ColliderDiscrete::solveIsland(contacts, noJoints, dt, reg, cache);
-
-        // Integration (mirrors World::advance).
-        for (ecs::Entity e : ents) {
-            if (reg.has<ecs::Fixed>(e)) continue;
-            auto* hc = reg.get<ecs::Hull>(e);
-            auto* tf = reg.get<Transform>(e);
-
-            hc->velocity += gravity * dt;
-            float linDecay = 1.0f - hc->linearDamping  * dt;
-            float angDecay = 1.0f - hc->angularDamping * dt;
-            if (linDecay > 0.0f) hc->velocity = hc->velocity * linDecay;
-            if (angDecay > 0.0f) hc->omega    = hc->omega    * angDecay;
-
-            tf->position += hc->velocity * dt;
-            float omegaLen = std::sqrt(hc->omega.dot(hc->omega));
-            if (omegaLen > 1e-7f) {
-                math::Quat dq = math::Quat::fromAxisAngle(hc->omega * (1.0f / omegaLen), omegaLen * dt);
-                tf->rotation = normalizeQuat(dq * tf->rotation);
-            }
-
-            tf->position += hc->pseudoVel * dt;
-            float pOmLen = std::sqrt(hc->pseudoOmega.dot(hc->pseudoOmega));
-            if (pOmLen > 2.0f) hc->pseudoOmega = hc->pseudoOmega * (2.0f / pOmLen);
-            if (pOmLen > 1e-7f) {
-                math::Quat dq = math::Quat::fromAxisAngle(hc->pseudoOmega * (1.0f / pOmLen), std::min(pOmLen, 2.0f) * dt);
-                tf->rotation = normalizeQuat(dq * tf->rotation);
-            }
-            hc->pseudoVel = {}; hc->pseudoOmega = {};
-        }
-    }
+    step(w, 1920);   // 8 simulated seconds
 
     // Every box stays where it was placed (small settle allowance) and upright.
+    auto& reg = w.getRegistry();
     for (size_t i = 0; i < starts.size(); ++i) {
-        auto* tf = reg.get<Transform>(ents[i + 1]);   // ents[0] is the ground
+        auto* tf = reg.get<Transform>(boxes[i]);
         Vec3 d = tf->position - starts[i];
         INFO("box " << i << " drift (" << d.x << ", " << d.y << ", " << d.z << ")");
         CHECK(std::abs(d.x) < 0.1f);
@@ -1253,440 +1201,169 @@ TEST_CASE("OBB pyramid rests stably for 8 simulated seconds at 240 Hz", "[narrow
 }
 
 // ============================================================================
-// Joint constraints (Phase 1: PointToPointJoint)
+// Joint constraints
 // ============================================================================
 
-// Regression test for the IslandDetector zero-contact-island gap: two bodies
-// connected only by a joint (never geometrically touching, so allContacts is
-// always empty) must still get an Island — the pre-fix code only created
-// islands while iterating allContacts, so a joint-only pair would silently
-// never be solved. Two spheres 4 units apart (radius 0.5 — nowhere near
-// touching) with a PointToPointJoint pinning their centers together should
-// converge to nearly coincident positions purely from the joint solve.
-TEST_CASE("PointToPointJoint pulls two contact-free bodies together", "[joint][island]") {
-    ecs::Registry reg;
+// Regression for the IslandDetector zero-contact-island gap: two bodies
+// connected only by a joint (never geometrically touching, so the contact list
+// is always empty) must still get an Island — the pre-fix code only created
+// islands while iterating contacts, so a joint-only pair would silently never
+// be solved. Two spheres 4 units apart (radius 0.5 — nowhere near touching)
+// with a point joint pinning their centers together should converge to nearly
+// coincident positions purely from the joint solve. Gravity is disabled to
+// isolate the joint pull (the two bodies would otherwise both free-fall).
+TEST_CASE("PointToPointJoint pulls two contact-free bodies together", "[world][joint][island]") {
+    World w;
+    ecs::Entity a = w.addSphere(1.0f, 0.5f, {-2.0f, 0.0f, 0.0f});
+    ecs::Entity b = w.addSphere(1.0f, 0.5f, { 2.0f, 0.0f, 0.0f});
+    auto& reg = w.getRegistry();
+    reg.get<ecs::Hull>(a)->gravity = false;
+    reg.get<ecs::Hull>(b)->gravity = false;
 
-    auto makeBody = [&](math::Vec3 pos) {
-        ecs::Entity e = reg.create();
-        reg.add<Transform>(e, Transform{pos, {0,0,0,1}, {0.5f,0.5f,0.5f}});
-        ecs::Hull hc;
-        hc.mass = 1.0f;
-        hc.inverseMass = 1.0f;
-        hc.inverseInertia = math::Mat3::zero();   // linear-only, keeps the test simple
-        hc.gravity = false;
-        reg.add<ecs::Hull>(e, hc);
-        reg.add<ecs::SphereForm>(e, {0.5f});
-        return e;
-    };
-    ecs::Entity a = makeBody({-2.0f, 0.0f, 0.0f});
-    ecs::Entity b = makeBody({ 2.0f, 0.0f, 0.0f});
+    // localAnchorA = localAnchorB = 0 → pin each body's OWN center together.
+    w.addPointJointPhysics(a, b, {0, 0, 0}, {0, 0, 0});
 
-    physics::PointToPointJoint pj;
-    pj.a = a; pj.b = b;   // anchors at each body's own center
-    physics::Joint joint = pj;
+    step(w, 500);
 
-    physics::EntityContactCache cache;
-    physics::IslandDetector detector;
-    std::vector<physics::ColliderDiscrete::ActiveContact> contacts;   // always empty — never touching
-    std::vector<std::pair<ecs::Entity, ecs::Entity>> jointPairs = {{a, b}};
-    std::vector<physics::Joint*> allJoints = {&joint};
-
-    std::vector<physics::Island> islands;
-    detector.build(contacts, cache, islands, reg, /*springPairs=*/{}, jointPairs, allJoints);
-
-    REQUIRE(islands.size() == 1);
-    CHECK(islands[0].contacts.empty());
-    REQUIRE(islands[0].joints.size() == 1);
-
-    const float dt = 1.0f / 240.0f;
-    for (int step = 0; step < 500; ++step) {
-        physics::ColliderDiscrete::solveIsland(islands[0].contacts, islands[0].joints, dt, reg, islands[0].localCache);
-        for (ecs::Entity e : {a, b}) {
-            auto* hc = reg.get<ecs::Hull>(e);
-            auto* tf = reg.get<Transform>(e);
-            tf->position += hc->velocity * dt;
-            tf->position += hc->pseudoVel * dt;
-            hc->pseudoVel = {};
-            hc->pseudoOmega = {};
-        }
-    }
-
-    auto* tfA = reg.get<Transform>(a);
-    auto* tfB = reg.get<Transform>(b);
-    math::Vec3 gap = tfB->position - tfA->position;
+    Vec3 gap = reg.get<Transform>(b)->position - reg.get<Transform>(a)->position;
     float dist = std::sqrt(gap.dot(gap));
     INFO("final gap distance: " << dist);
     CHECK(dist < 0.05f);
 }
 
-// A fixed anchor + a free sphere on the end of a "rod" (localAnchorB offset
-// from B's COM), connected by a Hinge about the world z axis. B starts
-// spinning hard about z — enough angular velocity to blow straight through
-// the limit if the limit row didn't work — and the test asserts the settled
-// rotation stays within [lowerAngle, upperAngle] (plus a small slop).
-TEST_CASE("HingeJoint clamps rotation to its angle limit", "[joint][hinge]") {
-    ecs::Registry reg;
+// A fixed anchor + a free sphere on the end of a "rod" (the sphere's COM sits 1
+// unit from the anchor), connected by a Hinge about world z. B starts spinning
+// hard about z — enough to blow straight through the limit if the limit row
+// didn't work — and the test asserts the settled rotation stays within
+// [lowerAngle, upperAngle] (plus slop). Gravity off so the spin is the only
+// driver, isolating the limit behavior (this is what the old mirror loop did
+// implicitly — it never added gravity in the joint integrate).
+TEST_CASE("HingeJoint clamps rotation to its angle limit", "[world][joint][hinge]") {
+    World w;
+    ecs::Entity a = w.addStaticAABB({0.0f, 0.0f, 0.0f}, {0.3f, 0.3f, 0.3f});   // Fixed anchor
+    ecs::Entity b = w.addSphere(1.0f, 0.5f, {1.0f, 0.0f, 0.0f});
+    auto& reg = w.getRegistry();
+    reg.get<ecs::Hull>(b)->gravity = false;
+    reg.get<ecs::Hull>(b)->omega   = {0.0f, 0.0f, 8.0f};   // strong spin about the hinge axis
 
-    auto normalizeQuat = [](math::Quat q) {
-        float len = std::sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w);
-        if (len > 1e-7f) { q.x/=len; q.y/=len; q.z/=len; q.w/=len; }
-        return q;
-    };
+    w.addHingeJoint(a, b, {0, 0, 0}, {0, 0, 1}, /*limitEnabled=*/true, -0.5f, 0.5f);
 
-    ecs::Entity a = reg.create();
-    reg.add<Transform>(a, Transform{{0.0f,0.0f,0.0f}, {0,0,0,1}, {1,1,1}});
-    ecs::Hull ha;
-    ha.mass = 1.0f; ha.inverseMass = 0.0f; ha.inverseInertia = math::Mat3::zero();
-    reg.add<ecs::Hull>(a, ha);
-    reg.add<ecs::Fixed>(a);
+    step(w, 2000);
 
-    ecs::Entity b = reg.create();
-    reg.add<Transform>(b, Transform{{1.0f,0.0f,0.0f}, {0,0,0,1}, {1,1,1}});
-    ecs::Hull hb;
-    hb.mass = 1.0f; hb.inverseMass = 1.0f;
-    float r = 0.5f;
-    float inertia = 0.4f * hb.mass * r * r;   // solid sphere: I = 2/5 m r^2
-    hb.inverseInertia = math::Mat3::scale({1.0f/inertia, 1.0f/inertia, 1.0f/inertia});
-    hb.omega = {0.0f, 0.0f, 8.0f};             // strong spin about the hinge axis
-    reg.add<ecs::Hull>(b, hb);
-
-    physics::HingeJoint hj;
-    hj.a = a; hj.b = b;
-    hj.localAnchorA = {0,0,0};
-    hj.localAnchorB = {-1,0,0};   // B's COM starts 1 unit from the anchor
-    hj.localAxisA = {0,0,1};
-    hj.localAxisB = {0,0,1};
-    hj.limitEnabled = true;
-    hj.lowerAngle = -0.5f;
-    hj.upperAngle =  0.5f;
-    physics::Joint joint = hj;
-
-    physics::EntityContactCache cache;
-    physics::IslandDetector detector;
-    std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
-    std::vector<std::pair<ecs::Entity, ecs::Entity>> jointPairs = {{a, b}};
-    std::vector<physics::Joint*> allJoints = {&joint};
-    std::vector<physics::Island> islands;
-    detector.build(contacts, cache, islands, reg, /*springPairs=*/{}, jointPairs, allJoints);
-    REQUIRE(islands.size() == 1);
-    REQUIRE(islands[0].joints.size() == 1);
-
-    const float dt = 1.0f / 240.0f;
-    for (int step = 0; step < 2000; ++step) {
-        for (ecs::Entity e : {a, b}) {
-            auto* hc = reg.get<ecs::Hull>(e);
-            auto* tf = reg.get<Transform>(e);
-            if (reg.has<ecs::Fixed>(e)) { hc->inertiaTensorWorld = math::Mat3::zero(); continue; }
-            math::Mat3 R = math::Mat3::rotation(tf->rotation);
-            hc->inertiaTensorWorld = R * hc->inverseInertia * R.transpose();
-        }
-        physics::ColliderDiscrete::solveIsland(islands[0].contacts, islands[0].joints, dt, reg, islands[0].localCache);
-        for (ecs::Entity e : {a, b}) {
-            auto* hc = reg.get<ecs::Hull>(e);
-            auto* tf = reg.get<Transform>(e);
-            if (reg.has<ecs::Fixed>(e)) { hc->pseudoVel = {}; hc->pseudoOmega = {}; continue; }
-            tf->position += hc->velocity * dt;
-            float omegaLen = std::sqrt(hc->omega.dot(hc->omega));
-            if (omegaLen > 1e-7f) {
-                math::Quat dq = math::Quat::fromAxisAngle(hc->omega * (1.0f / omegaLen), omegaLen * dt);
-                tf->rotation = normalizeQuat(dq * tf->rotation);
-            }
-            tf->position += hc->pseudoVel * dt;
-            float pOmLen = std::sqrt(hc->pseudoOmega.dot(hc->pseudoOmega));
-            if (pOmLen > 1e-7f) {
-                math::Quat dq = math::Quat::fromAxisAngle(hc->pseudoOmega * (1.0f / pOmLen), pOmLen * dt);
-                tf->rotation = normalizeQuat(dq * tf->rotation);
-            }
-            hc->pseudoVel = {}; hc->pseudoOmega = {};
-        }
-    }
-
-    // B's rotation should stay (almost) purely about z given the hinge's angular-lock
-    // rows, so its own quaternion directly gives the hinge angle.
-    auto* tfB = reg.get<Transform>(b);
-    float angle = 2.0f * std::atan2(tfB->rotation.z, tfB->rotation.w);
+    float angle = zAngle(reg.get<Transform>(b)->rotation);
     INFO("final hinge angle: " << angle);
     CHECK(angle < 0.5f + 0.1f);
     CHECK(angle > -0.5f - 0.1f);
 }
 
-// Regression test for the velocity-level limit clamp: a relentless external
-// driver re-forces a strong spin every single substep (worse than any one-shot
-// kick — this is what a fast, sustained mouse-drag effectively does to a
-// ragdoll joint before the joint gets a chance to react). The position-only
-// design (Phase 2) had nothing resisting the angular *velocity* itself, so
-// forcibly re-driving omega every substep would let the angle run away far
-// past the limit before the once-per-substep position pass ever caught up;
-// the velocity-level row (added after Phase 3 ragdoll testing surfaced this)
-// must keep the angle tightly pinned near the bound throughout, not just at
-// the end.
+// Regression for the velocity-level limit clamp: a relentless external driver
+// re-forces a strong spin every single step (what a fast, sustained mouse-drag
+// effectively does to a ragdoll joint). The position-only design had nothing
+// resisting the angular *velocity* itself, so re-driving omega every step let
+// the angle run away far past the limit before the position pass caught up; the
+// velocity-level row must keep the angle pinned near the bound THROUGHOUT, not
+// just at the end.
 TEST_CASE("HingeJoint velocity-level limit bounds per-substep overshoot under sustained drive",
-         "[joint][hinge]") {
-    ecs::Registry reg;
+          "[world][joint][hinge]") {
+    World w;
+    ecs::Entity a = w.addStaticAABB({0.0f, 0.0f, 0.0f}, {0.3f, 0.3f, 0.3f});
+    ecs::Entity b = w.addSphere(1.0f, 0.5f, {1.0f, 0.0f, 0.0f});
+    auto& reg = w.getRegistry();
+    reg.get<ecs::Hull>(b)->gravity = false;
 
-    auto normalizeQuat = [](math::Quat q) {
-        float len = std::sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w);
-        if (len > 1e-7f) { q.x/=len; q.y/=len; q.z/=len; q.w/=len; }
-        return q;
-    };
-
-    ecs::Entity a = reg.create();
-    reg.add<Transform>(a, Transform{{0.0f,0.0f,0.0f}, {0,0,0,1}, {1,1,1}});
-    ecs::Hull ha;
-    ha.mass = 1.0f; ha.inverseMass = 0.0f; ha.inverseInertia = math::Mat3::zero();
-    reg.add<ecs::Hull>(a, ha);
-    reg.add<ecs::Fixed>(a);
-
-    ecs::Entity b = reg.create();
-    reg.add<Transform>(b, Transform{{1.0f,0.0f,0.0f}, {0,0,0,1}, {1,1,1}});
-    ecs::Hull hb;
-    hb.mass = 1.0f; hb.inverseMass = 1.0f;
-    float r = 0.5f;
-    float inertia = 0.4f * hb.mass * r * r;
-    hb.inverseInertia = math::Mat3::scale({1.0f/inertia, 1.0f/inertia, 1.0f/inertia});
-    reg.add<ecs::Hull>(b, hb);
-
-    physics::HingeJoint hj;
-    hj.a = a; hj.b = b;
-    hj.localAnchorA = {0,0,0};
-    hj.localAnchorB = {-1,0,0};
-    hj.localAxisA = {0,0,1};
-    hj.localAxisB = {0,0,1};
-    hj.limitEnabled = true;
-    hj.lowerAngle = -0.5f;
-    hj.upperAngle =  0.5f;
-    physics::Joint joint = hj;
-
-    physics::EntityContactCache cache;
-    physics::IslandDetector detector;
-    std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
-    std::vector<std::pair<ecs::Entity, ecs::Entity>> jointPairs = {{a, b}};
-    std::vector<physics::Joint*> allJoints = {&joint};
-    std::vector<physics::Island> islands;
-    detector.build(contacts, cache, islands, reg, /*springPairs=*/{}, jointPairs, allJoints);
-    REQUIRE(islands.size() == 1);
+    w.addHingeJoint(a, b, {0, 0, 0}, {0, 0, 1}, /*limitEnabled=*/true, -0.5f, 0.5f);
 
     float maxAngle = -1e30f;
-    const float dt = 1.0f / 240.0f;
-    for (int step = 0; step < 500; ++step) {
-        // Relentless driver: re-inject a strong spin toward the limit every
-        // substep, regardless of what the joint did last step.
-        reg.get<ecs::Hull>(b)->omega = {0.0f, 0.0f, 8.0f};
-
-        for (ecs::Entity e : {a, b}) {
-            auto* hc = reg.get<ecs::Hull>(e);
-            auto* tf = reg.get<Transform>(e);
-            if (reg.has<ecs::Fixed>(e)) { hc->inertiaTensorWorld = math::Mat3::zero(); continue; }
-            math::Mat3 R = math::Mat3::rotation(tf->rotation);
-            hc->inertiaTensorWorld = R * hc->inverseInertia * R.transpose();
-        }
-        physics::ColliderDiscrete::solveIsland(islands[0].contacts, islands[0].joints, dt, reg, islands[0].localCache);
-        for (ecs::Entity e : {a, b}) {
-            auto* hc = reg.get<ecs::Hull>(e);
-            auto* tf = reg.get<Transform>(e);
-            if (reg.has<ecs::Fixed>(e)) { hc->pseudoVel = {}; hc->pseudoOmega = {}; continue; }
-            tf->position += hc->velocity * dt;
-            float omegaLen = std::sqrt(hc->omega.dot(hc->omega));
-            if (omegaLen > 1e-7f) {
-                math::Quat dq = math::Quat::fromAxisAngle(hc->omega * (1.0f / omegaLen), omegaLen * dt);
-                tf->rotation = normalizeQuat(dq * tf->rotation);
-            }
-            tf->position += hc->pseudoVel * dt;
-            float pOmLen = std::sqrt(hc->pseudoOmega.dot(hc->pseudoOmega));
-            if (pOmLen > 1e-7f) {
-                math::Quat dq = math::Quat::fromAxisAngle(hc->pseudoOmega * (1.0f / pOmLen), pOmLen * dt);
-                tf->rotation = normalizeQuat(dq * tf->rotation);
-            }
-            hc->pseudoVel = {}; hc->pseudoOmega = {};
-        }
-
-        auto* tfB = reg.get<Transform>(b);
-        float angle = 2.0f * std::atan2(tfB->rotation.z, tfB->rotation.w);
-        maxAngle = std::max(maxAngle, angle);
+    for (int s = 0; s < 500; ++s) {
+        reg.get<ecs::Hull>(b)->omega = {0.0f, 0.0f, 8.0f};   // relentless re-drive toward the limit
+        w.advance(physics::PHYSICS_DT);
+        maxAngle = std::max(maxAngle, zAngle(reg.get<Transform>(b)->rotation));
     }
-
     INFO("max hinge angle observed under sustained drive: " << maxAngle);
     CHECK(maxAngle < 0.5f + 0.05f);
 }
 
-// Same setup as the hinge test but with a ConeTwistJoint — B is spun hard
-// about an axis perpendicular to the twist axis (a "swing" motion) and the
-// test asserts the settled swing angle stays within swingLimit (plus slop).
-TEST_CASE("ConeTwistJoint clamps swing to its cone limit", "[joint][conetwist]") {
-    ecs::Registry reg;
+// Same anchor+bone setup but a ConeTwistJoint — B is spun about an axis
+// perpendicular to the twist axis (a "swing"), and the test asserts the settled
+// swing angle stays within swingLimit (plus slop). Twist limit is left wide so
+// only the swing behavior is under test.
+TEST_CASE("ConeTwistJoint clamps swing to its cone limit", "[world][joint][conetwist]") {
+    World w;
+    ecs::Entity a = w.addStaticAABB({0.0f, 0.0f, 0.0f}, {0.3f, 0.3f, 0.3f});
+    ecs::Entity b = w.addSphere(1.0f, 0.5f, {1.0f, 0.0f, 0.0f});
+    auto& reg = w.getRegistry();
+    reg.get<ecs::Hull>(b)->gravity = false;
+    reg.get<ecs::Hull>(b)->omega   = {0.0f, 8.0f, 0.0f};   // spin about y — swings the z "bone" toward x
 
-    auto normalizeQuat = [](math::Quat q) {
-        float len = std::sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w);
-        if (len > 1e-7f) { q.x/=len; q.y/=len; q.z/=len; q.w/=len; }
-        return q;
-    };
+    w.addConeTwistJoint(a, b, {0, 0, 0}, {0, 0, 1}, /*swingLimit=*/0.4f, /*twistLimit=*/3.14f);
 
-    ecs::Entity a = reg.create();
-    reg.add<Transform>(a, Transform{{0.0f,0.0f,0.0f}, {0,0,0,1}, {1,1,1}});
-    ecs::Hull ha;
-    ha.mass = 1.0f; ha.inverseMass = 0.0f; ha.inverseInertia = math::Mat3::zero();
-    reg.add<ecs::Hull>(a, ha);
-    reg.add<ecs::Fixed>(a);
+    step(w, 2000);
 
-    ecs::Entity b = reg.create();
-    reg.add<Transform>(b, Transform{{1.0f,0.0f,0.0f}, {0,0,0,1}, {1,1,1}});
-    ecs::Hull hb;
-    hb.mass = 1.0f; hb.inverseMass = 1.0f;
-    float r = 0.5f;
-    float inertia = 0.4f * hb.mass * r * r;
-    hb.inverseInertia = math::Mat3::scale({1.0f/inertia, 1.0f/inertia, 1.0f/inertia});
-    hb.omega = {0.0f, 8.0f, 0.0f};   // spin about y — swings the z-axis "bone" toward x
-    reg.add<ecs::Hull>(b, hb);
-
-    physics::ConeTwistJoint cj;
-    cj.a = a; cj.b = b;
-    cj.localAnchorA = {0,0,0};
-    cj.localAnchorB = {-1,0,0};
-    cj.localTwistAxisA = {0,0,1};
-    cj.localTwistAxisB = {0,0,1};
-    cj.swingLimit = 0.4f;
-    cj.twistLimit = 3.14f;   // effectively unlimited — isolate the swing behavior
-    physics::Joint joint = cj;
-
-    physics::EntityContactCache cache;
-    physics::IslandDetector detector;
-    std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
-    std::vector<std::pair<ecs::Entity, ecs::Entity>> jointPairs = {{a, b}};
-    std::vector<physics::Joint*> allJoints = {&joint};
-    std::vector<physics::Island> islands;
-    detector.build(contacts, cache, islands, reg, /*springPairs=*/{}, jointPairs, allJoints);
-    REQUIRE(islands.size() == 1);
-    REQUIRE(islands[0].joints.size() == 1);
-
-    const float dt = 1.0f / 240.0f;
-    for (int step = 0; step < 2000; ++step) {
-        for (ecs::Entity e : {a, b}) {
-            auto* hc = reg.get<ecs::Hull>(e);
-            auto* tf = reg.get<Transform>(e);
-            if (reg.has<ecs::Fixed>(e)) { hc->inertiaTensorWorld = math::Mat3::zero(); continue; }
-            math::Mat3 R = math::Mat3::rotation(tf->rotation);
-            hc->inertiaTensorWorld = R * hc->inverseInertia * R.transpose();
-        }
-        physics::ColliderDiscrete::solveIsland(islands[0].contacts, islands[0].joints, dt, reg, islands[0].localCache);
-        for (ecs::Entity e : {a, b}) {
-            auto* hc = reg.get<ecs::Hull>(e);
-            auto* tf = reg.get<Transform>(e);
-            if (reg.has<ecs::Fixed>(e)) { hc->pseudoVel = {}; hc->pseudoOmega = {}; continue; }
-            tf->position += hc->velocity * dt;
-            float omegaLen = std::sqrt(hc->omega.dot(hc->omega));
-            if (omegaLen > 1e-7f) {
-                math::Quat dq = math::Quat::fromAxisAngle(hc->omega * (1.0f / omegaLen), omegaLen * dt);
-                tf->rotation = normalizeQuat(dq * tf->rotation);
-            }
-            tf->position += hc->pseudoVel * dt;
-            float pOmLen = std::sqrt(hc->pseudoOmega.dot(hc->pseudoOmega));
-            if (pOmLen > 1e-7f) {
-                math::Quat dq = math::Quat::fromAxisAngle(hc->pseudoOmega * (1.0f / pOmLen), pOmLen * dt);
-                tf->rotation = normalizeQuat(dq * tf->rotation);
-            }
-            hc->pseudoVel = {}; hc->pseudoOmega = {};
-        }
-    }
-
-    // Independently recover the swing angle: the world-space twist axis (A's
-    // local z, A never rotates) vs. B's rotated bone axis — the angle between
-    // them IS the swing angle for a pure-swing (no-twist) rotation like this test's.
-    auto* tfB = reg.get<Transform>(b);
-    math::Mat3 Rb = math::Mat3::rotation(tfB->rotation);
-    math::Vec3 boneAxisB = Rb * math::Vec3{0,0,1};
-    float swingAngle = std::acos(std::max(-1.0f, std::min(1.0f, boneAxisB.dot(math::Vec3{0,0,1}))));
+    // Recover the swing angle: world twist axis (A's local z; A never rotates)
+    // vs. B's rotated bone axis — for a pure-swing motion this IS the swing angle.
+    Mat3 Rb = Mat3::rotation(reg.get<Transform>(b)->rotation);
+    Vec3 boneAxisB = Rb * Vec3{0, 0, 1};
+    float swingAngle = std::acos(std::max(-1.0f, std::min(1.0f, boneAxisB.dot(Vec3{0, 0, 1}))));
     INFO("final swing angle: " << swingAngle);
     CHECK(swingAngle < 0.4f + 0.1f);
 }
 
 // ============================================================================
-// Vehicle joints — Suspension + WheelFriction
+// Vehicle joints — Suspension + WheelFriction, through the real loop
+//
+// advance() itself refreshes the suspension raycast (World.cpp step 1b) and
+// builds the joint island each step, so the whole rig runs on the genuine loop
+// with no hand-stepping. The chassis is a bare Hull with no collider form (a
+// raycast wheel needs no shape of its own); broadphase's computeBounds skips
+// formless hulls, so it never spuriously collides while still integrating.
 // ============================================================================
 
-// A chassis with one raycast wheel (mounted at its own COM, so no torque
-// coupling — isolates the vertical suspension math) dropped above a static
-// ground plane. Phase 1: settle under gravity alone and confirm the spring/
-// damper holds it near restLength (doesn't sink to the ground or fly off).
-// Phase 2: drive the wheel and confirm the chassis actually picks up forward
-// speed while staying grounded — exercises WheelFriction's longitudinal row
-// and its Fz coupling to that same substep's SuspensionJoint::lambda.
 TEST_CASE("Suspension holds chassis at rest height and WheelFriction drives it forward",
-         "[joint][vehicle]") {
-    ecs::Registry reg;
+          "[world][joint][vehicle]") {
+    World w;
+    auto& reg = w.getRegistry();
 
-    ecs::Entity ground = reg.create();
-    reg.add<Transform>(ground, Transform{{0.0f,-0.5f,0.0f}, {0,0,0,1}, {1,1,1}});
-    ecs::Hull hg;
-    hg.mass = 1.0f; hg.inverseMass = 0.0f; hg.inverseInertia = math::Mat3::zero();
-    reg.add<ecs::Hull>(ground, hg);
-    reg.add<ecs::Fixed>(ground);
-    // Large enough that driving to ~7 m/s over the test's step budget can't
-    // run the wheel's raycast off the edge (which would read as "ungrounded"
-    // and free-fall — not a solver bug, just an undersized test fixture).
-    reg.add<ecs::AABBForm>(ground, {{200.0f, 0.5f, 200.0f}});
+    // Large ground so driving to ~forward speed can't run the wheel raycast off
+    // the edge (which would read as "ungrounded" and free-fall — a fixture bug,
+    // not a solver bug).
+    w.addStaticAABB({0.0f, -0.5f, 0.0f}, {200.0f, 0.5f, 200.0f});
 
+    // Bare dynamic chassis: no factory takes a formless body, and using addOBB
+    // would give it a shape that could collide — the vehicle's whole point is
+    // that it rides on raycast wheels. Wheel mounted at the COM (localPos 0) so
+    // there is no suspension torque; inverseInertia stays zero, isolating the
+    // vertical suspension math exactly as the original unit test intended.
     ecs::Entity chassis = reg.create();
-    reg.add<Transform>(chassis, Transform{{0.0f,2.0f,0.0f}, {0,0,0,1}, {1,1,1}});
+    reg.add<Transform>(chassis, Transform{{0.0f, 2.0f, 0.0f}, {0, 0, 0, 1}, {1, 1, 1}});
     ecs::Hull hc;
     hc.mass = 800.0f; hc.inverseMass = 1.0f / 800.0f;
-    hc.inverseInertia = math::Mat3::zero();   // wheel at COM: no torque expected
+    hc.inverseInertia = Mat3::zero();
     reg.add<ecs::Hull>(chassis, hc);
 
-    physics::SuspensionJoint sj;
-    sj.chassis       = chassis;
-    sj.localWheelPos = {0,0,0};
-    sj.localUp       = {0,1,0};
-    sj.restLength    = 0.5f;
-    sj.maxTravel     = 0.3f;
-    sj.stiffness     = 45000.0f;
-    sj.damping       = 4500.0f;
+    World::WheelSpec wheel;
+    wheel.localPos  = {0, 0, 0};
+    wheel.localUp   = {0, 1, 0};
+    wheel.restLength = 0.5f;
+    wheel.maxTravel  = 0.3f;
+    wheel.stiffness  = 45000.0f;
+    wheel.damping    = 4500.0f;
+    wheel.radius     = 0.35f;
+    wheel.muLong = 1.3f; wheel.muLat = 1.3f;
+    std::vector<physics::Joint*> handles = w.addVehicle(chassis, {wheel});
+    REQUIRE(handles.size() == 1);
 
-    std::vector<std::unique_ptr<physics::Joint>> ownedJoints;
-    ownedJoints.push_back(std::make_unique<physics::Joint>(sj));
-    auto* suspPtr = std::get_if<physics::SuspensionJoint>(ownedJoints[0].get());
-
-    physics::WheelFrictionJoint wj;
-    wj.chassis    = chassis;
-    wj.suspension = suspPtr;
-    wj.radius     = 0.35f;
-    wj.muLong = 1.3f; wj.muLat = 1.3f;
-    ownedJoints.push_back(std::make_unique<physics::Joint>(wj));
-    auto* wheelPtr = std::get_if<physics::WheelFrictionJoint>(ownedJoints[1].get());
-
-    physics::EntityContactCache cache;
-    physics::IslandDetector detector;
-    std::vector<physics::ColliderDiscrete::ActiveContact> contacts;
-    std::vector<std::pair<ecs::Entity, ecs::Entity>> jointPairs = {{chassis, chassis}, {chassis, chassis}};
-    std::vector<physics::Joint*> allJoints = {ownedJoints[0].get(), ownedJoints[1].get()};
-    std::vector<physics::Island> islands;
-    detector.build(contacts, cache, islands, reg, /*springPairs=*/{}, jointPairs, allJoints);
-    REQUIRE(islands.size() == 1);
-    REQUIRE(islands[0].joints.size() == 2);
-
-    const float dt = 1.0f / 240.0f;
-    auto stepOnce = [&]() {
-        physics::ColliderDiscrete::refreshSuspensionRaycast(*suspPtr, reg);
-        auto* hcx = reg.get<ecs::Hull>(chassis);
-        auto* tfx = reg.get<Transform>(chassis);
-        math::Mat3 R = math::Mat3::rotation(tfx->rotation);
-        hcx->inertiaTensorWorld = R * hcx->inverseInertia * R.transpose();
-        physics::ColliderDiscrete::solveIsland(islands[0].contacts, islands[0].joints, dt, reg, islands[0].localCache);
-        hcx->velocity.y += -9.80665f * dt;
-        tfx->position += hcx->velocity * dt;
-        tfx->position += hcx->pseudoVel * dt;
-        hcx->pseudoVel = {}; hcx->pseudoOmega = {};
-    };
-
-    for (int step = 0; step < 1000; ++step) stepOnce();
-
-    auto* tfSettled = reg.get<Transform>(chassis);
-    float settledHeight = tfSettled->position.y;
+    // Phase 1: settle under gravity — the spring/damper holds it near restLength.
+    step(w, 1000);
+    float settledHeight = reg.get<Transform>(chassis)->position.y;
     INFO("settled chassis height (ground top at y=0, restLength=0.5): " << settledHeight);
     CHECK(settledHeight > 0.3f);
     CHECK(settledHeight < 0.7f);
 
-    wheelPtr->wheelAngularVel = 20.0f;   // rad/s — throttle on
-    for (int step = 0; step < 500; ++step) stepOnce();
+    // Phase 2: throttle on — the chassis must pick up real forward speed while
+    // staying grounded (exercises WheelFriction's longitudinal row + its Fz
+    // coupling to the same step's SuspensionJoint lambda).
+    w.setWheelDrive(handles[0], 20.0f);   // rad/s
+    step(w, 500);
 
     auto* hcDriven = reg.get<ecs::Hull>(chassis);
     auto* tfDriven = reg.get<Transform>(chassis);
@@ -1694,4 +1371,123 @@ TEST_CASE("Suspension holds chassis at rest height and WheelFriction drives it f
          << ", height: " << tfDriven->position.y);
     CHECK(hcDriven->velocity.z > 1.0f);     // picked up real forward speed
     CHECK(tfDriven->position.y > 0.2f);     // still grounded, not fallen through
+}
+
+// ============================================================================
+// Material behaviour through the real loop (Hull.restitution / Hull.friction)
+//
+// The geometry/manifold cases above verify *where* contacts are; these verify
+// how the real step responds to the per-body restitution/friction knobs the
+// Python API exposes. The solver combines them per contact as e = sqrt(ea*eb),
+// mu = sqrt(fa*fb), with the restitution bias gated on closing speed above
+// PGS_RESTITUTION_THRESHOLD so resting/piled contacts don't jitter. Each case
+// reads the Hull velocity after real advance() steps — the authentic post-step
+// state, including the step's gravity integration (there is no "solve without
+// integrate" in the engine).
+// ============================================================================
+
+namespace {
+
+// A dynamic sphere just touching a floor (bottom at y≈0), driven downward, with
+// an explicit material. Centered vertical impacts produce no angular response.
+ecs::Entity dropBall(World& w, float restitution, float approachSpeed) {
+    ecs::Entity e = w.addSphere(1.0f, 0.5f, {0.0f, 0.49f, 0.0f});
+    auto* h = w.getRegistry().get<ecs::Hull>(e);
+    h->restitution = restitution;
+    h->friction    = 0.5f;
+    h->velocity    = {0.0f, -approachSpeed, 0.0f};
+    return e;
+}
+
+// Static floor with its TOP surface at y = 0 and a given material.
+void addFloor(World& w, float friction, float restitution) {
+    ecs::Entity e = w.addStaticAABB({0.0f, -0.5f, 0.0f}, {20.0f, 0.5f, 20.0f});
+    auto* h = w.getRegistry().get<ecs::Hull>(e);
+    h->friction = friction; h->restitution = restitution;
+}
+
+} // namespace
+
+TEST_CASE("Restitution: a fast impact rebounds upward with energy lost", "[world][solver][restitution]") {
+    // Driven down at 4 m/s (> the 2 m/s restitution threshold). Combined
+    // e = sqrt(0.3*0.3) = 0.3 → rebound target ≈ 1.2 m/s up (minus one step of
+    // gravity).
+    World w;
+    addFloor(w, 0.5f, 0.3f);
+    ecs::Entity ball = dropBall(w, 0.3f, 4.0f);
+
+    w.advance(physics::PHYSICS_DT);
+
+    float vy = w.getRegistry().get<ecs::Hull>(ball)->velocity.y;
+    INFO("post-step vy = " << vy);
+    CHECK(vy > 0.0f);                       // actually rebounded
+    CHECK(vy < 4.0f);                       // 0 < e < 1 → slower than it came in
+    CHECK_THAT(vy, WithinAbs(1.2f, 0.4f));  // ≈ e * closing speed
+}
+
+TEST_CASE("Restitution: higher coefficient rebounds faster (monotonic)", "[world][solver][restitution]") {
+    auto rebound = [](float e) {
+        World w;
+        addFloor(w, 0.5f, e);
+        ecs::Entity ball = dropBall(w, e, 4.0f);
+        w.advance(physics::PHYSICS_DT);
+        return w.getRegistry().get<ecs::Hull>(ball)->velocity.y;
+    };
+    float bouncy = rebound(0.9f);
+    float dead   = rebound(0.1f);
+    INFO("bouncy=" << bouncy << " dead=" << dead);
+    CHECK(bouncy > dead);
+    CHECK(bouncy > 0.0f);
+}
+
+TEST_CASE("Restitution: zero coefficient arrests the normal velocity (no bounce)", "[world][solver][restitution]") {
+    World w;
+    addFloor(w, 0.5f, 0.0f);
+    ecs::Entity ball = dropBall(w, 0.0f, 4.0f);
+
+    w.advance(physics::PHYSICS_DT);
+
+    float vy = w.getRegistry().get<ecs::Hull>(ball)->velocity.y;
+    INFO("post-step vy = " << vy);
+    CHECK(std::abs(vy) < 0.2f);   // stopped at the surface, neither bouncing nor sinking
+}
+
+TEST_CASE("Restitution: slow contact below threshold does not bounce", "[world][solver][restitution]") {
+    // Same 0.3 restitution, but the approach (1 m/s) is under
+    // PGS_RESTITUTION_THRESHOLD (2 m/s), so the step must treat it as a resting
+    // contact and inject no rebound — the anti-jitter rule.
+    World w;
+    addFloor(w, 0.5f, 0.3f);
+    ecs::Entity ball = dropBall(w, 0.3f, 1.0f);
+
+    w.advance(physics::PHYSICS_DT);
+
+    float vy = w.getRegistry().get<ecs::Hull>(ball)->velocity.y;
+    INFO("post-step vy = " << vy);
+    CHECK(vy < 0.3f);    // not launched back up
+    CHECK(vy > -1.0f);   // but the approach was still arrested
+}
+
+TEST_CASE("Friction: a sliding box is slowed, and frictionless keeps sliding", "[world][solver][friction]") {
+    // A box resting on the floor with a 2 m/s sideways velocity. Under gravity
+    // the normal load feeds a Coulomb friction row that opposes the slide.
+    auto slideSpeedAfter = [](float friction) {
+        World w;
+        addFloor(w, friction, 0.0f);
+        // Bottom face just touching: center y=0.5, half-extent 0.5 → bottom at 0.
+        ecs::Entity box = w.addOBB({0.5f, 0.5f, 0.5f}, 1.0f, {0.0f, 0.5f, 0.0f});
+        auto* h = w.getRegistry().get<ecs::Hull>(box);
+        h->friction = friction;
+        h->velocity = {2.0f, 0.0f, 0.0f};
+        step(w, 240);   // ~1 s
+        return w.getRegistry().get<ecs::Hull>(box)->velocity.x;
+    };
+
+    float withFriction    = slideSpeedAfter(0.8f);
+    float withoutFriction = slideSpeedAfter(0.0f);
+    INFO("vx with friction = " << withFriction << ", frictionless = " << withoutFriction);
+
+    CHECK(withFriction < withoutFriction);   // friction removed tangential speed
+    CHECK(withFriction < 2.0f);              // decelerated from the initial 2 m/s
+    CHECK(withoutFriction > 1.8f);           // frictionless: essentially undamped slide
 }

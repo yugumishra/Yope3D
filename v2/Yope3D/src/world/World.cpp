@@ -2177,7 +2177,10 @@ void World::advance(float dt) {
     // contact — e.g. two joint-connected bodies hanging in the air — so the
     // guard must not be contacts-only.
     if (!advanceContacts_.empty() || !joints_.empty()) {
-        if (!threadPool_) {
+        // Serial mode (headless determinism / cross-check): solve islands one at
+        // a time on this thread, skipping the pool entirely — no thread means no
+        // scheduling variance. Live play keeps the parallel path.
+        if (!serialSolve_ && !threadPool_) {
             unsigned int n = std::max(1u, std::thread::hardware_concurrency() - 1u);
             threadPool_ = std::make_unique<ThreadPool>(n);
         }
@@ -2213,18 +2216,23 @@ void World::advance(float dt) {
                 YOPE_PROF_SCOPE("pgs_dispatch", "physics");
                 for (auto& island : islands) {
                     const int islandContactN = static_cast<int>(island.contacts.size());
-                    threadPool_->enqueue([&island, dt, &reg = registry_, islandContactN]() mutable {
-                        // Worker-thread scope. Stamped with scope_n = contact count for this
-                        // island, so analyze_profile.py can plot solve-time vs. island size
-                        // and spot the single-giant-island case where parallelism collapses.
+                    if (serialSolve_) {
                         YOPE_PROF_SCOPE_N("pgs_island", "physics", islandContactN);
-                        physics::ColliderDiscrete::solveIsland(island.contacts, island.joints, dt, reg, island.localCache);
-                    });
+                        physics::ColliderDiscrete::solveIsland(island.contacts, island.joints, dt, registry_, island.localCache);
+                    } else {
+                        threadPool_->enqueue([&island, dt, &reg = registry_, islandContactN]() mutable {
+                            // Worker-thread scope. Stamped with scope_n = contact count for this
+                            // island, so analyze_profile.py can plot solve-time vs. island size
+                            // and spot the single-giant-island case where parallelism collapses.
+                            YOPE_PROF_SCOPE_N("pgs_island", "physics", islandContactN);
+                            physics::ColliderDiscrete::solveIsland(island.contacts, island.joints, dt, reg, island.localCache);
+                        });
+                    }
                 }
             }
             {
                 YOPE_PROF_SCOPE("pgs_wait", "physics");
-                threadPool_->wait();
+                if (!serialSolve_) threadPool_->wait();
             }
         }
         physics::IslandDetector::mergeCache(islands, contactCache_);

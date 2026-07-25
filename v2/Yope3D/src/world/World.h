@@ -469,6 +469,15 @@ public:
     void setCollisionEventsEnabled(bool e) { collisionEventsEnabled_.store(e, std::memory_order_relaxed); }
     std::vector<CollisionEvent> drainCollisionEvents();
 
+    // Serial-solve mode: advance() solves islands one at a time on the calling
+    // thread instead of dispatching them across the ThreadPool. The parallel
+    // path is race-free (disjoint dynamic islands, read-only statics), so serial
+    // is meant to produce identical results — headless determinism uses this as
+    // the canonical path and to cross-check the parallel one. Default off (live
+    // play stays parallel). Read once per step, so it can be toggled between steps.
+    void setSerialSolve(bool s) { serialSolve_ = s; }
+    bool serialSolve() const { return serialSolve_; }
+
     // Global collision-observer gate (limitations.md §4.5). When non-zero, a pair
     // whose combined collisionLayer intersects this mask generates enter/exit
     // events even if neither side has a ScriptComponent — Engine feeds it from the
@@ -714,6 +723,7 @@ private:
     physics::EntityContactCache                          contactCache_;
     physics::IslandDetector                              islandDetector_;
     std::unique_ptr<ThreadPool>                          threadPool_;
+    bool                                                 serialSolve_ = false;
     int                                                  lastIslandCount_ = 0;
     int                                                  lastPairCount_ = 0;
     int                                                  lastContactCount_ = 0;
