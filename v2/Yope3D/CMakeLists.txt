@@ -513,21 +513,35 @@ target_link_libraries(yope_text_tests PRIVATE Catch2::Catch2WithMain)
 # Physics test executable — no Vulkan/GLFW/OpenAL dependency
 # ---------------------------------------------------------------------------
 
+# The end-to-end cases drive the REAL World::advance() loop (not a mirror), so
+# this links the whole engine exactly like yope_determinism_tests / the yope3d
+# binary. World default-constructs with no GPU; init() is never called. The
+# geometry/broadphase/BVH/mass-property cases still call physics functions
+# directly, but they share the file, so the whole target links ENGINE_SOURCES.
 add_executable(yope_physics_tests
     tests/physics_tests.cpp
-    src/math/MathImpl.cpp
-    src/debug/Profiler.cpp
-    src/assets/AssetResolve.cpp
-    src/platform/BundlePaths.cpp
-    ${PHYSICS_SOURCES}
+    ${ENGINE_SOURCES}
+    ${PYTHON_SOURCES}
 )
-
-target_include_directories(yope_physics_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+target_include_directories(yope_physics_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+    "${Stb_INCLUDE_DIR}"
+)
 target_compile_definitions(yope_physics_tests PRIVATE
+    YOPE_PYTHON=1
     YOPE_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+    YOPE_SHADER_DIR="${CMAKE_SOURCE_DIR}/compiled_shaders"
+    YOPE_SCRIPTS_DIR="${CMAKE_SOURCE_DIR}/scripts"
     $<$<BOOL:${YOPE_ENABLE_PROFILER}>:YOPE_PROF_ENABLED>
 )
-target_link_libraries(yope_physics_tests PRIVATE Catch2::Catch2WithMain)
+target_link_libraries(yope_physics_tests PRIVATE
+    Catch2::Catch2WithMain
+    glfw
+    freetype
+    OpenAL::OpenAL
+    Vulkan::Vulkan
+    pybind11::embed
+)
 
 # ---------------------------------------------------------------------------
 # glTF loader test — headless (loader is decoupled from GPU via a callback).
@@ -558,6 +572,79 @@ add_executable(yope_ecs_tests
 
 target_include_directories(yope_ecs_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(yope_ecs_tests PRIVATE Catch2::Catch2WithMain)
+
+# ---------------------------------------------------------------------------
+# Kinematic query test executable — headless (no Vulkan/GLFW/OpenAL).
+# Covers yope3d.raycast / capsule_overlap / capsule_cast (the character
+# controller + shooting surface) and collision-layer filtering.
+# ---------------------------------------------------------------------------
+
+add_executable(yope_kinematic_tests
+    tests/kinematic_query_tests.cpp
+    src/math/MathImpl.cpp
+    src/debug/Profiler.cpp
+    src/assets/AssetResolve.cpp
+    src/platform/BundlePaths.cpp
+    ${PHYSICS_SOURCES}
+)
+
+target_include_directories(yope_kinematic_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+target_compile_definitions(yope_kinematic_tests PRIVATE
+    YOPE_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+    $<$<BOOL:${YOPE_ENABLE_PROFILER}>:YOPE_PROF_ENABLED>
+)
+target_link_libraries(yope_kinematic_tests PRIVATE Catch2::Catch2WithMain)
+
+# ---------------------------------------------------------------------------
+# Serialization round-trip test — per-component serialize/deserialize pairs.
+# Headless; needs Vulkan headers only (RenderMesh.h, pulled in by
+# ComponentSerializers.cpp), not the Vulkan lib — same as yope_gltf_tests.
+# ---------------------------------------------------------------------------
+
+add_executable(yope_serialization_tests
+    tests/serialization_tests.cpp
+    src/scene/serialization/ComponentSerializers.cpp
+    src/scene/serialization/JsonWriter.cpp
+    src/scene/serialization/JsonParser.cpp
+    src/ecs/Registry.cpp
+    src/math/MathImpl.cpp
+)
+
+target_include_directories(yope_serialization_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(yope_serialization_tests PRIVATE Catch2::Catch2WithMain Vulkan::Vulkan)
+
+# ---------------------------------------------------------------------------
+# Determinism test — Layer 0: same-binary run-to-run reproducibility of the
+# REAL World::advance() loop, headless. Unlike the other headless test tiers
+# this drives the whole engine, so it links ENGINE_SOURCES + PYTHON_SOURCES +
+# the runtime libs exactly like the yope3d binary (World default-constructs
+# with no GPU; init() is never called).
+# ---------------------------------------------------------------------------
+
+add_executable(yope_determinism_tests
+    tests/determinism_tests.cpp
+    ${ENGINE_SOURCES}
+    ${PYTHON_SOURCES}
+)
+target_include_directories(yope_determinism_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+    "${Stb_INCLUDE_DIR}"
+)
+target_compile_definitions(yope_determinism_tests PRIVATE
+    YOPE_PYTHON=1
+    YOPE_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+    YOPE_SHADER_DIR="${CMAKE_SOURCE_DIR}/compiled_shaders"
+    YOPE_SCRIPTS_DIR="${CMAKE_SOURCE_DIR}/scripts"
+    $<$<BOOL:${YOPE_ENABLE_PROFILER}>:YOPE_PROF_ENABLED>
+)
+target_link_libraries(yope_determinism_tests PRIVATE
+    Catch2::Catch2WithMain
+    glfw
+    freetype
+    OpenAL::OpenAL
+    Vulkan::Vulkan
+    pybind11::embed
+)
 
 # ---------------------------------------------------------------------------
 # ECS iteration benchmark — Article 3 measurement artifact. Runs only from

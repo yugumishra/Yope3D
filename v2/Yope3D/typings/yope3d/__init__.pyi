@@ -2041,6 +2041,10 @@ class Camera:
     """Vertical field of view in **radians** (read/write; same units as
     ``set_fov``). Read it once at init to cache the base value for temporary
     effects (dash/zoom FOV kicks) that must restore the original."""
+    near_plane: float
+    """Current near clip plane (read-only; set via ``set_clip_planes``)."""
+    far_plane: float
+    """Current far clip plane (read-only; set via ``set_clip_planes``)."""
 
     def set_position(self, p: Vec3) -> None:
         """Set the camera world position."""
@@ -2049,6 +2053,26 @@ class Camera:
     def set_fov(self, fov: float) -> None:
         """Set the vertical field of view in **radians** (feeds ``tan(fov/2)``
         directly — pass ``yope3d.to_radians(60)``, not ``60``)."""
+    def set_clip_planes(self, near: float, far: float) -> None:
+        """Set the near/far clip planes (defaults 0.1 / 2000).
+
+        Depth precision is dominated by the NEAR plane: resolvable depth at
+        distance ``z`` runs about ``z**2 * (far - near) / (near * far * 2**24)``,
+        so the defaults spend nearly the whole depth buffer before the content
+        starts. A scene whose geometry sits far from the eye — a long-lens
+        framing, an orbit view, anything measured in hundreds of units — should
+        pull ``near`` out to just short of its nearest geometry. At ``z = 120``
+        the defaults resolve ~0.0086; ``set_clip_planes(100, 200)`` resolves
+        ~1e-5, which is the difference between z-fighting and not.
+
+        Args:
+            near: Near plane distance; must be > 0 and < ``far``.
+            far: Far plane distance.
+
+        Note:
+            Invalid input (non-positive, or ``near >= far``) is ignored rather
+            than clamped — the call is a no-op and the previous planes stand.
+        """
     def get_forward(self) -> Vec3:
         """Return the camera forward direction in world space (unit length)."""
     def look_at(self, target: Vec3) -> None:
