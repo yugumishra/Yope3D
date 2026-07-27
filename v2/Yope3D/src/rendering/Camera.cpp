@@ -27,7 +27,15 @@ Mat4 Camera::genViewMatrix() const {
 }
 
 Mat4 Camera::genProjectionMatrix() const {
-    return Mat4::perspective(fov, aspectRatio, NEAR_PLANE, FAR_PLANE);
+    return Mat4::perspective(fov, aspectRatio, nearPlane, farPlane);
+}
+
+void Camera::setClipPlanes(float n, float f) {
+    // Reject rather than clamp: a degenerate projection is far harder to
+    // diagnose from the resulting garbage than a setter that did nothing.
+    if (n <= 0.0f || f <= 0.0f || n >= f) return;
+    nearPlane = n;
+    farPlane  = f;
 }
 
 void Camera::lookAt(const Vec3& target) {

@@ -46,9 +46,27 @@ public:
     // Aim the camera at a world point (sets pitch/yaw so getForward() points at `target`).
     void lookAt(const math::Vec3& target);
 
+    // ---- Clip planes -------------------------------------------------------
+    // Depth precision is dominated by the NEAR plane, not the far one: resolvable
+    // depth at distance z runs about z^2 * (far - near) / (near * far * 2^24), so
+    // the defaults (0.1 / 2000) spend nearly the whole buffer before the content
+    // starts. Scenes whose geometry sits far from the eye — a long-lens framing,
+    // an orbit view, anything measured in hundreds of units — gain orders of
+    // magnitude by pulling the near plane out to just short of their nearest
+    // geometry. At z = 120 the defaults resolve ~0.0086; 100 / 200 resolves ~1e-5.
+    //
+    // Bad input (non-positive, or near >= far) is ignored rather than applied, so
+    // a script cannot produce a degenerate projection matrix.
+    void  setClipPlanes(float nearPlane, float farPlane);
+    float getNearPlane() const { return nearPlane; }
+    float getFarPlane()  const { return farPlane; }
+
 private:
-    static constexpr float NEAR_PLANE = 0.1f;
-    static constexpr float FAR_PLANE  = 2000.0f;
+    static constexpr float DEFAULT_NEAR_PLANE = 0.1f;
+    static constexpr float DEFAULT_FAR_PLANE  = 2000.0f;
+
+    float nearPlane = DEFAULT_NEAR_PLANE;
+    float farPlane  = DEFAULT_FAR_PLANE;
 
     float fov;
     int   windowWidth;

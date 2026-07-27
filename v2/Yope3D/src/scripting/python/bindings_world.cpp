@@ -467,6 +467,8 @@ void bind_world(py::module_& m) {
         .def("set_position", &Camera::setPosition)
         .def("set_rotation", &Camera::setRotation)
         .def("set_fov",      &Camera::setFOV)
+        .def("set_clip_planes", &Camera::setClipPlanes,
+             py::arg("near"), py::arg("far"))
         .def("get_forward",  &Camera::getForward)
         .def("look_at",      &Camera::lookAt, py::arg("target"))
         .def("screen_to_ray", [](const Camera& c, float px, float py) {
@@ -475,7 +477,9 @@ void bind_world(py::module_& m) {
             return py::make_tuple(o, d);
         }, py::arg("px"), py::arg("py"))
         .def_property("position", &Camera::getPosition, &Camera::setPosition)
-        .def_property("rotation", &Camera::getRotation, &Camera::setRotation);
+        .def_property("rotation", &Camera::getRotation, &Camera::setRotation)
+        .def_property_readonly("near_plane", &Camera::getNearPlane)
+        .def_property_readonly("far_plane",  &Camera::getFarPlane);
 
     // Window — pixel dimensions + cursor position (for screen_to_ray / picking).
     py::class_<Window>(m, "Window")
