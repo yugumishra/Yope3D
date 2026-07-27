@@ -1112,8 +1112,8 @@ class World:
     """Multiplier on wall-clock time fed to the physics accumulator (default ``1.0``,
     ``0.0`` freezes the sim). The step size is unchanged — the sim still runs at a
     fixed 240 Hz — so slow motion is a slowed replay of the same deterministic
-    simulation, not a softer one. Values above 1 saturate against the substep clamp
-    rather than exploding."""
+    simulation, not a softer one. Values above 1 saturate against the catch-up
+    rate cap (``max_catchup_steps``) rather than exploding."""
 
     physics_hz: float
     """Physics tick rate (default ``240``, clamped to ``[1, 1000]``). Unlike
@@ -1124,21 +1124,30 @@ class World:
 
     step_burden_us: int
     """Artificial spin-wait (microseconds) added to every physics step (default
-    ``0``). Stands in for "the sim got more expensive" in the death-spiral demo:
-    raise it past the per-step budget (``1e6 / physics_hz``) and the accumulator
-    can no longer drain."""
+    ``0``). Stands in for "the sim got more expensive" in the loop-of-doom demo:
+    raise it past the per-step budget (``1e6 / physics_hz``) and the sim can no
+    longer keep up with wall time."""
 
-    accumulator_clamp: bool
-    """The fixed-timestep guard rail (default ``True``): caps the accumulator at 4
-    sub-steps per frame, turning overload into bounded time dilation. ``False``
-    (demo only!) removes it — and the frame-dt cap with it — restoring the classic
-    spiral of death where the backlog compounds without limit."""
+    max_catchup_steps: int
+    """Substeps the physics thread advances per outer iteration (default ``4``) —
+    the catch-up RATE. Leftover backlog is RETAINED, not dropped, so a transient
+    hitch is repaid smoothly over the next few iterations. With ``max_backlog``
+    this replaces the old single accumulator clamp; the Article-2 "loop of doom"
+    regimes are just parameter points on the two: discard =
+    ``max_backlog = max_catchup_steps / physics_hz``; keep-capped = small steps +
+    moderate backlog; uncapped = both large (fast-forward warp on recovery)."""
+
+    max_backlog: float
+    """Ceiling in seconds on RETAINED accumulator backlog (default ``0.25``). Debt
+    beyond this is the only debt ever dropped (sustained overload → bounded time
+    dilation). Set it to one iteration's worth (``max_catchup_steps / physics_hz``)
+    to reproduce the old discard-clamp behaviour."""
 
     accumulator_backlog: float
     """Seconds of wall-clock time the physics thread has accepted but not yet
-    simulated (read-only; stored once per accumulator iteration). Healthy: below
-    ``4 / physics_hz``. Growing without bound: you are watching the spiral of
-    death."""
+    simulated (read-only; stored once per accumulator iteration). Healthy: near
+    zero. Pinned at ``max_backlog``: sustained overload, running in bounded time
+    dilation. Draining after a spike: a transient hitch being repaid."""
 
     def get_pair_count(self) -> int:
         """Broadphase candidate pairs from the last tick (SAP output, pre-narrowphase)."""

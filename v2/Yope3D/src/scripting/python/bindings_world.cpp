@@ -443,7 +443,8 @@ void bind_world(py::module_& m) {
         // ---- Fixed-timestep instrumentation (Article-2 demos) ----
         .def_property("physics_hz", &World::getPhysicsHz, &World::setPhysicsHz)
         .def_property("step_burden_us", &World::getStepBurdenUs, &World::setStepBurdenUs)
-        .def_property("accumulator_clamp", &World::getAccumulatorClamp, &World::setAccumulatorClamp)
+        .def_property("max_catchup_steps", &World::getMaxCatchupSteps, &World::setMaxCatchupSteps)
+        .def_property("max_backlog", &World::getMaxBacklog, &World::setMaxBacklog)
         .def_property_readonly("accumulator_backlog", &World::getAccumulatorBacklog)
         .def("get_pair_count",          &World::getPairCount)
         .def("get_contact_count",       &World::getContactCount)

@@ -525,11 +525,22 @@ public:
     void     setStepBurdenUs(uint32_t us) { stepBurdenUs_.store(us, std::memory_order_relaxed); }
     uint32_t getStepBurdenUs() const      { return stepBurdenUs_.load(std::memory_order_relaxed); }
 
-    // The accumulator clamp is the guard rail that turns "physics can't keep
-    // up" into bounded time dilation. Disabling it (demo only!) restores the
-    // classic spiral of death: the backlog compounds without limit.
-    void setAccumulatorClamp(bool on) { accumClamp_.store(on, std::memory_order_relaxed); }
-    bool getAccumulatorClamp() const  { return accumClamp_.load(std::memory_order_relaxed); }
+    // Accumulator bounds — two independent runtime knobs governing the physics
+    // thread's fixed-timestep loop (see Engine::startPhysicsThread). The three
+    // Article-2 "loop of doom" regimes are just parameter points on them, no
+    // special-case code:
+    //   discard     : max_backlog = max_catchup_steps * physics_dt  (drops debt)
+    //   keep-capped : small steps, moderate backlog (smooth post-hitch catch-up)
+    //   uncapped    : both large                    (fast-forward warp on recovery)
+    // max_catchup_steps: substeps advanced per outer iteration (catch-up RATE).
+    // Leftover backlog is RETAINED, not dropped — that's the difference from the
+    // old single clamp.
+    void setMaxCatchupSteps(int n) { maxCatchupSteps_.store(std::max(1, n), std::memory_order_relaxed); }
+    int  getMaxCatchupSteps() const { return maxCatchupSteps_.load(std::memory_order_relaxed); }
+    // max_backlog: ceiling (seconds) on RETAINED backlog; debt beyond it is the
+    // only debt ever discarded (sustained overload → bounded time dilation).
+    void  setMaxBacklog(float s) { maxBacklog_.store(std::max(0.0f, s), std::memory_order_relaxed); }
+    float getMaxBacklog() const  { return maxBacklog_.load(std::memory_order_relaxed); }
 
     // Backlog (seconds of unsimulated time) stored by the physics thread each
     // outer iteration; read by script HUDs.
@@ -748,7 +759,8 @@ private:
     std::atomic<float>                                   timeScale_{ 1.0f };
     std::atomic<float>    physicsDt_{ physics::PHYSICS_DT };
     std::atomic<uint32_t> stepBurdenUs_{ 0 };
-    std::atomic<bool>     accumClamp_{ true };
+    std::atomic<int>      maxCatchupSteps_{ physics::MAX_CATCHUP_STEPS };
+    std::atomic<float>    maxBacklog_{ physics::MAX_PHYSICS_ACCUMULATOR };
     std::atomic<float>    accumBacklog_{ 0.0f };
     // Written by the physics thread at the end of advance(), drained by the main
     // thread in emitContactDebugLines(). Its own mutex rather than structureMtx_:
