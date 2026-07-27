@@ -29,7 +29,7 @@
             },
             "ScriptComponent":             {
                 "scriptClass": "PythonScript",
-                "paramsBlob": "{\n    \"module\": \"behaviors.article2_smoothness\",\n    \"class\": \"Smoothness\"\n}"
+                "paramsBlob": "{\n    \"module\": \"behaviors.article2_smoothness\",\n    \"class\": \"Smoothness\"\n, \"still_mode\": true\n}"
             }
         }
     ]

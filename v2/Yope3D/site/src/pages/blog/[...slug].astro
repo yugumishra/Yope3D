@@ -11,8 +11,19 @@ export async function getStaticPaths() {
 }
 
 const { post } = Astro.props;
-const { Content } = await render(post);
+const { Content, headings } = await render(post);
 const base = import.meta.env.BASE_URL;
+
+// Table of contents: h2/h3 only, minus the auto-generated GFM "Footnotes"
+// heading (which markdown emits with this fixed slug when [^n] notes exist).
+const toc = headings.filter((h) => h.depth <= 3 && h.slug !== 'footnote-label');
+
+// Reading estimate: ~200 wpm over the raw body (a conservative rate for dense
+// technical prose), plus any hand-set video minutes from frontmatter.
+const WORDS_PER_MINUTE = 200;
+const words = post.body ? post.body.trim().split(/\s+/).filter(Boolean).length : 0;
+const readMinutes = Math.max(1, Math.round(words / WORDS_PER_MINUTE));
+const totalMinutes = readMinutes + post.data.videoMinutes;
 
 // Frontmatter dates parse as UTC midnight; format in UTC to avoid off-by-one.
 const fmt = (d: Date) =>
@@ -51,6 +62,11 @@ const fmt = (d: Date) =>
 								<span> · updated {fmt(post.data.updated)}</span>
 							)
 						}
+						<span>
+							{' · '}
+							{totalMinutes} min
+							{post.data.videoMinutes > 0 ? ' (incl. video)' : ' read'}
+						</span>
 					</p>
 				</header>
 				{
@@ -64,10 +80,38 @@ const fmt = (d: Date) =>
 						/>
 					)
 				}
+				{toc.length > 1 && (
+					<details class="toc-mobile">
+						<summary>Contents</summary>
+						<nav>
+							<ul>
+								{toc.map((h) => (
+									<li class={`toc-d${h.depth}`}>
+										<a href={`#${h.slug}`}>{h.text}</a>
+									</li>
+								))}
+							</ul>
+						</nav>
+					</details>
+				)}
 				<div class="prose">
 					<Content />
 				</div>
 			</article>
+			{toc.length > 1 && (
+				<aside class="toc-sidebar" aria-label="Table of contents">
+					<p class="toc-title">On this page</p>
+					<nav>
+						<ul>
+							{toc.map((h) => (
+								<li class={`toc-d${h.depth}`}>
+									<a href={`#${h.slug}`}>{h.text}</a>
+								</li>
+							))}
+						</ul>
+					</nav>
+				</aside>
+			)}
 			<footer>
 				<a href={`${base}/blog`}>← All posts</a>
 			</footer>
@@ -284,5 +328,122 @@ const fmt = (d: Date) =>
 	}
 	.prose :global(th) {
 		background: var(--surface);
+	}
+
+	/* ---- Table of contents ------------------------------------------ */
+	/* Anchored jumps shouldn't land the heading flush against the top. */
+	.prose :global(h2),
+	.prose :global(h3),
+	.prose :global(h4) {
+		scroll-margin-top: 2rem;
+	}
+
+	.toc-mobile ul,
+	.toc-sidebar ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	/* Mobile: a collapsible dropdown above the body. Hidden on desktop. */
+	.toc-mobile {
+		margin: 0 0 1.5rem;
+		border: 1px solid var(--border);
+		border-radius: 0.6rem;
+		background: var(--surface);
+		padding: 0 1rem;
+	}
+	.toc-mobile summary {
+		cursor: pointer;
+		padding: 0.65rem 0;
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text);
+	}
+	.toc-mobile[open] summary {
+		border-bottom: 1px solid var(--border);
+		margin-bottom: 0.5rem;
+	}
+	.toc-mobile ul {
+		margin-bottom: 0.75rem;
+	}
+	.toc-mobile a {
+		color: var(--muted);
+		text-decoration: none;
+		display: block;
+		padding: 0.2rem 0;
+	}
+	.toc-mobile a:hover {
+		color: var(--accent);
+	}
+
+	/* Desktop sidebar: hidden until the grid below has room for it. */
+	.toc-sidebar {
+		display: none;
+	}
+	.toc-title {
+		margin: 0 0 0.6rem;
+		color: var(--muted);
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		font-size: 0.72rem;
+	}
+
+	/* h3 entries indent under their h2 (mobile + desktop share this). */
+	.toc-d3 a {
+		padding-left: 1rem;
+		font-size: 0.95em;
+	}
+
+	@media (min-width: 64rem) {
+		main {
+			max-width: 63rem;
+			display: grid;
+			grid-template-columns: minmax(0, 44rem) 13rem;
+			column-gap: 2.5rem;
+			justify-content: center;
+			align-items: start;
+		}
+		.crumbs {
+			grid-column: 1;
+			grid-row: 1;
+		}
+		article {
+			grid-column: 1;
+			grid-row: 2;
+		}
+		footer {
+			grid-column: 1;
+			grid-row: 3;
+		}
+		.toc-mobile {
+			display: none;
+		}
+		.toc-sidebar {
+			display: block;
+			grid-column: 2;
+			grid-row: 2;
+			align-self: start;
+			position: sticky;
+			top: 2rem;
+			font-size: 0.85rem;
+			max-height: calc(100vh - 4rem);
+			overflow-y: auto;
+		}
+		.toc-sidebar a {
+			color: var(--muted);
+			text-decoration: none;
+			display: block;
+			padding: 0.18rem 0 0.18rem 0.7rem;
+			border-left: 2px solid var(--border);
+			line-height: 1.35;
+		}
+		.toc-sidebar a:hover {
+			color: var(--accent);
+			border-left-color: var(--accent);
+		}
+		.toc-sidebar .toc-d3 a {
+			padding-left: 1.4rem;
+		}
 	}
 </style>

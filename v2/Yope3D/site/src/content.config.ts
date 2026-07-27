@@ -14,6 +14,9 @@ const blog = defineCollection({
 			coverAlt: z.string().optional(),
 			// Drafts render in `astro dev` but are excluded from production builds.
 			draft: z.boolean().default(false),
+			// Extra minutes to fold into the reading estimate for embedded
+			// videos (prose minutes are computed automatically from the body).
+			videoMinutes: z.number().default(0),
 		}),
 });
 
