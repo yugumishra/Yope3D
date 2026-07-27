@@ -172,32 +172,34 @@ void Engine::startPhysicsThread() {
         float  accum   = 0.0f;
         while (!stopPhysics_.load(std::memory_order_relaxed)) {
             double now = glfwGetTime();
-            float  dt  = static_cast<float>(now - last);
+            float  dt  = std::min(static_cast<float>(now - last), 0.05f);
             last = now;
             // Step size is normally physics::PHYSICS_DT; scripts can retune it
             // live (world.physics_hz) for the fixed-timestep demos.
             const float stepDt = world->getPhysicsDt();
-            const bool  clamp  = world->getAccumulatorClamp();
-            // Both guard rails come off together in the death-spiral demo: the
-            // frame-dt cap would otherwise hide the feedback loop (time spent
-            // stepping must re-enter the accumulator in full for the backlog
-            // to compound).
-            if (clamp) dt = std::min(dt, 0.05f);
             // Time scale bends wall-clock dt only — the step handed to advance()
             // below is still stepDt, so slow-mo replays the same deterministic
             // sim more slowly instead of simulating a different one.
-            accum += dt * world->getTimeScale();
-            if (clamp) accum = std::min(accum, 4.0f * stepDt);   // max 4 sub-steps per frame
-            while (accum >= stepDt &&
+            accum = std::min(accum + dt * world->getTimeScale(),
+                             world->getMaxBacklog());
+            // Cap steps PER ITERATION (catch-up rate); leftover backlog stays in
+            // `accum` and is repaid over later iterations rather than dropped. Debt
+            // past getMaxBacklog() above is discarded (discard mode sets that ceiling
+            // to one iteration's worth). The three regimes in article2_doom are just
+            // (max_catchup_steps, max_backlog) parameter points on this one loop.
+            int steps = 0;
+            const int maxSteps = world->getMaxCatchupSteps();
+            while (accum >= stepDt && steps < maxSteps &&
                    !stopPhysics_.load(std::memory_order_relaxed)) {
                 world->advance(stepDt);
-                // Artificial per-step cost for the death-spiral demo.
+                // Artificial per-step cost for the tick-rate demos.
                 if (uint32_t burden = world->getStepBurdenUs()) {
                     auto spinEnd = std::chrono::steady_clock::now() +
                                    std::chrono::microseconds(burden);
                     while (std::chrono::steady_clock::now() < spinEnd) {}
                 }
                 accum -= stepDt;
+                ++steps;
             }
             world->storeAccumulatorBacklog(accum);
             std::this_thread::sleep_for(100us);
@@ -262,7 +264,13 @@ void Engine::beginAsyncLoad(const std::string& scenePath, bool initScripts) {
 void Engine::updateSplash() {
     // Timeline / policy constants (agreed design). All reactive to elapsed time —
     // the load ETA is unknowable (texture streaming is indeterminate).
-    constexpr float MIN_SPLASH = 3.0f;    // guarantee legibility; kills the fast-load flash
+    // startPhysicsThread() doesn't fire until finishAsyncLoad(), which itself
+    // waits on this MIN_SPLASH floor — so stress/profiling runs pay it as pure
+    // dead time with zero physics ticks, before profiling even starts. Gated
+    // under YOPE_SKIP_SPLASH (set by run_scaling_sweep.sh) so scaling-sweep
+    // wall-clock budgets aren't spent on a UX floor that's irrelevant headless.
+    static const bool skipSplash = std::getenv("YOPE_SKIP_SPLASH") != nullptr;
+    const float MIN_SPLASH = skipSplash ? 0.0f : 3.0f; // guarantee legibility; kills the fast-load flash
     constexpr float T_CUE      = 3.0f;    // idle time before the ball drops (long loads)
     constexpr float FADE_DUR   = 0.35f;   // outro cross-fade
 

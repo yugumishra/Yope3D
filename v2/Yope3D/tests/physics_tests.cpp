@@ -176,7 +176,7 @@ TEST_CASE("ECS SAP: overlapping spheres produce a pair", "[sap][ecs]") {
 
     physics::BroadphaseSAP sap;
     std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
-    sap.collectPairs(entities, reg, pairs);
+    sap.collectPairsGrid(entities, reg, pairs);
 
     bool found = false;
     for (auto& [a, b] : pairs)
@@ -193,7 +193,7 @@ TEST_CASE("ECS SAP: distant entities produce no pair", "[sap][ecs]") {
 
     physics::BroadphaseSAP sap;
     std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
-    sap.collectPairs(entities, reg, pairs);
+    sap.collectPairsGrid(entities, reg, pairs);
     CHECK(pairs.empty());
 }
 
@@ -206,7 +206,7 @@ TEST_CASE("ECS SAP: nearby pair found, distant pair excluded", "[sap][ecs]") {
 
     physics::BroadphaseSAP sap;
     std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
-    sap.collectPairs(entities, reg, pairs);
+    sap.collectPairsGrid(entities, reg, pairs);
 
     bool nearFound = false, farFound = false;
     for (auto& [a, b] : pairs) {
@@ -245,7 +245,7 @@ TEST_CASE("ECS SAP: rotated OBB AABBs are rotation-fattened", "[sap][ecs][obb]")
 
     physics::BroadphaseSAP sap;
     std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
-    sap.collectPairs(entities, reg, pairs);
+    sap.collectPairsGrid(entities, reg, pairs);
 
     bool found = false;
     for (auto& [a, b] : pairs)
@@ -259,8 +259,332 @@ TEST_CASE("ECS SAP: rotated OBB AABBs are rotation-fattened", "[sap][ecs][obb]")
     ecs::Entity f1 = makeOBBEntity(reg2, {2.6f, 0, 0}, {1, 1, 1});
     std::vector<ecs::Entity> entities2 = {f0, f1};
     pairs.clear();
-    sap.collectPairs(entities2, reg2, pairs);
+    sap.collectPairsGrid(entities2, reg2, pairs);
     CHECK(pairs.empty());
+}
+
+// ============================================================================
+// ECS SAP broadphase — uniform grid
+// ============================================================================
+
+TEST_CASE("ECS SAP grid: adjacent chain in a tight cluster produces only true-overlap pairs", "[sap][ecs][grid]") {
+    // The pathology the grid replaces the old sweep for: several bodies with
+    // closely clustered/overlapping X ranges (adjacent spheres 1 apart, radius
+    // 0.6 so only immediate neighbors truly overlap).
+    ecs::Registry reg;
+    ecs::Entity e0 = makeSphereEntity(reg, {0,0,0}, 0.6f);
+    ecs::Entity e1 = makeSphereEntity(reg, {1,0,0}, 0.6f);
+    ecs::Entity e2 = makeSphereEntity(reg, {2,0,0}, 0.6f);
+    ecs::Entity e3 = makeSphereEntity(reg, {3,0,0}, 0.6f);
+    std::vector<ecs::Entity> entities = {e0, e1, e2, e3};
+
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
+    sap.collectPairsGrid(entities, reg, pairs);
+
+    auto hasPair = [&](ecs::Entity a, ecs::Entity b) {
+        for (auto& [x, y] : pairs)
+            if ((x == a && y == b) || (x == b && y == a)) return true;
+        return false;
+    };
+    CHECK(hasPair(e0, e1));
+    CHECK(hasPair(e1, e2));
+    CHECK(hasPair(e2, e3));
+    CHECK_FALSE(hasPair(e0, e2));
+    CHECK_FALSE(hasPair(e0, e3));
+    CHECK_FALSE(hasPair(e1, e3));
+}
+
+TEST_CASE("ECS SAP grid: entry spanning multiple cells is not double-counted", "[sap][ecs][grid]") {
+    // Both entries span the same two grid cells (SAP_GRID_CELL_SIZE=4, boundary
+    // at x=4), so a naive per-cell scan would emit this pair twice — once per
+    // shared cell — without the finalize-phase dedup.
+    ecs::Registry reg;
+    ecs::Entity e0 = makeOBBEntity(reg, {3,1,1}, {2.0f, 0.5f, 0.5f});
+    ecs::Entity e1 = makeOBBEntity(reg, {5,1,1}, {2.0f, 0.5f, 0.5f});
+    std::vector<ecs::Entity> entities = {e0, e1};
+
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
+    sap.collectPairsGrid(entities, reg, pairs);
+
+    int count = 0;
+    for (auto& [a, b] : pairs)
+        if ((a == e0 && b == e1) || (a == e1 && b == e0)) ++count;
+    CHECK(count == 1);
+}
+
+TEST_CASE("ECS SAP grid: giant entry pairs correctly against normal entries", "[sap][ecs][grid]") {
+    // Extent 20 spans far more than SAP_GRID_GIANT_CELL_SPAN cells on every axis,
+    // routing it through the giants_ path instead of full-span cell insertion.
+    ecs::Registry reg;
+    ecs::Entity giant = makeOBBEntity(reg, {0,0,0}, {20.0f, 20.0f, 20.0f});
+    ecs::Entity near  = makeSphereEntity(reg, {2,2,2}, 0.5f);
+    ecs::Entity far   = makeSphereEntity(reg, {100,100,100}, 0.5f);
+    std::vector<ecs::Entity> entities = {giant, near, far};
+
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
+    sap.collectPairsGrid(entities, reg, pairs);
+
+    auto hasPair = [&](ecs::Entity a, ecs::Entity b) {
+        for (auto& [x, y] : pairs)
+            if ((x == a && y == b) || (x == b && y == a)) return true;
+        return false;
+    };
+    CHECK(hasPair(giant, near));
+    CHECK_FALSE(hasPair(giant, far));
+    CHECK_FALSE(hasPair(near, far));
+}
+
+TEST_CASE("ECS SAP grid: multi-cell entry correctly pairs across a shared boundary cell", "[sap][ecs][grid]") {
+    // `spanning` crosses the x=4 cell boundary (cells 0 and 1); `single` sits
+    // entirely in cell 1 and only overlaps the part of `spanning` that reaches
+    // into that cell. Exercises full-span cell insertion directly (this design
+    // has no neighbor-cell scan — see BroadphaseSAP.cpp — so the pair can only
+    // be found via a genuinely shared bucket).
+    ecs::Registry reg;
+    ecs::Entity spanning = makeOBBEntity(reg, {3.5f,1,1}, {1.0f, 0.3f, 0.3f});
+    ecs::Entity single   = makeOBBEntity(reg, {4.5f,1,1}, {0.3f, 0.3f, 0.3f});
+    std::vector<ecs::Entity> entities = {spanning, single};
+
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
+    sap.collectPairsGrid(entities, reg, pairs);
+
+    bool found = false;
+    for (auto& [a, b] : pairs)
+        if ((a == spanning && b == single) || (a == single && b == spanning)) found = true;
+    CHECK(found);
+}
+
+TEST_CASE("ECS SAP grid: negative world coordinates bucket and pair correctly", "[sap][ecs][grid]") {
+    // floor()-based cell math must place these correctly (a truncating
+    // implementation gets negative coordinates wrong at cell boundaries).
+    ecs::Registry reg;
+    ecs::Entity e0 = makeSphereEntity(reg, {-0.3f,-2,-2}, 0.5f);
+    ecs::Entity e1 = makeSphereEntity(reg, { 0.3f,-2,-2}, 0.5f);
+    ecs::Entity e2 = makeSphereEntity(reg, {-50,-50,-50}, 0.5f);
+    std::vector<ecs::Entity> entities = {e0, e1, e2};
+
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
+    sap.collectPairsGrid(entities, reg, pairs);
+
+    auto hasPair = [&](ecs::Entity a, ecs::Entity b) {
+        for (auto& [x, y] : pairs)
+            if ((x == a && y == b) || (x == b && y == a)) return true;
+        return false;
+    };
+    CHECK(hasPair(e0, e1));
+    CHECK_FALSE(hasPair(e0, e2));
+    CHECK_FALSE(hasPair(e1, e2));
+}
+
+TEST_CASE("ECS SAP grid: output pair order follows entity id, not spatial/creation position", "[sap][ecs][grid]") {
+    ecs::Registry reg;
+    // Creation order deliberately scrambles id vs. X position:
+    // id 0 @ x=2, id 1 @ x=0, id 2 @ x=1.
+    ecs::Entity e_at2 = makeSphereEntity(reg, {2,0,0}, 0.6f);
+    ecs::Entity e_at0 = makeSphereEntity(reg, {0,0,0}, 0.6f);
+    ecs::Entity e_at1 = makeSphereEntity(reg, {1,0,0}, 0.6f);
+    std::vector<ecs::Entity> entities = {e_at2, e_at0, e_at1};
+
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
+    sap.collectPairsGrid(entities, reg, pairs);
+
+    REQUIRE(pairs.size() == 2); // (e_at0,e_at1) and (e_at1,e_at2) overlap; (e_at0,e_at2) (dist 2) does not
+
+    // Every pair canonicalized (first.id < second.id), and the list itself
+    // sorted ascending by (first.id, second.id) — proves ordering basis is id,
+    // not creation/spatial/cell-processing order.
+    for (auto& [a, b] : pairs) CHECK(a.id < b.id);
+    for (size_t k = 0; k + 1 < pairs.size(); ++k) {
+        bool ordered = pairs[k].first.id < pairs[k+1].first.id ||
+            (pairs[k].first.id == pairs[k+1].first.id && pairs[k].second.id < pairs[k+1].second.id);
+        CHECK(ordered);
+    }
+
+    // A second, independently constructed BroadphaseSAP over the same state
+    // must produce the identical sequence.
+    physics::BroadphaseSAP sap2;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs2;
+    sap2.collectPairsGrid(entities, reg, pairs2);
+    CHECK(pairs == pairs2);
+}
+
+// ============================================================================
+// ECS SAP broadphase — incremental sweep-and-prune (collectPairsSweep) + dispatch
+// ============================================================================
+
+static auto normalizePairs(std::vector<std::pair<ecs::Entity, ecs::Entity>> v) {
+    for (auto& [a, b] : v) if (b.id < a.id) std::swap(a, b);
+    std::sort(v.begin(), v.end(), [](const auto& p1, const auto& p2) {
+        return p1.first.id != p2.first.id ? p1.first.id < p2.first.id : p1.second.id < p2.second.id;
+    });
+    return v;
+}
+
+TEST_CASE("ECS SAP sweep: incremental update matches a fresh instance", "[sap][ecs][sweep]") {
+    ecs::Registry reg;
+    ecs::Entity e0 = makeSphereEntity(reg, {0,0,0}, 0.6f);
+    ecs::Entity e1 = makeSphereEntity(reg, {1,0,0}, 0.6f);
+    ecs::Entity e2 = makeSphereEntity(reg, {5,0,0}, 0.6f);
+    std::vector<ecs::Entity> entities = {e0, e1, e2};
+
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
+    sap.collectPairsSweep(entities, reg, pairs);   // cold start (first-ever call)
+
+    // Move e2 so it now overlaps e1 — changes relative X order from last call,
+    // exercising the incremental-resort path (not just the cold-start path).
+    reg.get<Transform>(e2)->position = {1.5f, 0, 0};
+    sap.collectPairsSweep(entities, reg, pairs);
+
+    physics::BroadphaseSAP fresh;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> freshPairs;
+    fresh.collectPairsSweep(entities, reg, freshPairs);
+
+    CHECK(normalizePairs(pairs) == normalizePairs(freshPairs));
+}
+
+TEST_CASE("ECS SAP sweep: entity destroyed between calls is removed", "[sap][ecs][sweep]") {
+    ecs::Registry reg;
+    ecs::Entity e0 = makeSphereEntity(reg, {0,0,0}, 0.6f);
+    ecs::Entity e1 = makeSphereEntity(reg, {1,0,0}, 0.6f);
+    ecs::Entity e2 = makeSphereEntity(reg, {1.5f,0,0}, 0.6f);
+    std::vector<ecs::Entity> entities = {e0, e1, e2};
+
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
+    sap.collectPairsSweep(entities, reg, pairs);
+    bool hadE1Pair = false;
+    for (auto& [a, b] : pairs) if (a == e1 || b == e1) hadE1Pair = true;
+    CHECK(hadE1Pair); // sanity: e1 is the bridge between e0 and e2
+
+    reg.destroy(e1);
+    std::vector<ecs::Entity> entities2 = {e0, e2}; // mirrors advanceEntities_ dropping destroyed entities
+    sap.collectPairsSweep(entities2, reg, pairs);
+
+    for (auto& [a, b] : pairs) { CHECK(a != e1); CHECK(b != e1); }
+    CHECK(pairs.empty()); // e0-e2 alone (dist 1.5, sum radii 1.2) don't overlap
+}
+
+TEST_CASE("ECS SAP sweep: entity spawned between calls is inserted and paired", "[sap][ecs][sweep]") {
+    ecs::Registry reg;
+    ecs::Entity e0 = makeSphereEntity(reg, {0,0,0}, 0.5f);
+    ecs::Entity e1 = makeSphereEntity(reg, {10,0,0}, 0.5f);
+    std::vector<ecs::Entity> entities = {e0, e1};
+
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
+    sap.collectPairsSweep(entities, reg, pairs);
+    CHECK(pairs.empty());
+
+    // Spawned entity sorts into the middle (not appended at either extreme),
+    // forcing several adjacent swaps to bubble into its sorted spot.
+    ecs::Entity e2 = makeSphereEntity(reg, {0.5f,0,0}, 0.5f);
+    entities.push_back(e2);
+    sap.collectPairsSweep(entities, reg, pairs);
+
+    bool found = false;
+    for (auto& [a, b] : pairs)
+        if ((a == e0 && b == e2) || (a == e2 && b == e0)) found = true;
+    CHECK(found);
+}
+
+TEST_CASE("ECS SAP sweep: tangible toggled off then on round-trips correctly", "[sap][ecs][sweep]") {
+    ecs::Registry reg;
+    ecs::Entity e0 = makeSphereEntity(reg, {0,0,0}, 0.6f);
+    ecs::Entity e1 = makeSphereEntity(reg, {1,0,0}, 0.6f);
+    std::vector<ecs::Entity> entities = {e0, e1};
+
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
+    auto hasPair = [&] {
+        for (auto& [a, b] : pairs) if ((a == e0 && b == e1) || (a == e1 && b == e0)) return true;
+        return false;
+    };
+
+    sap.collectPairsSweep(entities, reg, pairs);
+    CHECK(hasPair());
+
+    reg.get<ecs::Hull>(e1)->tangible = false;
+    sap.collectPairsSweep(entities, reg, pairs);
+    CHECK_FALSE(hasPair());
+
+    // Slot freed on the "off" call must be correctly re-added, not left dangling.
+    reg.get<ecs::Hull>(e1)->tangible = true;
+    sap.collectPairsSweep(entities, reg, pairs);
+    CHECK(hasPair());
+}
+
+TEST_CASE("ECS SAP sweep: output is deterministic across independently constructed instances", "[sap][ecs][sweep]") {
+    ecs::Registry reg;
+    // Creation order deliberately scrambles id vs. X position: id 0 @ x=2, id 1 @
+    // x=0, id 2 @ x=1 (mirrors the equivalent grid determinism test).
+    ecs::Entity e_at2 = makeSphereEntity(reg, {2,0,0}, 0.6f);
+    ecs::Entity e_at0 = makeSphereEntity(reg, {0,0,0}, 0.6f);
+    ecs::Entity e_at1 = makeSphereEntity(reg, {1,0,0}, 0.6f);
+    std::vector<ecs::Entity> entities = {e_at2, e_at0, e_at1};
+
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
+    sap.collectPairsSweep(entities, reg, pairs);
+    REQUIRE(pairs.size() == 2); // (e_at0,e_at1) and (e_at1,e_at2) overlap; (e_at0,e_at2) (dist 2) does not
+
+    physics::BroadphaseSAP sap2;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs2;
+    sap2.collectPairsSweep(entities, reg, pairs2);
+    CHECK(pairs == pairs2);
+}
+
+TEST_CASE("ECS SAP sweep: overflow-fallback stays correct under a reverse-sorted burst", "[sap][ecs][sweep]") {
+    ecs::Registry reg;
+    physics::BroadphaseSAP sap;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> pairs;
+
+    // Warm up with a small, stable set (establishes a sorted, non-first-call state).
+    ecs::Entity a = makeSphereEntity(reg, {0,0,0}, 0.4f);
+    ecs::Entity b = makeSphereEntity(reg, {50,0,0}, 0.4f);
+    std::vector<ecs::Entity> entities = {a, b};
+    sap.collectPairsSweep(entities, reg, pairs);
+    sap.collectPairsSweep(entities, reg, pairs);
+
+    // Burst-spawn in reverse-X order — forces far more than N adjacent swaps to
+    // re-sort, exceeding the swap budget and triggering the full-sort fallback.
+    for (int i = 0; i < 10; ++i) {
+        ecs::Entity e = makeSphereEntity(reg, {static_cast<float>(9 - i), 0.0f, 0.0f}, 0.6f);
+        entities.push_back(e);
+    }
+    sap.collectPairsSweep(entities, reg, pairs);
+
+    // Correctness regardless of which internal path ran: matches a freshly
+    // constructed instance on the same final state.
+    physics::BroadphaseSAP fresh;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> freshPairs;
+    fresh.collectPairsSweep(entities, reg, freshPairs);
+
+    CHECK(normalizePairs(pairs) == normalizePairs(freshPairs));
+    CHECK(!pairs.empty()); // sanity: the burst spheres (radius 0.6, spacing 1) do overlap
+}
+
+TEST_CASE("ECS SAP: public dispatcher routes low N through collectPairsSweep", "[sap][ecs]") {
+    ecs::Registry reg;
+    ecs::Entity e0 = makeSphereEntity(reg, {0,0,0}, 0.6f);
+    ecs::Entity e1 = makeSphereEntity(reg, {1,0,0}, 0.6f);
+    std::vector<ecs::Entity> entities = {e0, e1}; // far below SAP_METHOD_SWITCH_N
+
+    physics::BroadphaseSAP dispatched;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> dispatchedPairs;
+    dispatched.collectPairs(entities, reg, dispatchedPairs);
+
+    physics::BroadphaseSAP direct;
+    std::vector<std::pair<ecs::Entity, ecs::Entity>> directPairs;
+    direct.collectPairsSweep(entities, reg, directPairs);
+
+    CHECK(dispatchedPairs == directPairs);
 }
 
 // ============================================================================
