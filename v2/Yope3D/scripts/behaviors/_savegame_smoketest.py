@@ -64,7 +64,7 @@ class SaveGameSmoketest:
         # Clean up the save file so a rerun starts fresh.
         try:
             os.remove(yope3d.save_path(_SAVE_NAME))
-            binp = yope3d.save_path(_SAVE_NAME).rsplit(".", 1)[0] + ".meshbin"
+            binp = yope3d.save_path(_SAVE_NAME).rsplit(".", 1)[0] + ".ymesh"
             if os.path.exists(binp):
                 os.remove(binp)
         except OSError:

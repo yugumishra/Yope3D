@@ -24,6 +24,7 @@ const char* AssetBrowserPanel::fileTypeBadge(const std::string& ext) const {
     if (ext == ".wav" || ext == ".ogg" || ext == ".mp3")                    return "[WAV]";
     if (ext == ".py")                                                        return " [PY]";
     if (ext == ".ytemplated")                                                return "[TPL]";
+    if (ext == ".yscene")                                                    return "[SCN]";
     if (ext == ".json" || ext == ".cfg")                                     return "[CFG]";
     return "[---]";
 }

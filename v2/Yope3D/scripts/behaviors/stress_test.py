@@ -1,6 +1,6 @@
 """
 Phase E stress-test scenes, ported from the pre-M13 SandboxScript::loadStressTest.
-Attach as a ScriptComponent on any entity (assets/scenes/stress.json does this).
+Attach as a ScriptComponent on any entity (assets/scenes/stress.yscene does this).
 
 Two scenarios, both inside the same walled arena (floor + 4 walls):
 

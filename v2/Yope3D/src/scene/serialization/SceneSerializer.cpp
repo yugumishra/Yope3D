@@ -36,7 +36,7 @@
 #include <unordered_set>
 
 // Custom meshes with fewer vertices than this are inlined as JSON arrays
-// instead of going to the .meshbin sidecar — cheap enough that a second
+// instead of going to the .ymesh sidecar — cheap enough that a second
 // file on disk (and the sequential-read coupling to entity order) isn't worth it.
 static constexpr size_t kMeshBinVertexThreshold = 64;
 
@@ -298,7 +298,7 @@ static int onExtreme(float v, float lo, float hi, float tol) {
 
 // Classifies a Custom mesh that is geometrically a box or sphere, so a compound
 // sub-part authored as a primitive doesn't have to round-trip its vertices
-// through the .meshbin sidecar — it is regenerated from primitiveType+extents on
+// through the .ymesh sidecar — it is regenerated from primitiveType+extents on
 // load (ComponentSnapshot::restore -> Primitives::rect/sphere). Conservative by
 // design: the geometry must be centered on the mesh origin (the engine primitive
 // convention, so the reconstructed primitive lands in the same place) and either
@@ -366,7 +366,7 @@ static bool detectPrimitiveGeometry(const RenderMesh& rm, PrimitiveType& outType
 
 // Writes the "entities" JSON array for exactly the given entity list (order
 // determines fileId, 0..N-1) plus any bulky custom-mesh geometry to the
-// .meshbin sidecar at binPath. Shared by whole-scene save() and template
+// .ymesh sidecar at binPath. Shared by whole-scene save() and template
 // saveEntities() — the only difference between them is what surrounds this
 // array (world-settings keys or not) and what exemptRoot is (see below).
 //
@@ -392,7 +392,7 @@ static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& en
     }
 
     // Bulky custom-mesh geometry (>= kMeshBinVertexThreshold verts) goes to a binary
-    // sidecar (<scene>.meshbin), not the JSON — a scene of high-poly meshes would be
+    // sidecar (<scene>.ymesh), not the JSON — a scene of high-poly meshes would be
     // gigabytes of text otherwise. Blobs are written in entity-iteration order; the
     // JSON stores only per-mesh {vc, ic} counts, and load reads the sidecar
     // sequentially in the same order. Primitives and tiny custom meshes never touch
@@ -481,7 +481,7 @@ static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& en
             // MeshRenderer: a Custom-mesh sub-part of a compound body whose geometry
             // is actually a primitive (box/sphere) is re-emitted as that primitive so
             // it regenerates on load instead of round-tripping its vertices through the
-            // .meshbin sidecar (nobody authored bespoke geometry for it). Everything
+            // .ymesh sidecar (nobody authored bespoke geometry for it). Everything
             // else keeps the normal color+primitiveType(+sourcePath) emission, with
             // bulky Custom geometry going to the sidecar and small geometry inlined.
             if (entry.typeId == ecs::typeId<ecs::MeshRenderer>()) {
@@ -589,7 +589,7 @@ static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& en
     return bin.is_open();
 }
 
-// Drops a stale .meshbin sidecar from a previous save when this save wrote
+// Drops a stale .ymesh sidecar from a previous save when this save wrote
 // nothing bulky, so it doesn't linger and get mistaken for live data.
 static void cleanupStaleBin(const std::string& binPath, bool wroteBin) {
     if (wroteBin) return;
@@ -642,7 +642,7 @@ bool save(const char* path, ecs::Registry& reg, World& world) {
 
     std::vector<ecs::Entity> entities = collectSerializableEntities(reg);
 
-    std::string binPath = std::filesystem::path(path).replace_extension(".meshbin").string();
+    std::string binPath = std::filesystem::path(path).replace_extension(".ymesh").string();
     bool wroteBin = writeEntitiesArray(w, entities, reg, world, binPath, ecs::NullEntity);
 
     w.endObject();  // root
@@ -669,7 +669,7 @@ bool saveEntities(const char* path, const std::vector<ecs::Entity>& entities,
     // always capture its current state, not just re-emit a reference to
     // whatever template it happened to already be an instance of.
     ecs::Entity exemptRoot = entities.empty() ? ecs::NullEntity : entities.front();
-    std::string binPath = std::filesystem::path(path).replace_extension(".meshbin").string();
+    std::string binPath = std::filesystem::path(path).replace_extension(".ymesh").string();
     bool wroteBin = writeEntitiesArray(w, entities, reg, world, binPath, exemptRoot);
 
     w.endObject();  // root
@@ -702,7 +702,7 @@ bool saveGame(const char* path, ecs::Registry& reg, World& world,
 
     std::vector<ecs::Entity> entities = collectSerializableEntities(reg);
 
-    std::string binPath = std::filesystem::path(path).replace_extension(".meshbin").string();
+    std::string binPath = std::filesystem::path(path).replace_extension(".ymesh").string();
     bool wroteBin = writeEntitiesArray(w, entities, reg, world, binPath,
                                        ecs::NullEntity, /*writeScriptState=*/true);
 
@@ -733,7 +733,7 @@ struct MeshBinCursor {
     }
 };
 
-// Result of parsing one file's own "entities" array (+ its own .meshbin
+// Result of parsing one file's own "entities" array (+ its own .ymesh
 // sidecar) in isolation: fileIds here are LOCAL to that one file (0..N-1, 0 is
 // always that file's root — collectSubtree/"Save as Template" guarantee this
 // on write). A nested template reference gets exactly one of these per
@@ -750,7 +750,7 @@ bool parseEntityNode(const JsonNode& entNode, SubParse& out,
                      std::vector<std::string>& expandingStack, int depth,
                      uint32_t& nextFreeFileId);
 
-// Processes an already-parsed document's "entities" array (+ its own .meshbin
+// Processes an already-parsed document's "entities" array (+ its own .ymesh
 // sidecar) into a SubParse. relPath locates the sidecar and is pushed onto
 // expandingStack by the caller before this runs (parseScene seeds the stack
 // with the top-level path itself; parseEntitiesFile does the same for a
@@ -764,11 +764,11 @@ SubParse parseEntitiesBody(const JsonNode& root, const std::string& relPath,
         return out;
     }
 
-    // Load the geometry sidecar (<file>.meshbin) as bytes (embedded or filesystem —
+    // Load the geometry sidecar (<file>.ymesh) as bytes (embedded or filesystem —
     // see assets::readBytes). Blobs are read sequentially in the same entity order
     // they were written; missing/short reads fall back to a primitive (no crash),
     // so pre-sidecar scenes just show placeholder cubes.
-    std::string binRelPath = std::filesystem::path(relPath).replace_extension(".meshbin").generic_string();
+    std::string binRelPath = std::filesystem::path(relPath).replace_extension(".ymesh").generic_string();
     std::vector<uint8_t> meshBinData = assets::readBytes(binRelPath);
     MeshBinCursor meshBin{meshBinData};
     bool meshBinOk = false;
@@ -1137,7 +1137,7 @@ ParsedScene parseScene(const char* path) {
 
     // Scene paths arrive in a mixed convention (absolute, "assets/"-prefixed
     // from Python, or already assets/-relative) — normalize once so both the
-    // JSON and its .meshbin sidecar can go through the embedded/filesystem
+    // JSON and its .ymesh sidecar can go through the embedded/filesystem
     // resolver uniformly.
     std::string relPath = assets::normalizeToAssetsRelative(path);
 

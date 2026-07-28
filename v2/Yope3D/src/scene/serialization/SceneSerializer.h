@@ -51,7 +51,7 @@ std::string load(const char* path, ecs::Registry& reg, World& world,
 // ---------------------------------------------------------------------------
 // Split load pipeline (for asynchronous, off-main-thread scene loading).
 //
-//   parseScene()      — pure: JSON + .meshbin read + .glb embedded-image collection
+//   parseScene()      — pure: JSON + .ymesh read + .glb embedded-image collection
 //                       into a ParsedScene. Touches NO World / registry / GPU, so it
 //                       runs safely on a background thread.
 //   commitBegin()     — main thread: resetPhysics + apply gravity/exposure.

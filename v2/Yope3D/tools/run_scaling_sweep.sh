@@ -34,7 +34,7 @@ cd "$PROJECT_ROOT"
 BIN="${BIN:-./build/mac-debug/yope3d}"
 # Stress scene (ScriptComponent → behaviors/stress_test.py); passed via --scene
 # so yope3d.cfg's startupScene is left alone. Relative to assets/.
-SCENE="${SCENE:-scenes/stress.json}"
+SCENE="${SCENE:-scenes/stress.yscene}"
 DURATION="${DURATION:-30}"
 COOLDOWN="${COOLDOWN:-10}"
 OUT_DIR="${OUT_DIR:-profile_runs}"

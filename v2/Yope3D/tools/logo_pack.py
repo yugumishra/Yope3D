@@ -1,6 +1,6 @@
 """
 logo_pack.py — pack the baked logo JSON clips into one compact binary
-(assets/logo/logo.bin) the engine loads zero-copy at startup.
+(assets/logo/logo.ylogo) the engine loads zero-copy at startup.
 
 The JSONs are ~5x inflated by text (94MB part2 -> ~9MB of actual data). This:
   (A) trims part2's lead-in frames (the ball's approach before it strikes),
@@ -27,7 +27,7 @@ HERE       = os.path.dirname(__file__)
 LOGO_DIR   = os.path.abspath(os.path.join(HERE, "..", "assets", "logo"))
 PART1_JSON = os.path.join(LOGO_DIR, "logo_part1.json")
 PART2_JSON = os.path.join(LOGO_DIR, "logo_part2.json")
-OUT_BIN    = os.path.join(LOGO_DIR, "logo.bin")
+OUT_BIN    = os.path.join(LOGO_DIR, "logo.ylogo")
 
 PART2_TRIM_LEAD = 212    # (A) drop the ball's approach; tumble starts on the strike.
                          #   85 Blender frames @24fps sim -> 60fps output = 85*60/24 = 212.5

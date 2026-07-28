@@ -65,7 +65,7 @@ class Test:
                 audio.resume_all()
 
             if self.modCount % 5 == 0:
-                yope3d.scene_manager.load_scene("assets/scenes/startup.json")
+                yope3d.scene_manager.load_scene("assets/scenes/startup.yscene")
 
         
 

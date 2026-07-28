@@ -397,7 +397,7 @@
             },
             "ScriptComponent":             {
                 "scriptClass": "PythonScript",
-                "paramsBlob": "{\n    \"module\": \"behaviors.sandbox_gallery\",\n    \"class\": \"SandboxGallery\",\n    \"scenes\": [\n        \"startup.json\",\n        \"test_character.json\"\n    ]\n}"
+                "paramsBlob": "{\n    \"module\": \"behaviors.sandbox_gallery\",\n    \"class\": \"SandboxGallery\",\n    \"scenes\": [\n        \"startup.yscene\",\n        \"test_character.yscene\"\n    ]\n}"
             }
         }
     ]

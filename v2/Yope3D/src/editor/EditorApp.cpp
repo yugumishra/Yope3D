@@ -429,7 +429,7 @@ void EditorApp::buildMenuBar() {
         if (ImGui::MenuItem("Save Scene As...")) {
             namespace fs = std::filesystem;
             const char* defaultDir  = nullptr;
-            const char* defaultName = "scene.json";
+            const char* defaultName = "scene.yscene";
             std::string dirStr, nameStr;
             if (!currentSceneFile_.empty()) {
                 fs::path p(currentSceneFile_);
@@ -438,13 +438,13 @@ void EditorApp::buildMenuBar() {
                 if (!dirStr.empty())  defaultDir  = dirStr.c_str();
                 if (!nameStr.empty()) defaultName = nameStr.c_str();
             }
-            if (auto picked = FileDialog::saveFile({{"Scene", "json"}}, defaultDir, defaultName)) {
+            if (auto picked = FileDialog::saveFile({{"Scene", "yscene"}}, defaultDir, defaultName)) {
                 currentSceneFile_ = *picked;
                 SceneSerializer::save(picked->c_str(), *ctx_.registry, *ctx_.world);
             }
         }
         if (ImGui::MenuItem("Open Scene...")) {
-            if (auto picked = FileDialog::openFile({{"Scene", "json"}}))
+            if (auto picked = FileDialog::openFile({{"Scene", "yscene"}}))
                 pendingLoadScenePath_ = *picked;
         }
         ImGui::Separator();

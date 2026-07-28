@@ -170,7 +170,7 @@ class CompositeSmoketest:
         finally:
             try:
                 os.remove(path)
-                binp = path.rsplit(".", 1)[0] + ".meshbin"
+                binp = path.rsplit(".", 1)[0] + ".ymesh"
                 if os.path.exists(binp):
                     os.remove(binp)
             except OSError:
