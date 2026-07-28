@@ -58,8 +58,8 @@ RECORDING — one process per take, and the regime is a param for exactly that
 reason. Launch, press [R], record until the console says "schedule complete",
 quit. Then launch the OTHER scene and do the same:
 
-    ./build/mac-debug/yope3d --scene scenes/article2_doom.json          # discard
-    ./build/mac-debug/yope3d --scene scenes/article2_doom_retain.json   # retain
+    ./build/mac-debug/yope3d --scene scenes/article2_doom.yscene          # discard
+    ./build/mac-debug/yope3d --scene scenes/article2_doom_retain.yscene   # retain
 
 Cut both on the [R] press. Do NOT try to shoot both takes in one run. Three
 pieces of state carry across a regime change inside a live process, and each one

@@ -10,7 +10,7 @@ sag exactly the way they used to.
     13     Stress test — walled arena + a bulk body grid
     14     Doppler test — a looping audio source falling past the listener
 
-Attach to any entity in a scene file (assets/scenes/sandboxGallery.json does it)
+Attach to any entity in a scene file (assets/scenes/sandboxGallery.yscene does it)
 and press Play.
 
 Controls: LEFT/RIGHT switch scene, UP/DOWN pick spawn shape, LMB fire it,

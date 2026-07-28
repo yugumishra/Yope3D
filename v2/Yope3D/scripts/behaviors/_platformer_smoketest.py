@@ -4,7 +4,7 @@ paths that need gameplay input to reach (star collection burst, win/finish),
 since the demo itself can only trigger them by parkouring up the course.
 
 Run:  YOPE_PROFILE_DURATION=8 ./build/mac-debug/yope3d \
-          --scene assets/scenes/_platformerSmoketest.json
+          --scene assets/scenes/_platformerSmoketest.yscene
 Pass: console shows [PlatSmoke] markers COLLECT-OK and FINISH-OK, no
       Python exceptions.
 """

@@ -1,6 +1,6 @@
 """
 Platformer level setup script.
-Run in the Scene Script panel -> Save Scene -> load 'scenes/platformer.json'.
+Run in the Scene Script panel -> Save Scene -> load 'scenes/platformer.yscene'.
 """
 import yope3d, math
 

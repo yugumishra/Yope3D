@@ -249,7 +249,7 @@ void Engine::beginAsyncLoad(const std::string& scenePath, bool initScripts) {
     // ~ms). Both clips live in it, so the reveal + tumble are available at once.
     logoReady_.store(false, std::memory_order_release);
     logoLoadThread_ = std::thread([this] {
-        if (logo_.loadFromMemory(assets::readBytes("logo/logo.bin")))
+        if (logo_.loadFromMemory(assets::readBytes("logo/logo.ylogo")))
             logoReady_.store(true, std::memory_order_release);
     });
 #endif

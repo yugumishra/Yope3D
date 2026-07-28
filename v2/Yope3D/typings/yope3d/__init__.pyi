@@ -2368,7 +2368,7 @@ class SceneManager:
         """Queue a scene load (applied safely between frames).
 
         Args:
-            path: Asset-relative scene path (e.g. ``"scenes/sandbox.json"``).
+            path: Asset-relative scene path (e.g. ``"scenes/sandbox.yscene"``).
             payload: Optional value carried across the swap, readable via
                 ``scene_payload()`` from the newly-loaded scene's ``init()``
                 (e.g. score, inventory, spawn-point id). Passing ``None``
@@ -2827,7 +2827,7 @@ def save_path(name: str) -> str:
     path — bundled builds can't write next to the app binary.
 
     Args:
-        name: Filename or relative subpath (e.g. ``"slot1.json"``).
+        name: Filename or relative subpath (e.g. ``"slot1.ysave"``).
 
     Returns:
         Absolute path suitable for ``open(..., "w")``.
@@ -2839,7 +2839,7 @@ def save_game(name: str, meta: Any | None = None) -> bool:
     Captures the entire live world — every entity except those tagged
     ``"Transient"`` (see ``reg_add(e, "Transient")``), the world settings, and
     each scripted entity's ``save_state()`` payload — into one save file
-    (``name`` plus a co-located ``.meshbin`` sidecar for any bulky custom
+    (``name`` plus a co-located ``.ymesh`` sidecar for any bulky custom
     geometry). Restore it with :func:`load_game`.
 
     A behavior opts into save games by implementing::

@@ -8,7 +8,7 @@ maps that frame's segments onto the plane via yope3d.draw_line. A plane
 perpendicular to the view projects LINEARLY under perspective, so no ortho
 override is needed — the logo renders undistorted, just uniformly scaled.
 
-Attach via assets/scenes/logo_test.json (ScriptComponent → PythonScript →
+Attach via assets/scenes/logo_test.yscene (ScriptComponent → PythonScript →
 {"module": "behaviors.logo_playback", "class": "LogoPlayback"}).
 """
 
@@ -25,7 +25,7 @@ class LogoPlayback:
         # Which baked clip to replay. Precedence: script param `logo_json` >
         # env YOPE_LOGO_JSON > default part2. Lets you preview logo_part1.json
         # (or any experiment) without editing a scene asset:
-        #   YOPE_LOGO_JSON=logo_part1.json ./build/mac-debug/yope3d --scene scenes/logo_test.json
+        #   YOPE_LOGO_JSON=logo_part1.json ./build/mac-debug/yope3d --scene scenes/logo_test.yscene
         name = "logo_part2.json"
         try:
             if isinstance(params, dict) and params.get("logo_json"):

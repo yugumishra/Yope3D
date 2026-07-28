@@ -31,7 +31,7 @@ is unchanged. Two consequences worth knowing when you read the results:
     panel boundary so it fell straight through. A real AABB panel has corners, so
     the body now clips the corner and deflects instead of passing cleanly by.
 
-Attach to any entity in a scene file (assets/scenes/physicsGallery.json does it).
+Attach to any entity in a scene file (assets/scenes/physicsGallery.yscene does it).
 
 Controls: LEFT/RIGHT switch scene, UP/DOWN pick spawn shape, LMB fire it,
 WASD+mouse fly, P collider overlay, H hide HUD.
