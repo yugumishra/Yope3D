@@ -2,8 +2,8 @@
 title: 'Yope3D, Physics and why it has to be Separate'
 description: >-
   Why Yope3D runs its entire physics subsystem on a separate thread: the necessity, and what it unlocks.
-date: 07/23/2026
-draft: true
+date: 07/27/2026
+draft: false
 ---
 
 In the [last article](https://yugumishra.github.io/Yope3D/blog/the-rewrite/), I destroyed Yope3D as you saw it with Java + LWJGL and remade it in C++20 + Vulkan. Now that the foundation has been built anew, the series will go over the insights I gained rebuilding it and the major decisions I deliberated over, the first of which is keeping physics entirely on its own thread (apart from every other engine function).
@@ -24,7 +24,7 @@ This one principle informs nearly any computer based dynamic visual system throu
 
 Framerate is what accounts for a lot of the smoothness of the visuals, but it isn't easy cranking it up. However, for a physics engine, this is an unavoidable cost. The demo below shows what happens when you sample frames too far apart in time (below the Nyquist rate, obscuring the real signal) and the visual choppiness of even decipherable framerates.
 
-video here.
+<iframe width="982" height="550" src="https://www.youtube.com/embed/d5TTdNDnlPo" title="Article 2 - Smoothness Demo" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 Up to this point we've only talked about what the user sees. But all of that smooth motion is really quite demanding: every frame has a limited amount of time to be computed. 
 
@@ -187,7 +187,12 @@ physicsThread_ = std::thread([this] {
 
 The renderer prepares its textures and objects while the physics integrates and solves (completely separately). And under high physics workloads, the renderer remains perfectly steady while the simulation simply slows (and recovers on ease). The demo shows exactly that.
 
-2nd video demo here
+<iframe width="940" height="637" src="https://www.youtube.com/embed/bKksGD4MzAk" title="Article 2 - Timekeeping Solutions, Visually" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
+Here you can see the 2nd (fixed timestep, no debt recovery) and 5th iterations (current, multithreaded, capped recovery) timekeeping solutions visually. Watch how 
+- In the top solution, the debt doesn't recover after the load condition
+- The bottom **does** recover by speeding up simulation when the load is lighter.
+
 
 One benefit that falls out of the threading is that it's quite trivial to decouple the physics framerate and rendering framerate, allowing cross monitor/refresh rate physics agreement basically for free (a massive win with 0 headache). 
 

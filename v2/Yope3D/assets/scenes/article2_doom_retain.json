@@ -29,7 +29,7 @@
             },
             "ScriptComponent":             {
                 "scriptClass": "PythonScript",
-                "paramsBlob": "{\n    \"module\": \"behaviors.article2_doom\",\n    \"class\": \"LoopOfDoom\",\n    \"regime\": \"discard\"\n}"
+                "paramsBlob": "{\n    \"module\": \"behaviors.article2_doom\",\n    \"class\": \"LoopOfDoom\",\n    \"regime\": \"retain\"\n}"
             }
         }
     ]

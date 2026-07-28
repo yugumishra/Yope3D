@@ -266,6 +266,12 @@ class Cannon:
         self.wrapped  = False          # first recycle == window full == steady
         self.passes   = 0              # completed laps (solo phase counts these)
         self.enabled  = True           # False = parked slot, skipped entirely
+        # Ceiling on steps consumed in one frame. A guard against a stall
+        # dumping unbounded work into a single update, NOT a policy knob — the
+        # doom demo raises it, because there the whole point is a recovery burst
+        # in which the sim legitimately takes thousands of ticks in one frame,
+        # and clamping it would hide the very warp being filmed.
+        self.max_catchup = 240
 
     def _park(self, world, e):
         """Hide a ball AND move it out of frame (see PARK_Y), so a parked ball
@@ -325,7 +331,7 @@ class Cannon:
         if not self.enabled:
             return
         target = ticks // self.div
-        n = min(target - self.steps, 240)
+        n = min(target - self.steps, self.max_catchup)
         self.steps = target
         if n <= 0:
             return
