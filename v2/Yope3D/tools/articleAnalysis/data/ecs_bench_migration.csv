@@ -1,0 +1,7 @@
+# seed=42 dt=0.00416667 updates_per_sample=262144 timed_samples=11
+# sizeof_transform=40 sizeof_hull=192 sizeof_bounds=24 sizeof_mat4=64 sizeof_fat_object=480 components_per_entity=7
+# cpu=Apple_M4 memsize=25769803776
+# l1d=131072 l2=16777216
+mechanism,n,toggles,ns_per_toggle
+tag_migration,16000,100000,256.93
+flag_flip,16000,100000,5.0704
