@@ -30,6 +30,21 @@ USAGE
 READ THE STRATA SEPARATELY. `synth` has the n but shares a generator with the
 training data; `real` and `stub` are the honest generalisation signal. A gain
 confined to `synth` means the model memorised the generator, not the API.
+
+WHAT THIS METRIC IS STRUCTURALLY BLIND TO
+    It scores NAMES, so it cannot see a real name that must not be called here.
+    `world.reset_physics()` is banned from behavior scripts (CLAUDE.md) but is
+    a genuine binding, so this harness would score it `correct`. There is no
+    `forbidden` verdict and adding one would not help: probes cut at `yope3d.`
+    and the banned call is spelled `world.`, so it can never BE a probe target
+    (verified: 0 of 296).
+
+    The consequence is that invariant compliance is unmeasured here by
+    construction, and that is a deliberate scope decision, not an oversight —
+    it is why the corpus enforces the ban at generation time instead
+    (synth_pyi.FORBIDDEN + validate() gate 4). Do not read a tier-2 gain as
+    evidence the model respects the invariants. Nothing in this project
+    measures that.
 """
 
 from __future__ import annotations

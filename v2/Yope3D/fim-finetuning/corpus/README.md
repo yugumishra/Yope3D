@@ -82,18 +82,35 @@ components, the `reg_add` → configure pattern, `view()` loops, `KEY_*`/`EASE_*
 constants in real call sites. The 19 hand-written behaviors cover a narrow slice
 (`add_sphere`, `get_position`, some UI); this fills the rest.
 
-**Does not:** the CLAUDE.md invariants. `commitEntities` + `commitFinalizeScoped`
-for live spawning, physics-bodies-are-hierarchy-roots, never `reset_physics()`
-from a script. Those are *ordering and composition* rules that no type signature
-encodes, so no signature-driven generator can emit them — and they are the
-failures nothing catches. A pyright squiggle catches a wrong name; nothing
-catches a correctly-named call in a subtly wrong order. That is the hand-written
-tier's job (PLAN.txt 9.3 item 3).
+**Does not:** the CLAUDE.md invariants — physics-bodies-are-hierarchy-roots, the
+composite-behavior stacking pattern. Those are *ordering and composition* rules
+that no type signature encodes, so no signature-driven generator can emit them.
+A pyright squiggle catches a wrong name; nothing catches a correctly-named call
+in a subtly wrong order.
 
 So this output is **broad but shallow**. Weight it at training time rather than
 letting line count decide.
 
-## Three gates on generated code
+**Must not:** teach a violation. A signature-driven generator cannot know a
+binding is forbidden — `reset_physics` presents as an ordinary zero-arg `World`
+method with the docstring *"Clear all velocities/contacts and wake everything"*,
+while the prohibition lives in prose. So the generator emitted it **56 times
+across 53 of 400 files** (~550 examples at 10× redundancy) against **zero**
+counter-examples: the one place the rule is written in Python is `_gallery.py`,
+which `make_dataset.py:103` skips as `_`-prefixed.
+
+That is worse than an untaught invariant, and it is invisible to every metric
+here — tier 2 scores it `correct` because the name is real. Fixed at generation
+time via `FORBIDDEN` + `validate()` gate 4 rather than by writing counter-
+examples, which would have left the 56 in place. Read the ban as *wrong caller*,
+not *wrong name*: it is legitimate from the editor and from C++, and this corpus
+is 100% behavior scripts.
+
+The hand-written invariant tier was **cut** on 2026-07-29 — PLAN.txt §6.8 has
+the full reasoning, including why the deciding argument was the absence of a
+metric rather than the rarity of the calls.
+
+## Four gates on generated code
 
 `synth_pyi.py` self-validates every file, every run, and exits non-zero on any
 failure:
@@ -102,6 +119,13 @@ failure:
    was not valid Python at all
 2. **no invented bindings** — every `yope3d.X` resolves against the stub
 3. **no undefined names** — approximate in-order dataflow check
+4. **no forbidden calls** — nothing in `FORBIDDEN` is called, however spelled
+
+Gate 4 is redundant with the sampler filter *today*, which is the point: the
+filter lives at the call sites that exist now, and a snippet function added
+later would bypass it with nothing downstream complaining — a forbidden call is
+real, parses, type-checks, and scores as `correct` on tier 2. Only the gate
+fails loudly. It was tested in both directions before being trusted.
 
 Gates 2 and 3 both caught real bugs in the generator itself. It emitted
 `yope3d.normalize(...)` and `yope3d.quat_from_axis_angle(...)`, neither of which
@@ -189,9 +213,77 @@ it shares a generator with the training data even though it shares no files.
 Reproducibility was **checked, not assumed**: two identical 120-probe runs
 agreed 119/119 on both emitted name and verdict. Deltas are signal.
 
+## Tier 3 — the control set (forgetting detector)
+
+```bash
+python3 corpus/control_set.py          # -> corpus/control/{stdlib,local}
+python3 harness/fim_eval3.py --port 8012 --dir fim-finetuning/corpus/control/stdlib \
+  --cuts 8  --out fim-finetuning/data/ctl_stdlib_base.json
+python3 harness/fim_eval3.py --port 8012 --dir fim-finetuning/corpus/control/local \
+  --cuts 18 --out fim-finetuning/data/ctl_local_base.json
+```
+
+**Not optional.** Tiers 1 and 2 *both rise* when a LoRA overfits to Yope3D —
+they cannot tell "learned the API" from "forgot everything else". Tier 3 is the
+only thing here that sees the cost, and it must be captured **before** training.
+
+Two strata, because they fail differently:
+
+- **stdlib** — 21 modules, 9,154 lines. Real and diverse, but almost certainly
+  in Qwen2.5-Coder's *pretraining* data, probably verbatim. That's right for a
+  forgetting detector (retained knowledge is what we guard) and weak as a proxy
+  for novel code.
+- **local** — 4 files, 763 lines from `tools/`. Recent, plausibly unmemorised,
+  so it's the **more sensitive** detector. Small n, directional only. Anything
+  importing `yope3d` is auto-rejected as in-domain.
+
+The memorisation gap is visible in the baseline and validates the split: at 0%
+typed, **stdlib scores 39.3% full-line exact vs local 23.6%** — same harness,
+same model, the difference is prior exposure. Expect `local` to move first.
+
+## Full three-tier baseline (1.5B, no fine-tuning)
+
+```
+python3 harness/report_all.py                        # baseline only
+python3 harness/report_all.py --cand-tag lora        # after training
+```
+
+| tier | metric | base |
+|---|---|---:|
+| 1 · yope3d held-out | mean chars saved | 16.6 |
+| 2 · API probes | % correct | 25.0 |
+| | % invented | 12.2 |
+| 3 · control stdlib | mean chars saved | 13.6 |
+| 3 · control local | mean chars saved | 12.5 |
+
+Tier 1 is the **held-out files only** (`--only`) — the number a fine-tune has to
+beat. It reads higher than the all-files 14.3 elsewhere because those four files
+aren't representative of the whole corpus; **don't compare across the two.**
+
+`report_all.py` prints all three tiers in one table and states a verdict,
+because reading them in separate scrollbacks is how a regression gets missed. It
+was checked against a simulated overfit (tier 1 +4.0, tier 2 +12.5pp, tier 3
+down) and correctly refuses to call that a win. Its −0.5 flag threshold sits
+inside the ~±1 noise floor deliberately — it prompts a re-run, and says so,
+rather than pretending to be a significance test.
+
 ## Still missing
 
-- The **non-Yope3D control set** (PLAN.txt 9.4) — a few thousand lines of
-  ordinary Python the LoRA never sees, as a catastrophic-forgetting detector. If
-  general Python accept rate drops while Yope3D rises, the trade was bad.
-- The **hand-written invariant tier**.
+- **Composite-behavior stacking** and **physics-bodies-are-roots** stay
+  untaught. Both are multi-line composition — the case where "FIM only emits
+  1–2 lines" genuinely holds — and neither is currently *mis*-taught, which is
+  the distinction that matters. Accepted, not deferred: see PLAN.txt §6.8.
+- **No tier measures invariant compliance**, and none is planned. Do not read a
+  tier-2 gain as evidence the model respects them.
+- Held-out **real** files exercising rare APIs — the probe `real` stratum is at
+  its ceiling without them, and the 19-file behavior corpus doesn't have them.
+
+## Regenerating: what NOT to rebuild
+
+`corpus/probe_synth/` is **not** a training source and must not be regenerated
+casually — `data/probes.json` is built from it and `data/probe_base.json` is
+keyed to those exact probe ids. Regenerating it silently unpairs the baseline
+and degrades the base-vs-LoRA comparison to whatever ids happen to intersect.
+It was deliberately left untouched by the 2026-07-29 denylist change: the banned
+call is spelled `world.reset_physics()`, probes cut at `yope3d.`, so it can
+never be a probe target (verified 0 of 296) and the baseline stays valid.

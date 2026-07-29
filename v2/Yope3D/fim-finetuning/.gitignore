@@ -3,9 +3,28 @@
 # Committing them would bloat the repo with output that is fully derivable.
 corpus/synth/
 corpus/probe_synth/
-data/
+corpus/control/
+# `data/*`, NOT `data/` — git does not descend into an ignored directory, so a
+# trailing-slash ignore makes the negations below unreachable.
+data/*
 __pycache__/
 *.pyc
+
+# ...but KEEP the pre-training baselines. They are ~325 KB total and they are
+# the reference every future run is measured against. Regenerating them needs a
+# live llama-server AND the exact same model build, so losing them means losing
+# the ability to prove a fine-tune helped. The 21 MB of train/valid JSONL beside
+# them stays ignored — that IS cheaply reproducible.
+!data/eval_heldout_base.json
+!data/probe_base.json
+!data/ctl_stdlib_base.json
+!data/ctl_local_base.json
+
+# The probe SPEC, not output (859 KB). probe_base.json is keyed to these exact
+# probe ids; if the .pyi gains a binding and probes.json is regenerated, the
+# baseline silently stops pairing and the comparison degrades to whatever ids
+# happen to intersect. Pinning the spec is what makes the baseline meaningful.
+!data/probes.json
 
 # Training outputs
 adapters/
@@ -14,3 +33,4 @@ adapters/
 
 #actual plan (very large file)
 PLAN.txt
+README.md

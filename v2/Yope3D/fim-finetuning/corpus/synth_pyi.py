@@ -15,16 +15,18 @@ WHY SYNTHESIS COMES BEFORE HAND-WRITING (PLAN.txt 9.3)
     generator produces free.
 
 WHAT THIS DELIBERATELY DOES NOT DO
-    It does not teach the CLAUDE.md invariants — commitEntities +
-    commitFinalizeScoped, physics-bodies-are-hierarchy-roots, never
-    reset_physics() from a script. Those are ordering and composition rules
-    that no type signature encodes, so no generator driven by signatures can
-    emit them. They are exactly what the hand-written tier is for. A pyright
-    squiggle catches a wrong name; nothing catches a correctly-named call in a
-    subtly wrong order.
+    It does not teach the CLAUDE.md invariants — physics-bodies-are-hierarchy-
+    roots, the composite-behavior stacking pattern. Those are multi-line
+    ordering and composition rules that no type signature encodes, so no
+    generator driven by signatures can emit them. A pyright squiggle catches a
+    wrong name; nothing catches a correctly-named call in a subtly wrong order.
 
     Consequence for the corpus: this output is broad but shallow. Weight it
     accordingly at training time rather than letting line count decide.
+
+    But it MUST NOT teach a violation. A signature-driven generator has no way
+    to know a binding is forbidden — see FORBIDDEN below, which is the one case
+    where that mattered.
 """
 
 from __future__ import annotations
@@ -70,6 +72,29 @@ STRING_HINTS: dict[str, list[str]] = {
 }
 
 ENTITY_VARS = ["e", "target", "other", "body", "prop", "anchor", "wheel"]
+
+# Bindings that EXIST but must never appear in a behavior script. Filtered out
+# of every sampler and re-checked in validate() as gate 4.
+#
+# WHY THIS IS NEEDED AT ALL. The generator reads signatures, and a signature
+# cannot express "never call this here". `reset_physics` presents as an
+# ordinary zero-arg World method with the benign docstring "Clear all
+# velocities/contacts and wake everything"; CLAUDE.md's prohibition lives in
+# prose, in _gallery.py and the engine docs. So the first run emitted it 56
+# times across 53 of 400 files. With ~10x cut redundancy that is ~550 training
+# examples carrying it in context, against ZERO counter-examples: the one place
+# the rule is written in Python is _gallery.py, and make_dataset.py skips
+# `_`-prefixed files, so it never entered the dataset at all.
+#
+# That is worse than an untaught invariant — it is a taught violation, and it
+# is invisible to every metric here: tier 2 classifies `reset_physics` as
+# `correct` because the name is real. Read the ban as "wrong caller", not
+# "wrong name": it is legitimate from the editor and from C++, and this corpus
+# is 100% behavior scripts.
+FORBIDDEN: dict[str, str] = {
+    "reset_physics": "never from a script — per-entity remove_entity instead "
+                     "(CLAUDE.md; scripts/behaviors/_gallery.py)",
+}
 
 
 class Gen:
@@ -203,9 +228,10 @@ def snip_world_call(api: Api, g: Gen, f: Func, scope: list[str]) -> list[str]:
 
 def snip_singleton_call(api: Api, g: Gen, obj: str, cls: Class,
                         scope: list[str]) -> list[str]:
-    if not cls.methods:
+    usable = [m for m in cls.methods if m.name not in FORBIDDEN]
+    if not usable:
         return []
-    f = g.rng.choice(cls.methods)
+    f = g.rng.choice(usable)
     args = g.call_args(f, scope)
     call = f"yope3d.{obj}.{f.name}({args})"
     if f.returns and f.returns not in ("None", ""):
@@ -336,10 +362,14 @@ def make_file(api: Api, g: Gen, index: int, methods: int, body_min: int,
 
     comp_classes = [api.classes[c] for c in api.components if c in api.classes]
     world = api.classes.get("World")
-    world_methods = list(world.methods) if world else []
+    # FORBIDDEN is filtered at every callable source, not just World, so adding
+    # a name to the dict is sufficient wherever the binding happens to live.
+    world_methods = [m for m in (world.methods if world else [])
+                     if m.name not in FORBIDDEN]
     singletons = [(n, api.classes[t]) for n, t in api.singletons.items()
                   if t in api.classes and n != "world"]
-    free = [f for f in api.funcs.values() if not f.name.startswith("_")]
+    free = [f for f in api.funcs.values()
+            if not f.name.startswith("_") and f.name not in FORBIDDEN]
 
     for head, sig_scope in g.rng.sample(METHOD_HEADS, min(methods, len(METHOD_HEADS))):
         out.append(f"    {head}")
@@ -385,10 +415,18 @@ def validate(src: str, api: Api, path: str) -> list[str]:
 
       1. it parses (invalid Python is worse than no data)
       2. every `yope3d.<name>` resolves against the .pyi surface
+      3. no name is read before it is bound (see _undefined_names)
+      4. no FORBIDDEN binding is called
 
     Check 2 is the important one. The corpus exists to stop the model
     inventing bindings; a generator that invents them itself would train the
     exact failure it is meant to fix.
+
+    Check 4 exists because filtering the samplers is not enough on its own.
+    The filter lives at the call sites that happen to exist today; a new
+    snippet function added later would bypass it and nothing downstream would
+    complain, because a forbidden call is real, parses, type-checks, and scores
+    as `correct` on the tier-2 probe metric. Only this gate fails loudly.
     """
     errs: list[str] = []
     try:
@@ -401,6 +439,16 @@ def validate(src: str, api: Api, path: str) -> list[str]:
         if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) \
                 and n.value.id == "yope3d" and n.attr not in names:
             errs.append(f"{path}:{n.lineno}: invented binding yope3d.{n.attr}")
+        # Matched on the attribute/function name alone, deliberately: the
+        # receiver may be `world`, `yope3d.world`, or a local alias, and a
+        # forbidden call is forbidden however it is spelled.
+        called = None
+        if isinstance(n, ast.Call):
+            called = n.func.attr if isinstance(n.func, ast.Attribute) \
+                else getattr(n.func, "id", None)
+        if called in FORBIDDEN:
+            errs.append(f"{path}:{n.lineno}: forbidden call {called}() — "
+                        f"{FORBIDDEN[called]}")
 
     errs += _undefined_names(tree, path)
     return errs
@@ -521,7 +569,8 @@ def main() -> None:
         for e in errors[:20]:
             print("  " + e)
         raise SystemExit(1)
-    print("validation: OK (all files parse, no invented bindings)")
+    print("validation: OK (parse / no invented bindings / no undefined names / "
+          f"no forbidden calls [{len(FORBIDDEN)}])")
 
     missing = sorted(api.names - covered)
     if missing:
