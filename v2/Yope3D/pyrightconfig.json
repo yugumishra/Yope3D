@@ -1,0 +1,23 @@
+{
+  "stubPath": "typings",
+  "extraPaths": ["scripts"],
+  "include": ["scripts"],
+  "exclude": [
+    "**/__pycache__",
+    "build",
+    "old_src_java",
+    "old_src_shaders"
+  ],
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "error",
+  "reportMissingModuleSource": "none",
+
+  // reg_get() honestly returns `T | None`, but the dominant engine idiom is
+  // "add it, then get it" (or "I know this entity's archetype"), where the None
+  // branch is unreachable by construction. Erroring on 70 such sites drowns the
+  // diagnostics that matter. Kept as a warning, not silenced — a genuinely
+  // uncertain get still deserves a guard.
+  "reportOptionalMemberAccess": "warning",
+  "reportOptionalSubscript": "warning",
+  "reportOptionalIterable": "warning"
+}

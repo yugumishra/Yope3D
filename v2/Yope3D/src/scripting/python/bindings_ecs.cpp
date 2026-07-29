@@ -536,11 +536,18 @@ void bind_ecs(py::module_& m) {
 
     // reg_add / reg_remove — change an entity's component composition. Both take the
     // structure lock (composition change = archetype migration vs. the physics thread).
-    m.def("reg_add", [](ecs::Entity e, const std::string& name) {
+    // reg_add hands back the component it just added: the caller would otherwise
+    // reg_get it straight back, paying a second lock + lookup for a value we are
+    // already holding — and that reg_get returns an Optional a type checker can't
+    // narrow, so every add-then-configure site read as a possible-None deref.
+    // Tags (Fixed/Transient) have no data and yield True, matching reg_get.
+    m.def("reg_add", [](ecs::Entity e, const std::string& name) -> py::object {
         auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
         auto lock = world->lockStructure();
         if (!PyComponentTable::addByName(world->getRegistry(), e, name))
             throw std::runtime_error("Unknown component: " + name);
+        void* ptr = world->getRegistry().getRaw(e, PyComponentTable::typeIdForName(name));
+        return PyComponentTable::wrapPtr(name, ptr);
     }, py::arg("entity"), py::arg("name"));
     m.def("reg_remove", [](ecs::Entity e, const std::string& name) {
         auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
