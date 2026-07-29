@@ -1,0 +1,15 @@
+# Generated artifacts — deterministic from a fixed seed, so reproducing them is
+# `python3 corpus/synth_pyi.py && python3 corpus/make_dataset.py` (~22 MB).
+# Committing them would bloat the repo with output that is fully derivable.
+corpus/synth/
+data/
+__pycache__/
+*.pyc
+
+# Training outputs
+adapters/
+*.gguf
+*.safetensors
+
+#actual plan (very large file)
+PLAN.txt
