@@ -126,11 +126,72 @@ Measured on the current corpus (419 files → 4,971 train / 145 valid examples):
   by *file* because a random-line split leaks — train on line 100, evaluate on
   line 101 whose prefix contains line 100, and you measure memorisation.
 
+## The API-usage probe set (tier-2 metric)
+
+```bash
+# probe-only synth batch — different seed, NOT a training source
+python3 corpus/synth_pyi.py --files 120 --seed 777 --body-min 4 --body-max 8 \
+  --out fim-finetuning/corpus/probe_synth
+python3 corpus/probe_set.py                                   # -> data/probes.json
+python3 harness/probe_eval.py --port 8012 --label base \
+  --out fim-finetuning/data/probe_base.json
+python3 harness/probe_eval.py --compare data/probe_base.json data/probe_lora.json
+```
+
+Each probe cuts the prefix at exactly `yope3d.`; the model must name the
+binding. It solves the sparsity that made tier 2 unusable — **36 invention
+events from 296 probes**, against ~3 from the old 152-case harness.
+
+Four verdicts, and the middle split is the point: `correct` / **`invented`**
+(name doesn't exist — what the LoRA must remove) / `wrong` (real name, wrong
+one — confusion, reviewable) / `none`. Pooling invented and wrong as
+"not correct" would hide the only distinction that matters.
+
+### Baseline — 1.5B, no fine-tuning
+
+| | n | correct | invented | wrong | none |
+|---|---:|---:|---:|---:|---:|
+| **ALL** | 296 | 25.0% | 12.2% | 57.1% | 5.7% |
+| real | 60 | 80.0% | 10.0% | 8.3% | 1.7% |
+| stub | 36 | 50.0% | 11.1% | 22.2% | 16.7% |
+| synth | 200 | 4.0% | 13.0% | 78.0% | 5.0% |
+| **head** | 79 | **74.7%** | 11.4% | 7.6% | 6.3% |
+| **tail** | 217 | **6.9%** | 12.4% | 75.1% | 5.5% |
+
+**The 68-point head/tail gap is the headline.** The base model handles common
+names it can infer from context and has essentially no knowledge of the
+engine-unique surface. That gap is the fine-tuning target, and it is now
+visible. Typical inventions: `reg_set` (plausible partner to `reg_get`,
+doesn't exist), `set_mesh_color`, `set_camera_position`, `AudioFadeType`.
+
+### Read this before interpreting a post-LoRA run
+
+**The most trustworthy stratum has the least headroom.** `real` is 92% head
+names (55/60) and already scores 80% — it cannot show a large gain even if the
+fine-tune works perfectly. Movement will appear in `tail`/`synth` first. A flat
+`real` number is a ceiling, not a failure. Fixing this properly needs held-out
+real files with rare-API usage, which the 19-file behavior corpus doesn't have.
+
+And a gain confined to `synth` is generator memorisation, not API learning —
+it shares a generator with the training data even though it shares no files.
+
+### Two method bugs found while building it
+
+- Probes were keyed on `(origin, line)`, which **isn't unique** — a line can
+  carry two calls (`yope3d.camera.set_rotation(yope3d.Vec3(p, y, 0))`). 19 of
+  296 collided. The paired comparison would have silently dropped one side of
+  each and could mispair the rest, corrupting the exact base-vs-LoRA test the
+  set exists for. Probes now carry an explicit `id`.
+- Synthetic sampling was tail-first with no per-name cap, so `play_sound` took
+  51 of 200 slots and the set measured one binding rather than the surface.
+  Capped at 4/name; distinct targets 72 → 95.
+
+Reproducibility was **checked, not assumed**: two identical 120-probe runs
+agreed 119/119 on both emitted name and verdict. Deltas are signal.
+
 ## Still missing
 
 - The **non-Yope3D control set** (PLAN.txt 9.4) — a few thousand lines of
   ordinary Python the LoRA never sees, as a catastrophic-forgetting detector. If
   general Python accept rate drops while Yope3D rises, the trade was bad.
-- The **API-usage probe set** (PLAN.txt 10) — the invented-binding metric fires
-  on ~3 events per run, far too sparse to track progress against.
 - The **hand-written invariant tier**.

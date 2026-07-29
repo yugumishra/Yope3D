@@ -2,6 +2,7 @@
 # `python3 corpus/synth_pyi.py && python3 corpus/make_dataset.py` (~22 MB).
 # Committing them would bloat the repo with output that is fully derivable.
 corpus/synth/
+corpus/probe_synth/
 data/
 __pycache__/
 *.pyc

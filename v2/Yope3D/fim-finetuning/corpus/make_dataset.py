@@ -33,20 +33,14 @@ import random
 from pathlib import Path
 
 from fim_format import Chunk, make_example
+from splits import HELDOUT_BEHAVIORS, TRAIN_SOURCES
 
 ROOT = Path(__file__).resolve().parents[2]
 
 # (typed fraction, sampling weight)
 FRACTIONS: list[tuple[float, int]] = [(0.0, 30), (0.25, 25), (0.5, 25), (0.75, 20)]
 
-# Held-out files, spanning the measured difficulty tiers so validation loss is
-# not dominated by one regime (PLAN.txt 9.4).
-DEFAULT_HELDOUT = [
-    "attach_script_demo.py",   # top tier    62.5% exact
-    "vehicle_demo.py",         # mid tier    37.5%
-    "physics_gallery.py",      # bottom tier 0%
-    "sandbox_gallery.py",      # bottom tier 0%
-]
+DEFAULT_HELDOUT = HELDOUT_BEHAVIORS
 
 
 def cuttable(lines: list[str], i: int) -> bool:
@@ -112,8 +106,7 @@ def collect(dirs: list[Path]) -> list[Path]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("sources", nargs="*",
-                    default=["scripts/behaviors", "fim-finetuning/corpus/synth"],
+    ap.add_argument("sources", nargs="*", default=TRAIN_SOURCES,
                     help="files or directories of .py to cut")
     ap.add_argument("--out", default="fim-finetuning/data")
     ap.add_argument("--cuts", type=int, default=12, help="cut points per file")
