@@ -39,10 +39,16 @@ set -euo pipefail
 
 # --------------------------------------------------------------- configuration
 
+# Resolve our own path to an ABSOLUTE one before anything cd's. Invoked as
+# `./train_lora.sh` from inside fim-finetuning/, BASH_SOURCE[0] is a relative
+# path that stops resolving the moment we cd to REPO_ROOT below — which broke
+# the snapshot copy with "cp: ./train_lora.sh: No such file or directory".
+SELF_ABS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
 # Honour an inherited root: after the snapshot re-exec below, BASH_SOURCE points
 # at runs/<tag>/train_lora.snapshot.sh, so deriving the root from it would give
 # fim-finetuning/runs/.. and every path would be wrong.
-REPO_ROOT="${YOPE_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+REPO_ROOT="${YOPE_REPO_ROOT:-$(cd "$(dirname "$SELF_ABS")/.." && pwd)}"
 FT="$REPO_ROOT/fim-finetuning"
 # Several corpus/harness scripts take repo-relative paths (--dir, --out) and
 # resolve them against the CWD. Running this from fim-finetuning/ instead of
@@ -83,6 +89,17 @@ MAX_HOURS="${MAX_HOURS:-10}"       # projected run longer than this needs --allo
 CAL_ITERS="${CAL_ITERS:-6}"
 EVAL_TIERS="${EVAL_TIERS:-1 2 3}"  # sweep runs set this to "2"
 
+# Artifact trimming. A single run leaves 7.4 GB in runs/<tag>, of which 5.8 GB
+# is intermediate: fused/ (2.9 GB fp16 safetensors) and model-f16.gguf (2.9 GB)
+# exist only to be consumed by the next stage. Five sweep configs would add
+# ~29 GB of it overnight, on a machine with ~46 GB free.
+#   0  keep everything
+#   1  drop fused/ + f16 GGUF once Q8_0 exists          (default)
+#   2  also drop the Q8_0 GGUF after eval               (sweep)
+# Level 2 is safe because adapters/ (42 MB) is kept and re-fusing from it is
+# ~21 s end to end — cheaper to regenerate than to store 1.5 GB per config.
+TRIM_LEVEL="${TRIM_LEVEL:-1}"
+
 PORT_BASE="${PORT_BASE:-8012}"
 PORT_CAND="${PORT_CAND:-8013}"
 SERVE_ARGS="-c 8192 -np 1 -fa on --cache-reuse 256 -ngl 99 -ub 1024"
@@ -108,6 +125,9 @@ ADAPTERS="$RUN/adapters"; FUSED="$RUN/fused"
 GGUF_F16="$RUN/model-f16.gguf"; GGUF_Q8="$RUN/model-q8_0.gguf"
 VENV="$FT/.venv-train"; LLAMA_SRC="$FT/.cache/llama.cpp"
 GUARD="$FT/harness/mlx_train_guarded.py"
+# $0 becomes the snapshot after the re-exec below; SELF stays the real script
+# so user-facing "re-run with..." advice is copy-pasteable.
+SELF="${YOPE_SELF:-$SELF_ABS}"
 
 # ---------------------------------------------------------- snapshot re-exec
 #
@@ -128,8 +148,8 @@ GUARD="$FT/harness/mlx_train_guarded.py"
 if [[ "${YOPE_TRAIN_SNAPSHOT:-}" != "1" && $DRY_RUN -eq 0 ]]; then
   mkdir -p "$RUN"
   SNAP="$RUN/train_lora.snapshot.sh"
-  cp "${BASH_SOURCE[0]}" "$SNAP"
-  export YOPE_TRAIN_SNAPSHOT=1 YOPE_REPO_ROOT="$REPO_ROOT"
+  cp "$SELF_ABS" "$SNAP"
+  export YOPE_TRAIN_SNAPSHOT=1 YOPE_REPO_ROOT="$REPO_ROOT" YOPE_SELF="$SELF"
   exec bash "$SNAP" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
 fi
 
@@ -216,9 +236,65 @@ should_run() {
   ! done_marker "$name"
 }
 
+
+# ------------------------------------------------------- keep the mac awake
+#
+# WHY pmset ALONE DOES NOT WORK HERE. Two independent reasons, both measured on
+# this machine on 2026-07-29:
+#
+#   1. macOS idle sleep keys off HID INPUT, not CPU/GPU load. A fully saturated
+#      GPU does not count as activity; without an explicit power assertion the
+#      machine sleeps mid-training and the run dies silently.
+#   2. This machine's AC idle-sleep timer was set to ONE MINUTE
+#      (`pmset -g custom` -> AC Power: sleep 1) while battery was 0/never.
+#      Plugging in therefore made sleep MORE aggressive, not less, which is why
+#      earlier pmset attempts appeared not to work.
+#
+# `caffeinate -w $$` ties the assertion to this script's exact lifetime: held
+# for the whole run, released automatically on exit, crash, or Ctrl-C. No sudo,
+# and no persistent system change to remember to undo.
+#
+#   -i  prevent idle SYSTEM sleep      <- the one that matters
+#   -m  prevent disk idle sleep
+#   -s  prevent system sleep (AC only)
+#   -d  prevent DISPLAY sleep — deliberately OFF by default. This is a fanless
+#       M4 Air running the GPU flat out for hours; letting the panel sleep costs
+#       nothing and helps thermals. KEEP_DISPLAY=1 to override.
+#
+# NOTE: closing the lid sleeps regardless of any assertion unless an external
+# display, power, and input device are attached. Leave the lid open.
+CAFFEINATE_PID=""
+keep_awake() {
+  [[ "${KEEP_AWAKE:-1}" == "1" ]] || { say "  ${DIM}KEEP_AWAKE=0 — not holding a wake assertion${R}"; return 0; }
+  command -v caffeinate >/dev/null 2>&1 || { say "  ${YEL}caffeinate not found — the mac may sleep mid-run${R}"; return 0; }
+  local flags="-ims"
+  [[ "${KEEP_DISPLAY:-0}" == "1" ]] && flags="-dims"
+  caffeinate $flags -w $$ &
+  CAFFEINATE_PID=$!
+  say "  ${DIM}holding wake assertion (caffeinate $flags, pid $CAFFEINATE_PID) for this run${R}"
+}
+
+# check_power <hours> — an 8 h GPU run on battery is not physically possible.
+check_power() {
+  local hours="$1" src pct
+  src=$(pmset -g ps 2>/dev/null | head -1)
+  pct=$(pmset -g ps 2>/dev/null | grep -oE '[0-9]+%' | head -1)
+  if [[ "$src" == *"AC Power"* ]]; then
+    say "  ${DIM}on AC power${R}"
+    return 0
+  fi
+  say "${RED}ON BATTERY (${pct:-?}) — a ${hours}h run needs AC power.${R}"
+  say "  Sustained GPU load drains an M4 Air in roughly an hour. The run will"
+  say "  not finish, and macOS sleeps on low battery regardless of caffeinate."
+  say "  Plug in, then re-run. Set ALLOW_BATTERY=1 to override."
+  [[ "${ALLOW_BATTERY:-0}" == "1" ]] || return 1
+  say "  ${YEL}ALLOW_BATTERY=1 — proceeding anyway${R}"
+}
+
 CAND_PID=""; BASE_PID=""
 cleanup() {
   local rc=$?
+  [[ -n "${CAFFEINATE_PID:-}" ]] && kill "$CAFFEINATE_PID" 2>/dev/null || true
   [[ -n "${SWAP_WD_PID:-}" ]] && kill "$SWAP_WD_PID" 2>/dev/null || true
   [[ -n "$CAND_PID" ]] && kill "$CAND_PID" 2>/dev/null || true
   [[ -n "$BASE_PID" ]] && kill "$BASE_PID" 2>/dev/null || true
@@ -227,7 +303,7 @@ cleanup() {
   if [[ $rc -ne 0 && $rc -ne 130 ]]; then
     say "${RED}FAILED${R} (exit $rc) after $(hms $(( $(date +%s) - T0 )))"
     say "  log:    $LOG"
-    say "  resume: $0 --tag $TAG"
+    say "  resume: $SELF --tag $TAG"
   fi
 }
 trap cleanup EXIT INT TERM
@@ -339,6 +415,51 @@ start_swap_watchdog() {  # start_swap_watchdog <pid_to_kill> <logfile>
   SWAP_WD_PID=$!
 }
 stop_swap_watchdog() { [[ -n "$SWAP_WD_PID" ]] && kill "$SWAP_WD_PID" 2>/dev/null; SWAP_WD_PID=""; true; }
+
+# Bytes of a file or directory, 0 if absent.
+_sz() { [[ -e "$1" ]] && du -sk "$1" 2>/dev/null | awk '{print $1*1024}' || echo 0; }
+_hsz() { awk -v b="$1" 'BEGIN{split("B KB MB GB TB",u," ");i=1;
+          while(b>=1024&&i<5){b/=1024;i++} printf "%.1f %s", b, u[i]}'; }
+
+# trim_intermediates — drop fused/ and the f16 GGUF once Q8_0 is real.
+#
+# Guarded on the Q8_0 existing AND being plausibly sized: deleting the inputs
+# to a conversion that silently produced a 0-byte output would turn a
+# recoverable failure into a re-train. 1.5 GB is the expected Q8_0 size for
+# 1.5B, so 500 MB is a loose floor that still catches a truncated write.
+trim_intermediates() {
+  [[ "$TRIM_LEVEL" -ge 1 ]] || return 0
+  local q8; q8=$(_sz "$GGUF_Q8")
+  if (( q8 < 500*1024*1024 )); then
+    say "  ${YEL}not trimming: $GGUF_Q8 is $(_hsz "$q8") — too small to trust${R}"
+    return 0
+  fi
+  local freed=$(( $(_sz "$FUSED") + $(_sz "$GGUF_F16") ))
+  (( freed == 0 )) && return 0
+  rm -rf "$FUSED" "$GGUF_F16"
+  say "  ${DIM}trimmed $(_hsz "$freed") of intermediates (fused/, f16 GGUF);"
+  say "  adapters/ kept — re-fusing from it is ~21 s${R}"
+}
+
+# trim_servable — sweep only. Drops the Q8_0 too, after eval has consumed it.
+trim_servable() {
+  [[ "$TRIM_LEVEL" -ge 2 ]] || return 0
+  local freed; freed=$(_sz "$GGUF_Q8")
+  (( freed == 0 )) && return 0
+  rm -f "$GGUF_Q8"
+  say "  ${DIM}trimmed $(_hsz "$freed") (Q8_0 GGUF) — TRIM_LEVEL=2."
+  say "  Rebuild with: $SELF --tag $TAG --from fuse${R}"
+}
+
+# A trimmed intermediate makes `--from convert` unsatisfiable. Say so plainly
+# rather than failing inside convert_hf_to_gguf with a path error.
+need_input() {  # need_input <path> <stage-that-produces-it>
+  [[ -e "$1" ]] && return 0
+  say "${RED}$(basename "$1") is missing — it was trimmed after a previous run.${R}"
+  say "  Re-run from the stage that produces it:"
+  say "    $SELF --tag $TAG --from $2"
+  exit 1
+}
 
 write_config() {  # write_config <path> <iters> <adapter_path> <val_batches> <steps_per_eval>
   cat >"$1" <<EOF
@@ -458,6 +579,9 @@ fi
 # ============================================================== 1. preflight
 
 banner 0 "preflight — toolchain, weights, disk"
+check_power "$(awk -v i="$ITERS" 'BEGIN{printf "%.0f", (i*11.1+900)/3600}')" \
+  || exit 1
+keep_awake
 if should_run preflight; then
   [[ -d "$VENV" ]] || { say "  creating venv $VENV"; python3 -m venv "$VENV"; }
   # shellcheck disable=SC1091
@@ -542,7 +666,7 @@ if should_run calibrate; then
   if [[ $CAL_RC -eq 3 ]]; then
     say "${RED}CALIBRATION HIT THE ${MEM_LIMIT_GB} GB CEILING — not starting the run.${R}"
     say "  The guard did its job: this is the config that froze the machine."
-    say "  Try:  BATCH=1 SEQ_LEN=2048 $0 --tag $TAG --from calibrate"
+    say "  Try:  BATCH=1 SEQ_LEN=2048 $SELF --tag $TAG --from calibrate"
     say "  (SEQ_LEN 2048 truncates 18.3% of examples — real cost, but a"
     say "   finishing run beats a perfect one that never starts.)"
     exit 1
@@ -580,16 +704,16 @@ if should_run calibrate; then
       say "  Peak memory ${PEAK:-?} GB is fine; this is purely the time ceiling."
       say ""
       say "  ${B}accept it and go${R}"
-      say "    MAX_HOURS=24 $0 --tag $TAG"
-      say "    $0 --tag $TAG --allow-long          ${DIM}(skip the check entirely)${R}"
+      say "    MAX_HOURS=24 $SELF --tag $TAG"
+      say "    $SELF --tag $TAG --allow-long          ${DIM}(skip the check entirely)${R}"
       say ""
       say "  ${B}or make it shorter${R} ${DIM}— calibration is cached, these are instant to try${R}"
-      say "    ITERS_OVERRIDE=$((ITERS / 2)) $0 --tag $TAG"
+      say "    ITERS_OVERRIDE=$((ITERS / 2)) $SELF --tag $TAG"
       say "      ${DIM}half the batches, picked at random (mlx shuffles batch order).${R}"
       say "      ${DIM}At ~10x corpus redundancy that is still ~5 passes over the${R}"
       say "      ${DIM}unique text — PLAN 9.6a warns 1 epoch is ALREADY ~10 passes,${R}"
       say "      ${DIM}so this is closer to the intended dose, not a shortcut.${R}"
-      say "    BATCH=2 $0 --tag $TAG --from calibrate"
+      say "    BATCH=2 $SELF --tag $TAG --from calibrate"
       say "      ${DIM}halves iteration count; re-calibrates since memory changes.${R}"
       say "      ${DIM}You have headroom: ${PEAK:-?} GB used of a ${MEM_WARN_GB} GB abort.${R}"
       exit 1
@@ -691,6 +815,7 @@ else say "  ${DIM}skipped${R}"; fi
 
 banner 5 "convert — safetensors -> f16 GGUF"
 if should_run convert; then
+  need_input "$FUSED" fuse
   bar 0.3 "convert_hf_to_gguf.py"
   python3 "$LLAMA_SRC/convert_hf_to_gguf.py" "$FUSED" --outfile "$GGUF_F16" --outtype f16 >>"$LOG" 2>&1
   mark_done convert; bar 1 "$(du -h "$GGUF_F16" | cut -f1)"; printf '\n'
@@ -700,15 +825,18 @@ else say "  ${DIM}skipped${R}"; fi
 
 banner 6 "quantize — f16 -> Q8_0"
 if should_run quantize; then
+  need_input "$GGUF_F16" convert
   bar 0.3 "llama-quantize"
   llama-quantize "$GGUF_F16" "$GGUF_Q8" Q8_0 >>"$LOG" 2>&1
   mark_done quantize; bar 1 "$(du -h "$GGUF_Q8" | cut -f1)"; printf '\n'
+  trim_intermediates
 else say "  ${DIM}skipped${R}"; fi
 
 # ============================================================== 8. evaluate
 
 banner 7 "evaluate — all three metric tiers"
 if should_run eval; then
+  need_input "$GGUF_Q8" fuse
   # shellcheck disable=SC2086
   llama-server -m "$GGUF_Q8" --port "$PORT_CAND" $SERVE_ARGS >>"$LOG" 2>&1 &
   CAND_PID=$!
@@ -744,6 +872,7 @@ if should_run eval; then
 
   kill "$CAND_PID" 2>/dev/null || true; CAND_PID=""
   mark_done eval; bar 1 "all tiers evaluated"; printf '\n'
+  trim_servable
 else say "  ${DIM}skipped${R}"; fi
 
 # ============================================================== 9. report

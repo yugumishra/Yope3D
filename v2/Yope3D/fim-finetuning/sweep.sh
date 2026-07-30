@@ -67,6 +67,62 @@ T0=$(date +%s)
 DEADLINE=$(awk -v h="$BUDGET_H" -v t="$T0" 'BEGIN{printf "%d", t + h*3600}')
 BASE_SCORE=12.8
 
+say() { echo "$*"; }   # the keep-awake helpers below are shared with train_lora.sh
+
+# ------------------------------------------------------- keep the mac awake
+#
+# WHY pmset ALONE DOES NOT WORK HERE. Two independent reasons, both measured on
+# this machine on 2026-07-29:
+#
+#   1. macOS idle sleep keys off HID INPUT, not CPU/GPU load. A fully saturated
+#      GPU does not count as activity; without an explicit power assertion the
+#      machine sleeps mid-training and the run dies silently.
+#   2. This machine's AC idle-sleep timer was set to ONE MINUTE
+#      (`pmset -g custom` -> AC Power: sleep 1) while battery was 0/never.
+#      Plugging in therefore made sleep MORE aggressive, not less, which is why
+#      earlier pmset attempts appeared not to work.
+#
+# `caffeinate -w $$` ties the assertion to this script's exact lifetime: held
+# for the whole run, released automatically on exit, crash, or Ctrl-C. No sudo,
+# and no persistent system change to remember to undo.
+#
+#   -i  prevent idle SYSTEM sleep      <- the one that matters
+#   -m  prevent disk idle sleep
+#   -s  prevent system sleep (AC only)
+#   -d  prevent DISPLAY sleep — deliberately OFF by default. This is a fanless
+#       M4 Air running the GPU flat out for hours; letting the panel sleep costs
+#       nothing and helps thermals. KEEP_DISPLAY=1 to override.
+#
+# NOTE: closing the lid sleeps regardless of any assertion unless an external
+# display, power, and input device are attached. Leave the lid open.
+CAFFEINATE_PID=""
+keep_awake() {
+  [[ "${KEEP_AWAKE:-1}" == "1" ]] || { say "  ${DIM}KEEP_AWAKE=0 — not holding a wake assertion${R}"; return 0; }
+  command -v caffeinate >/dev/null 2>&1 || { say "  ${YEL}caffeinate not found — the mac may sleep mid-run${R}"; return 0; }
+  local flags="-ims"
+  [[ "${KEEP_DISPLAY:-0}" == "1" ]] && flags="-dims"
+  caffeinate $flags -w $$ &
+  CAFFEINATE_PID=$!
+  say "  ${DIM}holding wake assertion (caffeinate $flags, pid $CAFFEINATE_PID) for this run${R}"
+}
+
+# check_power <hours> — an 8 h GPU run on battery is not physically possible.
+check_power() {
+  local hours="$1" src pct
+  src=$(pmset -g ps 2>/dev/null | head -1)
+  pct=$(pmset -g ps 2>/dev/null | grep -oE '[0-9]+%' | head -1)
+  if [[ "$src" == *"AC Power"* ]]; then
+    say "  ${DIM}on AC power${R}"
+    return 0
+  fi
+  say "${RED}ON BATTERY (${pct:-?}) — a ${hours}h run needs AC power.${R}"
+  say "  Sustained GPU load drains an M4 Air in roughly an hour. The run will"
+  say "  not finish, and macOS sleeps on low battery regardless of caffeinate."
+  say "  Plug in, then re-run. Set ALLOW_BATTERY=1 to override."
+  [[ "${ALLOW_BATTERY:-0}" == "1" ]] || return 1
+  say "  ${YEL}ALLOW_BATTERY=1 — proceeding anyway${R}"
+}
+
 hms() { local s=${1%.*}; printf '%dh%02dm' $((s/3600)) $(((s%3600)/60)); }
 left() { echo $(( DEADLINE - $(date +%s) )); }
 
@@ -110,7 +166,11 @@ run_cfg() {
   [[ -n "$lam" ]] && regen_corpus "$lam" "$files"
   echo "  ${B}running $tag${R}  lr=$lr rank=$rank iters=$iters ${lam:+lam=$lam files=$files}"
   if [[ $DRY -eq 1 ]]; then echo "    ${DIM}(dry-run)${R}"; return 0; fi
-  LR="$lr" RANK="$rank" ITERS_OVERRIDE="$iters" EVAL_TIERS="2" \
+  # TRIM_LEVEL=2: drop fused/, the f16 GGUF, and the Q8_0 once tier 2 has read
+  # it. Five configs would otherwise leave ~37 GB behind on a machine with ~46
+  # GB free — the sweep would fill the disk around run 4, at 3am. adapters/ is
+  # kept (42 MB/config) and re-fusing is ~21 s.
+  LR="$lr" RANK="$rank" ITERS_OVERRIDE="$iters" EVAL_TIERS="2" TRIM_LEVEL=2 \
     MAX_HOURS=99 "$TRAIN" --tag "$tag" >"$SWEEP_DIR/$tag.out" 2>&1 || {
       echo "  ${RED}$tag FAILED — see $SWEEP_DIR/$tag.out${R}"; return 1; }
   read -r c i s <<<"$(score_of "$tag")"
@@ -130,6 +190,9 @@ better() {  # better <tagA> <tagB> -> 0 if A scored higher
   [[ -z "$a" || -z "$b" ]] && return 1
   awk -v a="$a" -v b="$b" 'BEGIN{exit !(a>b)}'
 }
+
+check_power "$BUDGET_H" || exit 1
+[[ $DRY -eq 1 ]] || keep_awake
 
 [[ -f "$RESULTS" ]] || printf 'tag\tlr\trank\titers\tlam\tcorrect\tinvented\tscore\n' >"$RESULTS"
 
@@ -201,8 +264,11 @@ ${GRN}$BEST_TAG beats base ($BEST_SCORE vs $BASE_SCORE) on tier 2.${R}
 That is a NOMINATION, not a result. Tiers 1 and 2 both rise when a LoRA
 overfits to Yope3D; only tier 3 sees the cost. Confirm with a full run:
 
-  EVAL_TIERS="1 2 3" ./fim-finetuning/train_lora.sh --tag ${BEST_TAG}_full \\
-    --from eval
+  EVAL_TIERS="1 2 3" TRIM_LEVEL=1 ./fim-finetuning/train_lora.sh \\
+    --tag ${BEST_TAG} --from fuse
+
+(--from fuse, not --from eval: the sweep trimmed the GGUF after reading tier 2.
+Re-fusing from the kept adapters takes ~21 s.)
 EOF
 else
   cat <<EOF
