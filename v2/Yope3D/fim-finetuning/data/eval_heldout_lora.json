@@ -1,0 +1,924 @@
+{
+ "label": "lora",
+ "port": 8013,
+ "excluded": "",
+ "mean_saved": 16.2375,
+ "invented": 0,
+ "calls": 3,
+ "rows": {
+  "0.0": {
+   "n": 20,
+   "exact": 7,
+   "saved": [
+    0,
+    22,
+    42,
+    0,
+    14,
+    10,
+    0,
+    11,
+    29,
+    61,
+    25,
+    16,
+    17,
+    29,
+    0,
+    26,
+    55,
+    25,
+    26,
+    0
+   ],
+   "frac": [
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.18421052631578946,
+    0.3333333333333333,
+    0.0,
+    0.36666666666666664,
+    1.0,
+    1.0,
+    0.30864197530864196,
+    0.3902439024390244,
+    0.20238095238095238,
+    0.8285714285714286,
+    0.0,
+    0.6190476190476191,
+    1.0,
+    1.0,
+    1.0,
+    0.0
+   ]
+  },
+  "0.25": {
+   "n": 20,
+   "exact": 7,
+   "saved": [
+    1,
+    17,
+    32,
+    13,
+    2,
+    3,
+    32,
+    4,
+    22,
+    46,
+    13,
+    6,
+    8,
+    21,
+    0,
+    16,
+    42,
+    19,
+    20,
+    57
+   ],
+   "frac": [
+    0.015873015873015872,
+    1.0,
+    1.0,
+    0.8666666666666667,
+    0.03508771929824561,
+    0.13043478260869565,
+    0.5818181818181818,
+    0.17391304347826086,
+    1.0,
+    1.0,
+    0.21311475409836064,
+    0.1935483870967742,
+    0.12698412698412698,
+    0.7777777777777778,
+    0.0,
+    0.5,
+    1.0,
+    1.0,
+    1.0,
+    0.76
+   ]
+  },
+  "0.5": {
+   "n": 20,
+   "exact": 13,
+   "saved": [
+    0,
+    11,
+    21,
+    8,
+    11,
+    15,
+    37,
+    15,
+    15,
+    31,
+    9,
+    21,
+    42,
+    12,
+    27,
+    5,
+    28,
+    13,
+    13,
+    22
+   ],
+   "frac": [
+    0.0,
+    1.0,
+    1.0,
+    0.8,
+    0.2894736842105263,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    0.21951219512195122,
+    1.0,
+    1.0,
+    0.6666666666666666,
+    1.0,
+    0.23809523809523808,
+    1.0,
+    1.0,
+    1.0,
+    0.44
+   ]
+  },
+  "0.75": {
+   "n": 20,
+   "exact": 13,
+   "saved": [
+    0,
+    6,
+    11,
+    3,
+    2,
+    8,
+    7,
+    8,
+    8,
+    16,
+    0,
+    11,
+    0,
+    3,
+    14,
+    11,
+    14,
+    7,
+    7,
+    25
+   ],
+   "frac": [
+    0.0,
+    1.0,
+    1.0,
+    0.6,
+    0.10526315789473684,
+    1.0,
+    0.3684210526315789,
+    1.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    0.0,
+    0.3333333333333333,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ]
+  }
+ },
+ "detail": [
+  {
+   "file": "attach_script_demo.py",
+   "line": 14,
+   "f": 0.0,
+   "saved": 0,
+   "exact": false,
+   "got": "",
+   "want": "    normally from the very next frame -- no different from a scene-authored script)"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 14,
+   "f": 0.25,
+   "saved": 1,
+   "exact": false,
+   "got": "e",
+   "want": "e very next frame -- no different from a scene-authored script)"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 14,
+   "f": 0.5,
+   "saved": 0,
+   "exact": false,
+   "got": "",
+   "want": "no different from a scene-authored script)"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 14,
+   "f": 0.75,
+   "saved": 0,
+   "exact": false,
+   "got": "tatic",
+   "want": "cene-authored script)"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 27,
+   "f": 0.0,
+   "saved": 22,
+   "exact": true,
+   "got": "        self.count = 0",
+   "want": "        self.count = 0"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 27,
+   "f": 0.25,
+   "saved": 17,
+   "exact": true,
+   "got": "   self.count = 0",
+   "want": "   self.count = 0"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 27,
+   "f": 0.5,
+   "saved": 11,
+   "exact": true,
+   "got": "f.count = 0",
+   "want": "f.count = 0"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 27,
+   "f": 0.75,
+   "saved": 6,
+   "exact": true,
+   "got": "nt = 0",
+   "want": "nt = 0"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 42,
+   "f": 0.0,
+   "saved": 42,
+   "exact": true,
+   "got": "    def init(self, world, entity, params):",
+   "want": "    def init(self, world, entity, params):"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 42,
+   "f": 0.25,
+   "saved": 32,
+   "exact": true,
+   "got": "it(self, world, entity, params):",
+   "want": "it(self, world, entity, params):"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 42,
+   "f": 0.5,
+   "saved": 21,
+   "exact": true,
+   "got": "rld, entity, params):",
+   "want": "rld, entity, params):"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 42,
+   "f": 0.75,
+   "saved": 11,
+   "exact": true,
+   "got": "y, params):",
+   "want": "y, params):"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 43,
+   "f": 0.0,
+   "saved": 0,
+   "exact": false,
+   "got": "",
+   "want": "        self.t = 0.0"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 43,
+   "f": 0.25,
+   "saved": 13,
+   "exact": false,
+   "got": "   self.t = 0",
+   "want": "   self.t = 0.0"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 43,
+   "f": 0.5,
+   "saved": 8,
+   "exact": false,
+   "got": "lf.t = 0",
+   "want": "lf.t = 0.0"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 43,
+   "f": 0.75,
+   "saved": 3,
+   "exact": false,
+   "got": "= 0",
+   "want": "= 0.0"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 50,
+   "f": 0.0,
+   "saved": 14,
+   "exact": false,
+   "got": "        world.set_mesh_proj(floor, 1, 1, 1)",
+   "want": "        world.attach_box_mesh(floor, yope3d.Vec3(4, 0.5, 4), 0.5, 0.5, 0.55)"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 50,
+   "f": 0.25,
+   "saved": 2,
+   "exact": false,
+   "got": "h_script(entity, SpawnedCounter, {\"tag\": \"spawned\"})",
+   "want": "h_box_mesh(floor, yope3d.Vec3(4, 0.5, 4), 0.5, 0.5, 0.55)"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 50,
+   "f": 0.5,
+   "saved": 11,
+   "exact": false,
+   "got": "ope3d.Vec3(0.5, 0.5, 0.5), 1.0)",
+   "want": "ope3d.Vec3(4, 0.5, 4), 0.5, 0.5, 0.55)"
+  },
+  {
+   "file": "attach_script_demo.py",
+   "line": 50,
+   "f": 0.75,
+   "saved": 2,
+   "exact": false,
+   "got": "4))",
+   "want": "4), 0.5, 0.5, 0.55)"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 121,
+   "f": 0.0,
+   "saved": 10,
+   "exact": false,
+   "got": "    def p_floor(self, world):",
+   "want": "    def p_center(self, world):"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 121,
+   "f": 0.25,
+   "saved": 3,
+   "exact": false,
+   "got": " p_floor(self, world):",
+   "want": " p_center(self, world):"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 121,
+   "f": 0.5,
+   "saved": 15,
+   "exact": true,
+   "got": "r(self, world):",
+   "want": "r(self, world):"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 121,
+   "f": 0.75,
+   "saved": 8,
+   "exact": true,
+   "got": " world):",
+   "want": " world):"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 151,
+   "f": 0.0,
+   "saved": 0,
+   "exact": false,
+   "got": "",
+   "want": "        self.sphere(world, 1.0, R, (5, 3, 0), BALL_HOT, vel=(-4.0, 0, 0))"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 151,
+   "f": 0.25,
+   "saved": 32,
+   "exact": false,
+   "got": "e(world, 1.0, R, (5, 3, 0), BALL, vel=(-4.0, 0, 0",
+   "want": "e(world, 1.0, R, (5, 3, 0), BALL_HOT, vel=(-4.0, 0, 0))"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 151,
+   "f": 0.5,
+   "saved": 37,
+   "exact": true,
+   "got": "5, 3, 0), BALL_HOT, vel=(-4.0, 0, 0))",
+   "want": "5, 3, 0), BALL_HOT, vel=(-4.0, 0, 0))"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 151,
+   "f": 0.75,
+   "saved": 7,
+   "exact": false,
+   "got": ", vel=(4.0, 0, 0))",
+   "want": ", vel=(-4.0, 0, 0))"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 166,
+   "f": 0.0,
+   "saved": 11,
+   "exact": false,
+   "got": "    def ss_one_moving(self, world):",
+   "want": "    def ss_stack(self, world):"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 166,
+   "f": 0.25,
+   "saved": 4,
+   "exact": false,
+   "got": " ss_one_moving(self, world):",
+   "want": " ss_stack(self, world):"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 166,
+   "f": 0.5,
+   "saved": 15,
+   "exact": true,
+   "got": "k(self, world):",
+   "want": "k(self, world):"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 166,
+   "f": 0.75,
+   "saved": 8,
+   "exact": true,
+   "got": " world):",
+   "want": " world):"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 186,
+   "f": 0.0,
+   "saved": 29,
+   "exact": true,
+   "got": "    def sa_side(self, world):",
+   "want": "    def sa_side(self, world):"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 186,
+   "f": 0.25,
+   "saved": 22,
+   "exact": true,
+   "got": " sa_side(self, world):",
+   "want": " sa_side(self, world):"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 186,
+   "f": 0.5,
+   "saved": 15,
+   "exact": true,
+   "got": "e(self, world):",
+   "want": "e(self, world):"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 186,
+   "f": 0.75,
+   "saved": 8,
+   "exact": true,
+   "got": " world):",
+   "want": " world):"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 230,
+   "f": 0.0,
+   "saved": 61,
+   "exact": true,
+   "got": "        b = self.sphere(world, 1.0, R, (0.5, 5, 0), BALL_HOT)",
+   "want": "        b = self.sphere(world, 1.0, R, (0.5, 5, 0), BALL_HOT)"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 230,
+   "f": 0.25,
+   "saved": 46,
+   "exact": true,
+   "got": "f.sphere(world, 1.0, R, (0.5, 5, 0), BALL_HOT)",
+   "want": "f.sphere(world, 1.0, R, (0.5, 5, 0), BALL_HOT)"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 230,
+   "f": 0.5,
+   "saved": 31,
+   "exact": true,
+   "got": " 1.0, R, (0.5, 5, 0), BALL_HOT)",
+   "want": " 1.0, R, (0.5, 5, 0), BALL_HOT)"
+  },
+  {
+   "file": "physics_gallery.py",
+   "line": 230,
+   "f": 0.75,
+   "saved": 16,
+   "exact": true,
+   "got": "5, 0), BALL_HOT)",
+   "want": "5, 0), BALL_HOT)"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 74,
+   "f": 0.0,
+   "saved": 25,
+   "exact": false,
+   "got": "                         \"label\": \"Cloth self-collision (",
+   "want": "                                 \"label\": \"Cloth nodes collide with each other\"},"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 74,
+   "f": 0.25,
+   "saved": 13,
+   "exact": false,
+   "got": "              \"label\": \"Cloth self-collision (",
+   "want": "             \"label\": \"Cloth nodes collide with each other\"},"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 74,
+   "f": 0.5,
+   "saved": 9,
+   "exact": false,
+   "got": ": \"Cloth self-collision\"},",
+   "want": ": \"Cloth nodes collide with each other\"},"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 74,
+   "f": 0.75,
+   "saved": 0,
+   "exact": false,
+   "got": "sion layer\"},",
+   "want": "de with each other\"},"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 136,
+   "f": 0.0,
+   "saved": 16,
+   "exact": false,
+   "got": "            y = -MR_HALF * (level + 1) + 0.5",
+   "want": "            y = MR_HALF + level * spacing"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 136,
+   "f": 0.25,
+   "saved": 6,
+   "exact": false,
+   "got": "  y = (level + 1) * spacing",
+   "want": "  y = MR_HALF + level * spacing"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 136,
+   "f": 0.5,
+   "saved": 21,
+   "exact": true,
+   "got": "ALF + level * spacing",
+   "want": "ALF + level * spacing"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 136,
+   "f": 0.75,
+   "saved": 11,
+   "exact": true,
+   "got": "l * spacing",
+   "want": "l * spacing"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 137,
+   "f": 0.0,
+   "saved": 17,
+   "exact": false,
+   "got": "            self.obb(world, (mass, mass, mass), 1.0, (0.0, y, 0.0), color)",
+   "want": "            self.box(world, (MR_HALF, MR_HALF, MR_HALF), mass, (0.0, y, 0.0), color)"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 137,
+   "f": 0.25,
+   "saved": 8,
+   "exact": false,
+   "got": "world, (mass, mass, mass), (0.0, y, 0.0), color)",
+   "want": "world, (MR_HALF, MR_HALF, MR_HALF), mass, (0.0, y, 0.0), color)"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 137,
+   "f": 0.5,
+   "saved": 42,
+   "exact": true,
+   "got": "ALF, MR_HALF), mass, (0.0, y, 0.0), color)",
+   "want": "ALF, MR_HALF), mass, (0.0, y, 0.0), color)"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 137,
+   "f": 0.75,
+   "saved": 0,
+   "exact": false,
+   "got": "color, (0.0, y, 0.0))",
+   "want": "(0.0, y, 0.0), color)"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 262,
+   "f": 0.0,
+   "saved": 29,
+   "exact": false,
+   "got": "            self.doppler_src.set_gain(0.",
+   "want": "            self.doppler_src.play()"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 262,
+   "f": 0.25,
+   "saved": 21,
+   "exact": false,
+   "got": "    self.doppler_src.set_gain(0.",
+   "want": "    self.doppler_src.play()"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 262,
+   "f": 0.5,
+   "saved": 12,
+   "exact": false,
+   "got": "doppler_src.set_gain(0.",
+   "want": "doppler_src.play()"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 262,
+   "f": 0.75,
+   "saved": 3,
+   "exact": false,
+   "got": "rc.set_pitch(0.",
+   "want": "rc.play()"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 272,
+   "f": 0.0,
+   "saved": 0,
+   "exact": false,
+   "got": "",
+   "want": "        GalleryBase.init(self, world, entity, params)"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 272,
+   "f": 0.25,
+   "saved": 0,
+   "exact": false,
+   "got": "y = params.get(\"g\", 0.0)",
+   "want": "ryBase.init(self, world, entity, params)"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 272,
+   "f": 0.5,
+   "saved": 27,
+   "exact": true,
+   "got": "elf, world, entity, params)",
+   "want": "elf, world, entity, params)"
+  },
+  {
+   "file": "sandbox_gallery.py",
+   "line": 272,
+   "f": 0.75,
+   "saved": 14,
+   "exact": true,
+   "got": "ntity, params)",
+   "want": "ntity, params)"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 81,
+   "f": 0.0,
+   "saved": 26,
+   "exact": false,
+   "got": "    def init(self, world, params):",
+   "want": "    def init(self, world, entity, params):"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 81,
+   "f": 0.25,
+   "saved": 16,
+   "exact": false,
+   "got": "it(self, world, params):",
+   "want": "it(self, world, entity, params):"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 81,
+   "f": 0.5,
+   "saved": 5,
+   "exact": false,
+   "got": "rld, params):",
+   "want": "rld, entity, params):"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 81,
+   "f": 0.75,
+   "saved": 11,
+   "exact": true,
+   "got": "y, params):",
+   "want": "y, params):"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 98,
+   "f": 0.0,
+   "saved": 55,
+   "exact": true,
+   "got": "        for i, pos in enumerate(self._wheel_positions):",
+   "want": "        for i, pos in enumerate(self._wheel_positions):"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 98,
+   "f": 0.25,
+   "saved": 42,
+   "exact": true,
+   "got": ", pos in enumerate(self._wheel_positions):",
+   "want": ", pos in enumerate(self._wheel_positions):"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 98,
+   "f": 0.5,
+   "saved": 28,
+   "exact": true,
+   "got": "rate(self._wheel_positions):",
+   "want": "rate(self._wheel_positions):"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 98,
+   "f": 0.75,
+   "saved": 14,
+   "exact": true,
+   "got": "el_positions):",
+   "want": "el_positions):"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 158,
+   "f": 0.0,
+   "saved": 25,
+   "exact": true,
+   "got": "        steer_input = 0.0",
+   "want": "        steer_input = 0.0"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 158,
+   "f": 0.25,
+   "saved": 19,
+   "exact": true,
+   "got": "  steer_input = 0.0",
+   "want": "  steer_input = 0.0"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 158,
+   "f": 0.5,
+   "saved": 13,
+   "exact": true,
+   "got": "r_input = 0.0",
+   "want": "r_input = 0.0"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 158,
+   "f": 0.75,
+   "saved": 7,
+   "exact": true,
+   "got": "t = 0.0",
+   "want": "t = 0.0"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 181,
+   "f": 0.0,
+   "saved": 26,
+   "exact": true,
+   "got": "        omega = hull.omega",
+   "want": "        omega = hull.omega"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 181,
+   "f": 0.25,
+   "saved": 20,
+   "exact": true,
+   "got": "  omega = hull.omega",
+   "want": "  omega = hull.omega"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 181,
+   "f": 0.5,
+   "saved": 13,
+   "exact": true,
+   "got": " = hull.omega",
+   "want": " = hull.omega"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 181,
+   "f": 0.75,
+   "saved": 7,
+   "exact": true,
+   "got": "l.omega",
+   "want": "l.omega"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 198,
+   "f": 0.0,
+   "saved": 0,
+   "exact": false,
+   "got": "",
+   "want": "                steer_q = yope3d.Quat.from_axis_angle(yope3d.Vec3(0.0, 1.0, 0.0), self.steer_angle)"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 198,
+   "f": 0.25,
+   "saved": 57,
+   "exact": false,
+   "got": "= yope3d.Quat.from_axis_angle(yope3d.Vec3(0.0, 1.0, 0.0),",
+   "want": "= yope3d.Quat.from_axis_angle(yope3d.Vec3(0.0, 1.0, 0.0), self.steer_angle)"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 198,
+   "f": 0.5,
+   "saved": 22,
+   "exact": false,
+   "got": "ngle(yope3d.Vec3(0.0, 0.0, 1.0), self.steer_angle)",
+   "want": "ngle(yope3d.Vec3(0.0, 1.0, 0.0), self.steer_angle)"
+  },
+  {
+   "file": "vehicle_demo.py",
+   "line": 198,
+   "f": 0.75,
+   "saved": 25,
+   "exact": true,
+   "got": ", 0.0), self.steer_angle)",
+   "want": ", 0.0), self.steer_angle)"
+  }
+ ]
+}

@@ -36,6 +36,7 @@ import ast
 import random
 from pathlib import Path
 
+import usage_freq
 from pyi_api import Api, Attr, Class, Func, parse
 
 # ---------------------------------------------------------------- value model
@@ -100,8 +101,31 @@ FORBIDDEN: dict[str, str] = {
 class Gen:
     """Type-and-name-directed literal generator."""
 
-    def __init__(self, api: Api, rng: random.Random):
+    def __init__(self, api: Api, rng: random.Random, freq=None, lam: float = 0.25):
         self.api, self.rng = api, rng
+        # Empirical usage counts per surface, from train-split behaviors only.
+        # None => uniform, i.e. the pre-2026-07-30 behaviour.
+        self.freq = freq
+        self.lam = lam
+
+    def pick(self, seq, bucket: str, key=None):
+        """Weighted choice over `seq`, favouring names real code actually uses.
+
+        THE POINT OF THIS METHOD. Uniform sampling here is what broke the first
+        LoRA. Measured: Vec3 is 36% of real `yope3d.X` uses and uniform gave it
+        1/187 = 0.53% — a 68x under-weighting of the most common name in the
+        API. Flattening the name distribution taught the model each family's
+        vocabulary without its membership, so it emitted EASE_IN_OUT_CUBIC for
+        EASE_CUBIC_IN_OUT and tripled the invention rate.
+        """
+        if not seq:
+            return None
+        if self.freq is None or self.lam >= 1.0:
+            return self.rng.choice(seq)
+        keyfn = key or (lambda x: getattr(x, "name", x))
+        names = [keyfn(x) for x in seq]
+        w = usage_freq.weights(names, self.freq[bucket], self.lam)
+        return self.rng.choices(seq, weights=w, k=1)[0]
 
     def num(self, name: str, integral: bool = False) -> str:
         lo, hi = 0.0, 5.0
@@ -164,7 +188,7 @@ class Gen:
         if ann.startswith("list"):
             return "[]"
         if ann == "ComponentName":
-            return f'"{self.rng.choice(self.api.components)}"'
+            return f'"{self.pick(self.api.components, "component", key=lambda x: x)}"'
         if ann in self.api.classes:
             return self.rng.choice(scope) if scope else "None"
         return self.num(name)
@@ -231,7 +255,7 @@ def snip_singleton_call(api: Api, g: Gen, obj: str, cls: Class,
     usable = [m for m in cls.methods if m.name not in FORBIDDEN]
     if not usable:
         return []
-    f = g.rng.choice(usable)
+    f = g.pick(usable, "method")
     args = g.call_args(f, scope)
     call = f"yope3d.{obj}.{f.name}({args})"
     if f.returns and f.returns not in ("None", ""):
@@ -264,28 +288,28 @@ def snip_constants(api: Api, g: Gen) -> list[str]:
     buses = [k for k in api.constants if k.startswith("BUS_")]
     opts: list[list[str]] = []
     if keys:
-        k = g.rng.choice(keys)
+        k = g.pick(keys, "toplevel", key=lambda x: x)
         opts.append([f"if yope3d.input.is_key_down(yope3d.{k}):",
                      f"    world.apply_impulse(entity, yope3d.Vec3(0, "
                      f"{g.num('impulse')}, 0))"])
-        opts.append([f"if yope3d.input.is_key_pressed(yope3d.{g.rng.choice(keys)}):",
+        opts.append([f"if yope3d.input.is_key_pressed(yope3d.{g.pick(keys, "toplevel", key=lambda x: x)}):",
                      '    yope3d.play_sound("audios/impact.ogg")'])
     if mouse:
         # raycast returns a 5-tuple; unpacking it is the idiomatic form and
         # the shape the model most needs to learn.
-        opts.append([f"if yope3d.input.is_mouse_down(yope3d.{g.rng.choice(mouse)}):",
+        opts.append([f"if yope3d.input.is_mouse_down(yope3d.{g.pick(mouse, "toplevel", key=lambda x: x)}):",
                      "    hit, ent, point, normal, dist = yope3d.raycast(",
                      "        yope3d.get_position(entity), "
                      f"yope3d.Vec3(0, 0, -1), {g.num('range')})"])
     if buses:
-        opts.append([f"yope3d.audio.set_bus_gain(yope3d.{g.rng.choice(buses)}, "
+        opts.append([f"yope3d.audio.set_bus_gain(yope3d.{g.pick(buses, "toplevel", key=lambda x: x)}, "
                      f"{g.num('gain')})"])
     if eases:
         opts.append(['src = yope3d.play_sound("audios/impact.ogg", None, '
                      f"{g.num('gain')})",
                      "if src is not None:",
                      f"    yope3d.audio.fade_gain(src, {g.num('gain')}, "
-                     f"{g.num('duration')}, yope3d.{g.rng.choice(eases)})"])
+                     f"{g.num('duration')}, yope3d.{g.pick(eases, "toplevel", key=lambda x: x)})"])
     return g.rng.choice(opts) if opts else []
 
 
@@ -383,16 +407,16 @@ def make_file(api: Api, g: Gen, index: int, methods: int, body_min: int,
                 weights=[20, 11, 23, 8, 9, 11, 7, 11],
             )[0]
             if kind == "cfg" and comp_classes:
-                body += snip_component_configure(api, g, g.rng.choice(comp_classes))
+                body += snip_component_configure(api, g, g.pick(comp_classes, "component"))
             elif kind == "read" and comp_classes:
-                body += snip_component_read(api, g, g.rng.choice(comp_classes))
+                body += snip_component_read(api, g, g.pick(comp_classes, "component"))
             elif kind == "world" and world_methods:
-                body += snip_world_call(api, g, g.rng.choice(world_methods), scope)
+                body += snip_world_call(api, g, g.pick(world_methods, "method"), scope)
             elif kind == "single" and singletons:
-                n, c = g.rng.choice(singletons)
+                n, c = g.pick(singletons, "toplevel", key=lambda t: t[0])
                 body += snip_singleton_call(api, g, n, c, scope)
             elif kind == "free" and free:
-                body += snip_free_func(api, g, g.rng.choice(free), scope)
+                body += snip_free_func(api, g, g.pick(free, "toplevel"), scope)
             elif kind == "view":
                 body += snip_view_loop(api, g)
             elif kind == "const":
@@ -522,17 +546,36 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--out", default="fim-finetuning/corpus/synth",
                     help="output directory for generated .py files")
-    ap.add_argument("--files", type=int, default=400)
+    # 400 files (39.6K lines) made synth 86% of the corpus. Combined with
+    # uniform name sampling that is what broke the first LoRA. The share is now
+    # deliberately smaller AND the real behaviors are NOT duplicated to
+    # compensate — a smaller, less redundant corpus is the intended trade.
+    ap.add_argument("--files", type=int, default=60)
     ap.add_argument("--methods", type=int, default=4)
     ap.add_argument("--body-min", type=int, default=6)
     ap.add_argument("--body-max", type=int, default=14)
     ap.add_argument("--seed", type=int, default=20260728)
     ap.add_argument("--stub", default=None)
+    # 0.0 = purely empirical (drops the ~140 names real code never uses)
+    # 0.25 = default; real usage dominates, whole surface still reachable
+    # 1.0 = uniform, reproducing the behaviour that tripled the invention rate
+    ap.add_argument("--lam", type=float, default=0.25,
+                    help="uniform-mixing weight for name sampling; 1.0 = old behaviour")
     a = ap.parse_args()
 
     api = parse(a.stub) if a.stub else parse()
-    g = Gen(api, random.Random(a.seed))
+    freq = None if a.lam >= 1.0 else usage_freq.counts()
+    g = Gen(api, random.Random(a.seed), freq=freq, lam=a.lam)
+    # Resolve against the REPO ROOT, not the caller's cwd. The default is a
+    # repo-relative string, so a bare Path(a.out) silently wrote to
+    # <cwd>/fim-finetuning/corpus/synth — which, when run from inside
+    # fim-finetuning/, produced a 400-file phantom corpus at
+    # fim-finetuning/fim-finetuning/corpus/synth. Nothing failed: the generator
+    # validated the tree it had just written, so the gates passed while the
+    # real corpus went untouched. Every other script here already does this.
     out = Path(a.out)
+    if not out.is_absolute():
+        out = Path(__file__).resolve().parents[2] / out
     out.mkdir(parents=True, exist_ok=True)
 
     for old in out.glob("synth_*.py"):

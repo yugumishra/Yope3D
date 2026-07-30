@@ -15,10 +15,15 @@ __pycache__/
 # live llama-server AND the exact same model build, so losing them means losing
 # the ability to prove a fine-tune helped. The 21 MB of train/valid JSONL beside
 # them stays ignored — that IS cheaply reproducible.
-!data/eval_heldout_base.json
-!data/probe_base.json
-!data/ctl_stdlib_base.json
-!data/ctl_local_base.json
+# Wildcarded on the TAG, not spelled `_base`, so a train_lora.sh run tagged
+# anything (lora, r16, r16e2) has its results tracked automatically. Forgetting
+# to add a pattern per experiment is how a result gets lost to `data/*` without
+# anyone noticing — the artifacts are reproducible, the measurements are not.
+# These are ~60-130 KB each. train/valid.jsonl are .jsonl and stay ignored.
+!data/eval_heldout_*.json
+!data/probe_*.json
+!data/ctl_stdlib_*.json
+!data/ctl_local_*.json
 
 # The probe SPEC, not output (859 KB). probe_base.json is keyed to these exact
 # probe ids; if the .pyi gains a binding and probes.json is regenerated, the
@@ -30,6 +35,14 @@ __pycache__/
 adapters/
 *.gguf
 *.safetensors
+
+# train_lora.sh working dirs. `runs/` is ~11 GB per experiment (fused fp16 +
+# f16 GGUF + Q8_0) and .venv-train pulls in torch. Both are reproducible from
+# the script; the RESULTS are not, which is why data/*_<tag>.json above is the
+# thing worth keeping.
+runs/
+.venv-train/
+.cache/
 
 #actual plan (very large file)
 PLAN.txt

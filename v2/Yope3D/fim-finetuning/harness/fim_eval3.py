@@ -38,11 +38,22 @@ def load_api():
 API = load_api()
 
 
-def target_files(exclude):
+def target_files(exclude, directory=None, only=""):
+    """Files to cut. Defaults to scripts/behaviors (tier 1).
+
+    `directory` points the same harness at the tier-3 control corpus, so the
+    control is scored by identical code and the two numbers are comparable.
+    A separately-written control harness would drift from this one and the
+    comparison would quietly stop meaning anything.
+    """
+    d = Path(directory) if directory else BEHAVIOR
+    if not d.is_absolute():
+        d = ROOT / d
     ex = {e.strip() for e in exclude.split(",") if e.strip()}
-    return sorted(p for p in BEHAVIOR.glob("*.py")
+    inc = {e.strip() for e in only.split(",") if e.strip()}
+    return sorted(p for p in d.glob("*.py")
                   if not p.name.startswith("_") and p.name != "__init__.py"
-                  and p.name not in ex)
+                  and p.name not in ex and (not inc or p.name in inc))
 
 
 def cuttable(lines, i):
@@ -97,11 +108,17 @@ def main():
     ap.add_argument("--cuts", type=int, default=5)
     ap.add_argument("--n-predict", type=int, default=32)
     ap.add_argument("--exclude", default="", help="comma-separated held-out filenames")
+    ap.add_argument("--only", default="",
+                    help="comma-separated files to score EXCLUSIVELY — the "
+                         "inverse of --exclude, for scoring the held-out set")
+    ap.add_argument("--dir", default=None,
+                    help="directory of .py to cut (default scripts/behaviors); "
+                         "used to point tier 1's harness at the tier-3 control corpus")
     ap.add_argument("--out", default=None)
     a = ap.parse_args()
 
     url = f"http://127.0.0.1:{a.port}/infill"
-    files = target_files(a.exclude)
+    files = target_files(a.exclude, a.dir, a.only)
     cases = make_cases(random.Random(4242), files, a.prefix, a.suffix, a.cuts)
     print(f"[{a.label}] {len(cases)} cut points x {len(FRACTIONS)} typed-fractions "
           f"= {len(cases)*len(FRACTIONS)} calls  ({len(files)} files, port {a.port})",
