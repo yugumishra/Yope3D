@@ -414,7 +414,25 @@ start_swap_watchdog() {  # start_swap_watchdog <pid_to_kill> <logfile>
   ) &
   SWAP_WD_PID=$!
 }
-stop_swap_watchdog() { [[ -n "$SWAP_WD_PID" ]] && kill "$SWAP_WD_PID" 2>/dev/null; SWAP_WD_PID=""; true; }
+# The watchdog loop is `while kill -0 $target`, so it SELF-EXITS within 3 s of
+# the trainer finishing normally — and then `kill` here fails with ESRCH.
+#
+# That one failure ended two multi-hour runs. `kill` is the LAST command of an
+# `&&` list, which is the one position `set -e` does NOT exempt, so a dead-pid
+# kill exited the whole script with status 1 — silently, no message, seconds
+# after mlx had already saved its final weights. Signature: "FAILED (exit 1)"
+# immediately following a 100% training bar (2026-07-29 run, sweep node A2).
+# The calibrate stage survived only because its call site sits inside set +e.
+#
+# Reaping with `wait` also stops the EXIT trap's bare `wait` from blocking.
+stop_swap_watchdog() {
+  if [[ -n "${SWAP_WD_PID:-}" ]]; then
+    kill "$SWAP_WD_PID" 2>/dev/null || true
+    wait "$SWAP_WD_PID" 2>/dev/null || true
+  fi
+  SWAP_WD_PID=""
+  return 0
+}
 
 # Bytes of a file or directory, 0 if absent.
 _sz() { [[ -e "$1" ]] && du -sk "$1" 2>/dev/null | awk '{print $1*1024}' || echo 0; }
@@ -774,8 +792,18 @@ if should_run train; then
         "it $last_it/$ITERS  train ${tl:-–}  val ${vl:-–}  ${pm:-–}GB" "$rem"
     sleep 5
   done
-  set +e; wait "$TRAIN_PID"; TRAIN_RC=$?; set -e
-  stop_swap_watchdog
+  set +e; wait "$TRAIN_PID"; TRAIN_RC=$?; stop_swap_watchdog; set -e
+
+  # Hours of GPU time must never be lost to a harness bug that fires AFTER the
+  # weights land. mlx logs "Saved final weights" only on a clean finish, so
+  # that plus a non-empty adapter file IS the completion signal — mark the
+  # stage done here, before any later line can fail. A resume then starts at
+  # fuse instead of retraining. Both prior runs had to be salvaged by hand.
+  if grep -q 'Saved final weights' "$TRAINLOG" 2>/dev/null \
+     && [[ -s "$ADAPTERS/adapters.safetensors" ]]; then
+    mark_done train
+  fi
+
   if [[ $TRAIN_RC -eq 3 ]]; then
     printf '\n'
     say "${RED}MEMORY WATCHDOG FIRED during training — stopped before any thrash.${R}"

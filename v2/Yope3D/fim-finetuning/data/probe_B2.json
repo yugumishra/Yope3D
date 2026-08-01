@@ -1,0 +1,2967 @@
+{
+ "label": "B2",
+ "port": 8013,
+ "rows": [
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0108.py:35:12:scene_payload",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0108.py",
+   "line": 35,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "scene_payload",
+   "got": "",
+   "verdict": "none"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:28:35:camera",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 28,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "camera",
+   "got": "camera",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0047.py:47:34:BUS_SFX",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0047.py",
+   "line": 47,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "BUS_SFX",
+   "got": "AUDIO_BUS_MUSIC",
+   "verdict": "invented"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:131:28:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 131,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/physics_gallery.py:332:41:Vec3",
+   "origin": "scripts/behaviors/physics_gallery.py",
+   "line": 332,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0097.py:18:14:play_sound",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0097.py",
+   "line": 18,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "play_sound",
+   "got": "",
+   "verdict": "none"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0070.py:43:39:KEY_SLASH",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0070.py",
+   "line": 43,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_SLASH",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/physics_gallery.py:326:42:Vec3",
+   "origin": "scripts/behaviors/physics_gallery.py",
+   "line": 326,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:154:27:KEY_W",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 154,
+   "stratum": "real",
+   "tier": "head",
+   "target": "KEY_W",
+   "got": "KEY_W",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0061.py:50:12:is_fixed",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0061.py",
+   "line": 50,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "is_fixed",
+   "got": "camera",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0104.py:32:39:KEY_F4",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0104.py",
+   "line": 32,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F4",
+   "got": "KEY_E",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0029.py:58:36:KEY_0",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0029.py",
+   "line": 58,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_0",
+   "got": "KEY_",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0056.py:17:12:save_path",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0056.py",
+   "line": 17,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "save_path",
+   "got": "vec3",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0005.py:13:39:KEY_1",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0005.py",
+   "line": 13,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_1",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0058.py:39:12:is_fixed",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0058.py",
+   "line": 39,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "is_fixed",
+   "got": "input",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:175:13:reg_get",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 175,
+   "stratum": "real",
+   "tier": "head",
+   "target": "reg_get",
+   "got": "reg_get",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0040.py:57:8:load_game",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0040.py",
+   "line": 57,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "load_game",
+   "got": "set_ui_background",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0005.py:40:8:reg_remove",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0005.py",
+   "line": 40,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "reg_remove",
+   "got": "set_ui",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:10:31:raycast",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 10,
+   "stratum": "stub",
+   "tier": "tail",
+   "target": "raycast",
+   "got": "raycast",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0031.py:34:12:play_sound",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0031.py",
+   "line": 34,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "play_sound",
+   "got": "set_ui",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0062.py:30:12:get_world_position",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0062.py",
+   "line": 30,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "get_world_position",
+   "got": "input",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:141:8:camera",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 141,
+   "stratum": "real",
+   "tier": "head",
+   "target": "camera",
+   "got": "camera",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/sandbox_gallery.py:260:31:audio",
+   "origin": "scripts/behaviors/sandbox_gallery.py",
+   "line": 260,
+   "stratum": "real",
+   "tier": "tail",
+   "target": "audio",
+   "got": "audio",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:95:12:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 95,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:134:28:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 134,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0089.py:25:12:save_path",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0089.py",
+   "line": 25,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "save_path",
+   "got": "reg_get",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0028.py:37:39:KEY_M",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0028.py",
+   "line": 37,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_M",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0049.py:56:39:KEY_TAB",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0049.py",
+   "line": 56,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_TAB",
+   "got": "KEY_F1",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0103.py:46:39:KEY_BACKSLASH",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0103.py",
+   "line": 46,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_BACKSLASH",
+   "got": "KEY_E",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:120:19:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 120,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0060.py:13:39:KEY_8",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0060.py",
+   "line": 13,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_8",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:17:17:Vec3",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 17,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0011.py:48:36:KEY_C",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0011.py",
+   "line": 48,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_C",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0077.py:39:52:EASE_QUAD_IN_OUT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0077.py",
+   "line": 39,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_QUAD_IN_OUT",
+   "got": "EASE_OUT",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:14:62:Vec3",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 14,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0106.py:48:12:settings",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0106.py",
+   "line": 48,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "settings",
+   "got": "get_ui_focus",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0089.py:34:12:reg_valid",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0089.py",
+   "line": 34,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "reg_valid",
+   "got": "reg_add",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0066.py:53:36:KEY_RIGHT_BRACKET",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0066.py",
+   "line": 53,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_RIGHT_BRACKET",
+   "got": "KEY_F5",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:180:15:reg_get",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 180,
+   "stratum": "real",
+   "tier": "head",
+   "target": "reg_get",
+   "got": "Transform",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0057.py:22:39:KEY_LEFT_BRACKET",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0057.py",
+   "line": 22,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_LEFT_BRACKET",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:190:8:camera",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 190,
+   "stratum": "real",
+   "tier": "head",
+   "target": "camera",
+   "got": "camera",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/physics_gallery.py:332:13:Quat",
+   "origin": "scripts/behaviors/physics_gallery.py",
+   "line": 332,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Quat",
+   "got": "Quat",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/sandbox_gallery.py:289:15:reg_get",
+   "origin": "scripts/behaviors/sandbox_gallery.py",
+   "line": 289,
+   "stratum": "real",
+   "tier": "head",
+   "target": "reg_get",
+   "got": "reg_get",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/physics_gallery.py:333:41:Vec3",
+   "origin": "scripts/behaviors/physics_gallery.py",
+   "line": 333,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0112.py:36:12:lerp",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0112.py",
+   "line": 36,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "lerp",
+   "got": "window",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:92:12:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 92,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0109.py:24:52:EASE_CUBIC_IN_OUT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0109.py",
+   "line": 24,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_CUBIC_IN_OUT",
+   "got": "AUDIO_FADE_IN",
+   "verdict": "invented"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:204:18:reg_get",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 204,
+   "stratum": "real",
+   "tier": "head",
+   "target": "reg_get",
+   "got": "reg_get",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0037.py:50:12:lerp",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0037.py",
+   "line": 50,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "lerp",
+   "got": "",
+   "verdict": "none"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0082.py:25:39:KEY_2",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0082.py",
+   "line": 25,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_2",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0092.py:51:39:KEY_PAGE_UP",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0092.py",
+   "line": 51,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_PAGE_UP",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:155:27:KEY_S",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 155,
+   "stratum": "real",
+   "tier": "head",
+   "target": "KEY_S",
+   "got": "KEY_S",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0030.py:67:34:BUS_MUSIC",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0030.py",
+   "line": 67,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "BUS_MUSIC",
+   "got": "BUS",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0042.py:17:12:to_degrees",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0042.py",
+   "line": 17,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "to_degrees",
+   "got": "input",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/sandbox_gallery.py:258:14:audio",
+   "origin": "scripts/behaviors/sandbox_gallery.py",
+   "line": 258,
+   "stratum": "real",
+   "tier": "tail",
+   "target": "audio",
+   "got": "audio",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0062.py:57:14:play_sound",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0062.py",
+   "line": 57,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "play_sound",
+   "got": "",
+   "verdict": "none"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:130:28:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 130,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:20:4:draw_ray",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 20,
+   "stratum": "stub",
+   "tier": "tail",
+   "target": "draw_ray",
+   "got": "set_text",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0039.py:56:36:KEY_SLASH",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0039.py",
+   "line": 56,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_SLASH",
+   "got": "KEY_F1",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:15:37:Vec3",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 15,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "V",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0024.py:17:39:KEY_5",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0024.py",
+   "line": 17,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_5",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0105.py:59:36:KEY_X",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0105.py",
+   "line": 59,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_X",
+   "got": "KEY_E",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:13:4:draw_ray",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 13,
+   "stratum": "stub",
+   "tier": "tail",
+   "target": "draw_ray",
+   "got": "set",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:9:11:camera",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 9,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "camera",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0113.py:30:8:clear_collision_observers",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0113.py",
+   "line": 30,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "clear_collision_observers",
+   "got": "set_ui_focus",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0052.py:50:36:KEY_Z",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0052.py",
+   "line": 50,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_Z",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0105.py:69:12:to_radians",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0105.py",
+   "line": 69,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "to_radians",
+   "got": "",
+   "verdict": "none"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0096.py:62:38:MOUSE_MIDDLE",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0096.py",
+   "line": 62,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "MOUSE_MIDDLE",
+   "got": "MOUSE_LEFT",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0005.py:15:8:reg_remove",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0005.py",
+   "line": 15,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "reg_remove",
+   "got": "set_ui_scale",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0060.py:12:12:save_game",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0060.py",
+   "line": 12,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "save_game",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0002.py:56:49:EASE_LINEAR",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0002.py",
+   "line": 56,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_LINEAR",
+   "got": "EASE_LINEAR",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0023.py:17:12:play_music",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0023.py",
+   "line": 17,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "play_music",
+   "got": "window",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0075.py:50:12:look_at",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0075.py",
+   "line": 50,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "look_at",
+   "got": "",
+   "verdict": "none"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:117:28:Quat",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 117,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Quat",
+   "got": "Quat",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:137:28:Quat",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 137,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Quat",
+   "got": "Quat",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0081.py:32:8:draw_ray",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0081.py",
+   "line": 32,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "draw_ray",
+   "got": "set_ui",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0079.py:42:12:reg_valid",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0079.py",
+   "line": 42,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "reg_valid",
+   "got": "get",
+   "verdict": "invented"
+  },
+  {
+   "id": "scripts/behaviors/attach_script_demo.py:49:12:Vec3",
+   "origin": "scripts/behaviors/attach_script_demo.py",
+   "line": 49,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0021.py:53:12:play_music",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0021.py",
+   "line": 53,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "play_music",
+   "got": "",
+   "verdict": "none"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0039.py:38:36:KEY_F6",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0039.py",
+   "line": 38,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F6",
+   "got": "KEY_LEFT_SHIFT",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0079.py:41:12:look_at",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0079.py",
+   "line": 41,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "look_at",
+   "got": "look_at",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0050.py:15:52:EASE_QUAD_IN_OUT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0050.py",
+   "line": 15,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_QUAD_IN_OUT",
+   "got": "AUDIO_FADE_IN",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0005.py:16:8:clear_collision_observers",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0005.py",
+   "line": 16,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "clear_collision_observers",
+   "got": "set_ui_scale",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0080.py:61:36:KEY_ESCAPE",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0080.py",
+   "line": 61,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_ESCAPE",
+   "got": "KEY_LEFT_SHIFT",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0002.py:46:36:KEY_F8",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0002.py",
+   "line": 46,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F8",
+   "got": "KEY_F5",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0027.py:31:39:KEY_PERIOD",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0027.py",
+   "line": 31,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_PERIOD",
+   "got": "KEY_E",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0048.py:42:12:clamp",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0048.py",
+   "line": 42,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "clamp",
+   "got": "get_world_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:31:9:get_behavior",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 31,
+   "stratum": "stub",
+   "tier": "tail",
+   "target": "get_behavior",
+   "got": "get_behavior",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/attach_script_demo.py:63:13:attach_script",
+   "origin": "scripts/behaviors/attach_script_demo.py",
+   "line": 63,
+   "stratum": "real",
+   "tier": "head",
+   "target": "attach_script",
+   "got": "attach_script",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0018.py:31:36:KEY_X",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0018.py",
+   "line": 31,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_X",
+   "got": "KEY_2",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:27:31:raycast",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 27,
+   "stratum": "stub",
+   "tier": "tail",
+   "target": "raycast",
+   "got": "raycast",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0039.py:34:39:KEY_RIGHT_BRACKET",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0039.py",
+   "line": 34,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_RIGHT_BRACKET",
+   "got": "KEY_F1",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0034.py:40:36:KEY_F4",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0034.py",
+   "line": 40,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F4",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0035.py:49:12:find_entity",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0035.py",
+   "line": 49,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "find_entity",
+   "got": "",
+   "verdict": "none"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0097.py:39:12:get_behavior",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0097.py",
+   "line": 39,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "get_behavior",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0025.py:49:39:KEY_TAB",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0025.py",
+   "line": 49,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_TAB",
+   "got": "KEY_DOWN",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0026.py:48:39:KEY_RIGHT_SHIFT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0026.py",
+   "line": 48,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_RIGHT_SHIFT",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0030.py:74:12:is_sleeping",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0030.py",
+   "line": 74,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "is_sleeping",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:8:10:camera",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 8,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "camera",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0036.py:23:12:save_path",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0036.py",
+   "line": 23,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "save_path",
+   "got": "clamp",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0036.py:49:38:MOUSE_MIDDLE",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0036.py",
+   "line": 49,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "MOUSE_MIDDLE",
+   "got": "MOUSE_MIDDLE",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:93:12:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 93,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0094.py:14:52:EASE_QUAD_OUT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0094.py",
+   "line": 14,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_QUAD_OUT",
+   "got": "AUDIO",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0028.py:32:36:KEY_EQUAL",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0028.py",
+   "line": 32,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_EQUAL",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:5:11:input",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 5,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "input",
+   "got": "get_input",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0055.py:58:12:save_path",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0055.py",
+   "line": 58,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "save_path",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0111.py:17:36:KEY_F11",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0111.py",
+   "line": 17,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F11",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0101.py:34:12:lerp",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0101.py",
+   "line": 34,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "lerp",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:151:14:input",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 151,
+   "stratum": "real",
+   "tier": "head",
+   "target": "input",
+   "got": "Input",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:159:27:KEY_A",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 159,
+   "stratum": "real",
+   "tier": "head",
+   "target": "KEY_A",
+   "got": "KEY_A",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0085.py:36:39:KEY_BACKSLASH",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0085.py",
+   "line": 36,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_BACKSLASH",
+   "got": "KEY_SPACE",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0036.py:16:39:KEY_CAPS_LOCK",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0036.py",
+   "line": 16,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_CAPS_LOCK",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0077.py:42:8:load_scene",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0077.py",
+   "line": 42,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "load_scene",
+   "got": "set_mesh_color",
+   "verdict": "invented"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:94:12:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 94,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0013.py:49:8:settings",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0013.py",
+   "line": 49,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "settings",
+   "got": "set_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:32:4:attach_script",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 32,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "attach_script",
+   "got": "set_text",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0045.py:52:12:find_entity",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0045.py",
+   "line": 52,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "find_entity",
+   "got": "window",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/attach_script_demo.py:16:11:attach_script",
+   "origin": "scripts/behaviors/attach_script_demo.py",
+   "line": 16,
+   "stratum": "real",
+   "tier": "head",
+   "target": "attach_script",
+   "got": "attach_script",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0059.py:13:39:KEY_INSERT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0059.py",
+   "line": 13,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_INSERT",
+   "got": "KEY_SPACE",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:11:9:get_behavior",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 11,
+   "stratum": "stub",
+   "tier": "tail",
+   "target": "get_behavior",
+   "got": "get",
+   "verdict": "invented"
+  },
+  {
+   "id": "scripts/behaviors/sandbox_gallery.py:275:37:KEY_V",
+   "origin": "scripts/behaviors/sandbox_gallery.py",
+   "line": 275,
+   "stratum": "real",
+   "tier": "tail",
+   "target": "KEY_V",
+   "got": "KEY_SPACE",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/physics_gallery.py:319:14:Quat",
+   "origin": "scripts/behaviors/physics_gallery.py",
+   "line": 319,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Quat",
+   "got": "Quat",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:83:23:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 83,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0000.py:30:12:get_world_position",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0000.py",
+   "line": 30,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "get_world_position",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:84:20:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 84,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0071.py:66:39:KEY_APOSTROPHE",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0071.py",
+   "line": 66,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_APOSTROPHE",
+   "got": "KEY_LEFT_SHIFT",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:7:43:Vec3",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 7,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0008.py:61:39:KEY_F5",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0008.py",
+   "line": 61,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F5",
+   "got": "KEY_LEFT_SHIFT",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0069.py:51:12:reg_valid",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0069.py",
+   "line": 51,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "reg_valid",
+   "got": "input",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0109.py:12:8:load_scene",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0109.py",
+   "line": 12,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "load_scene",
+   "got": "set_ui_text",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0010.py:60:36:KEY_C",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0010.py",
+   "line": 60,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_C",
+   "got": "KEY_EQUAL",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0087.py:32:12:is_sleeping",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0087.py",
+   "line": 32,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "is_sleeping",
+   "got": "input",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0029.py:35:39:KEY_SEMICOLON",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0029.py",
+   "line": 35,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_SEMICOLON",
+   "got": "KEY_7",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0042.py:24:8:load_game",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0042.py",
+   "line": 24,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "load_game",
+   "got": "set_camera_pos",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0073.py:48:52:EASE_CUBIC_IN_OUT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0073.py",
+   "line": 48,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_CUBIC_IN_OUT",
+   "got": "EASE_CUBIC_IN_OUT",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0105.py:16:12:lerp",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0105.py",
+   "line": 16,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "lerp",
+   "got": "",
+   "verdict": "none"
+  },
+  {
+   "id": "scripts/behaviors/physics_gallery.py:333:13:Quat",
+   "origin": "scripts/behaviors/physics_gallery.py",
+   "line": 333,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Quat",
+   "got": "Quat",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0065.py:17:16:spawn",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0065.py",
+   "line": 17,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "spawn",
+   "got": "reg_get",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0018.py:20:36:KEY_1",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0018.py",
+   "line": 20,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_1",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0108.py:65:52:EASE_QUAD_IN",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0108.py",
+   "line": 65,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_QUAD_IN",
+   "got": "EASE_QUAD_IN_OUT",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0116.py:39:8:reg_remove",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0116.py",
+   "line": 39,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "reg_remove",
+   "got": "set_ui",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0088.py:30:36:KEY_INSERT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0088.py",
+   "line": 30,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_INSERT",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:21:34:Vec3",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 21,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "V",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0049.py:47:12:look_at",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0049.py",
+   "line": 47,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "look_at",
+   "got": "look_at",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:137:56:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 137,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/attach_script_demo.py:50:37:Vec3",
+   "origin": "scripts/behaviors/attach_script_demo.py",
+   "line": 50,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/attach_script_demo.py:46:50:Vec3",
+   "origin": "scripts/behaviors/attach_script_demo.py",
+   "line": 46,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0014.py:14:34:BUS_SFX",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0014.py",
+   "line": 14,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "BUS_SFX",
+   "got": "AUDIO_BUS",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0038.py:29:39:KEY_0",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0038.py",
+   "line": 29,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_0",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:160:27:KEY_D",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 160,
+   "stratum": "real",
+   "tier": "head",
+   "target": "KEY_D",
+   "got": "KEY_D",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0062.py:14:52:EASE_LINEAR",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0062.py",
+   "line": 14,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_LINEAR",
+   "got": "AUDIO",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:18:4:reg_get",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 18,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "reg_get",
+   "got": "set_text",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0010.py:48:12:settings",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0010.py",
+   "line": 48,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "settings",
+   "got": "input",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0041.py:20:38:MOUSE_MIDDLE",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0041.py",
+   "line": 20,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "MOUSE_MIDDLE",
+   "got": "MOUSE_LEFT",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:8:35:camera",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 8,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "camera",
+   "got": "camera",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0067.py:39:12:is_fixed",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0067.py",
+   "line": 39,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "is_fixed",
+   "got": "camera",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0003.py:22:34:BUS_SFX",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0003.py",
+   "line": 22,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "BUS_SFX",
+   "got": "AUDIO_BUS_MUSIC",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0106.py:38:12:get_world_position",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0106.py",
+   "line": 38,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "get_world_position",
+   "got": "window",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0035.py:18:12:find_entity",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0035.py",
+   "line": 18,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "find_entity",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/attach_script_demo.py:46:19:get_position",
+   "origin": "scripts/behaviors/attach_script_demo.py",
+   "line": 46,
+   "stratum": "real",
+   "tier": "tail",
+   "target": "get_position",
+   "got": "Vec3",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0023.py:12:12:save_game",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0023.py",
+   "line": 12,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "save_game",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0091.py:25:36:KEY_F12",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0091.py",
+   "line": 25,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F12",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:12:4:play_sound",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 12,
+   "stratum": "stub",
+   "tier": "tail",
+   "target": "play_sound",
+   "got": "set_behaviors",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0002.py:59:52:EASE_LINEAR",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0002.py",
+   "line": 59,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_LINEAR",
+   "got": "EASE_LINEAR",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/physics_gallery.py:313:14:Quat",
+   "origin": "scripts/behaviors/physics_gallery.py",
+   "line": 313,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Quat",
+   "got": "Quat",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0115.py:37:12:is_sleeping",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0115.py",
+   "line": 37,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "is_sleeping",
+   "got": "Vec3",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:189:8:camera",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 189,
+   "stratum": "real",
+   "tier": "head",
+   "target": "camera",
+   "got": "camera",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:198:54:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 198,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0028.py:40:34:BUS_VOICE",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0028.py",
+   "line": 40,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "BUS_VOICE",
+   "got": "AUDIO_BUS_MUSIC",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0017.py:34:52:EASE_QUAD_OUT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0017.py",
+   "line": 34,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_QUAD_OUT",
+   "got": "EASE_OUT_QUAD",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0076.py:43:38:MOUSE_MIDDLE",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0076.py",
+   "line": 43,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "MOUSE_MIDDLE",
+   "got": "MOUSE_LEFT",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0024.py:16:12:play_music",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0024.py",
+   "line": 16,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "play_music",
+   "got": "",
+   "verdict": "none"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0083.py:61:12:scene_payload",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0083.py",
+   "line": 61,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "scene_payload",
+   "got": "input",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:28:11:camera",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 28,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "camera",
+   "got": "camera",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/physics_gallery.py:313:42:Vec3",
+   "origin": "scripts/behaviors/physics_gallery.py",
+   "line": 313,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0082.py:60:34:BUS_MUSIC",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0082.py",
+   "line": 60,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "BUS_MUSIC",
+   "got": "AUDIO_BUS_UI",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0010.py:58:39:KEY_EQUAL",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0010.py",
+   "line": 58,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_EQUAL",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0083.py:45:39:KEY_CAPS_LOCK",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0083.py",
+   "line": 45,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_CAPS_LOCK",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0036.py:18:38:MOUSE_RIGHT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0036.py",
+   "line": 18,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "MOUSE_RIGHT",
+   "got": "MOUSE_LEFT",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0045.py:12:39:KEY_B",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0045.py",
+   "line": 12,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_B",
+   "got": "KEY_SPACE",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0064.py:81:12:find_entity",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0064.py",
+   "line": 81,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "find_entity",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0099.py:58:39:KEY_0",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0099.py",
+   "line": 58,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_0",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:117:56:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 117,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0119.py:50:52:EASE_QUAD_IN_OUT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0119.py",
+   "line": 50,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_QUAD_IN_OUT",
+   "got": "FADE_IN",
+   "verdict": "invented"
+  },
+  {
+   "id": "scripts/behaviors/physics_gallery.py:326:14:Quat",
+   "origin": "scripts/behaviors/physics_gallery.py",
+   "line": 326,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Quat",
+   "got": "Quat",
+   "verdict": "correct"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:14:40:Vec3",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 14,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "add_sphere",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:9:35:camera",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 9,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "camera",
+   "got": "camera",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0039.py:52:39:KEY_I",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0039.py",
+   "line": 52,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_I",
+   "got": "KEY_F11",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0117.py:29:34:BUS_VOICE",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0117.py",
+   "line": 29,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "BUS_VOICE",
+   "got": "AUDIO_BUS_MUSIC",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0092.py:33:36:KEY_Q",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0092.py",
+   "line": 33,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_Q",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0039.py:42:34:BUS_MUSIC",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0039.py",
+   "line": 42,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "BUS_MUSIC",
+   "got": "AUDIO_BUS_MUSIC",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0023.py:26:8:load_game",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0023.py",
+   "line": 26,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "load_game",
+   "got": "set_ui_background",
+   "verdict": "invented"
+  },
+  {
+   "id": "scripts/behaviors/attach_script_demo.py:49:55:Vec3",
+   "origin": "scripts/behaviors/attach_script_demo.py",
+   "line": 49,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0082.py:18:38:MOUSE_RIGHT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0082.py",
+   "line": 18,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "MOUSE_RIGHT",
+   "got": "MOUSE_LEFT",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0086.py:40:12:clamp",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0086.py",
+   "line": 40,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "clamp",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/physics_gallery.py:88:42:Vec3",
+   "origin": "scripts/behaviors/physics_gallery.py",
+   "line": 88,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0072.py:35:8:observe_collisions",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0072.py",
+   "line": 35,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "observe_collisions",
+   "got": "set_ui",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0099.py:60:12:to_degrees",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0099.py",
+   "line": 60,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "to_degrees",
+   "got": "window",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:22:29:Vec3",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 22,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "V",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0048.py:12:8:load_game",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0048.py",
+   "line": 12,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "load_game",
+   "got": "set",
+   "verdict": "invented"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:195:17:reg_get",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 195,
+   "stratum": "real",
+   "tier": "head",
+   "target": "reg_get",
+   "got": "reg_get",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0098.py:20:8:load_scene",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0098.py",
+   "line": 20,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "load_scene",
+   "got": "",
+   "verdict": "none"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0049.py:22:36:KEY_F2",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0049.py",
+   "line": 22,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F2",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0066.py:41:36:KEY_F6",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0066.py",
+   "line": 41,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F6",
+   "got": "KEY_LSHIFT",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0079.py:54:8:reg_remove",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0079.py",
+   "line": 54,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "reg_remove",
+   "got": "set_mesh_scale",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0030.py:59:39:KEY_CAPS_LOCK",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0030.py",
+   "line": 59,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_CAPS_LOCK",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0119.py:17:34:BUS_VOICE",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0119.py",
+   "line": 17,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "BUS_VOICE",
+   "got": "BUS_SFX",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0040.py:65:36:KEY_GRAVE_ACCENT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0040.py",
+   "line": 65,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_GRAVE_ACCENT",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0110.py:51:8:observe_collisions",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0110.py",
+   "line": 51,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "observe_collisions",
+   "got": "set_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0054.py:55:39:KEY_2",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0054.py",
+   "line": 55,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_2",
+   "got": "KEY_3",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0047.py:18:52:EASE_QUAD_OUT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0047.py",
+   "line": 18,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_QUAD_OUT",
+   "got": "AUDIO",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0031.py:51:12:is_fixed",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0031.py",
+   "line": 51,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "is_fixed",
+   "got": "window",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0017.py:56:12:to_radians",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0017.py",
+   "line": 56,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "to_radians",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0114.py:62:12:scene_payload",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0114.py",
+   "line": 62,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "scene_payload",
+   "got": "window",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/physics_gallery.py:88:14:Quat",
+   "origin": "scripts/behaviors/physics_gallery.py",
+   "line": 88,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Quat",
+   "got": "Quaternion",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0012.py:18:12:clamp",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0012.py",
+   "line": 18,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "clamp",
+   "got": "Vec3",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0101.py:44:39:KEY_F8",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0101.py",
+   "line": 44,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F8",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0059.py:35:39:KEY_GRAVE_ACCENT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0059.py",
+   "line": 35,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_GRAVE_ACCENT",
+   "got": "KEY_INSERT",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:139:27:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 139,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:33:8:spawn",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 33,
+   "stratum": "stub",
+   "tier": "tail",
+   "target": "spawn",
+   "got": "",
+   "verdict": "none"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0109.py:32:39:KEY_8",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0109.py",
+   "line": 32,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_8",
+   "got": "KEY_BACKSPACE",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/sandbox_gallery.py:275:12:input",
+   "origin": "scripts/behaviors/sandbox_gallery.py",
+   "line": 275,
+   "stratum": "real",
+   "tier": "head",
+   "target": "input",
+   "got": "get_entity_velocity",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0110.py:12:39:KEY_MINUS",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0110.py",
+   "line": 12,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_MINUS",
+   "got": "KEY_E",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0049.py:55:52:EASE_CUBIC_IN_OUT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0049.py",
+   "line": 55,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_CUBIC_IN_OUT",
+   "got": "EASE_QUAD_IN_OUT",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0104.py:54:36:KEY_G",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0104.py",
+   "line": 54,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_G",
+   "got": "KEY_F",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:30:8:reg_add",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 30,
+   "stratum": "stub",
+   "tier": "tail",
+   "target": "reg_add",
+   "got": "get_behaviors",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0118.py:15:8:load_scene",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0118.py",
+   "line": 15,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "load_scene",
+   "got": "input",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0072.py:45:17:spawn",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0072.py",
+   "line": 45,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "spawn",
+   "got": "reg_add",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0052.py:29:12:settings",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0052.py",
+   "line": 29,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "settings",
+   "got": "get_world_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0099.py:21:15:spawn",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0099.py",
+   "line": 21,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "spawn",
+   "got": "get",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0004.py:47:12:look_at",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0004.py",
+   "line": 47,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "look_at",
+   "got": "",
+   "verdict": "none"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0091.py:61:34:BUS_MUSIC",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0091.py",
+   "line": 61,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "BUS_MUSIC",
+   "got": "AUDIO_BUS_UI",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0070.py:76:8:clear_collision_observers",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0070.py",
+   "line": 76,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "clear_collision_observers",
+   "got": "window",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0075.py:65:36:KEY_F11",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0075.py",
+   "line": 65,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F11",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:24:4:set_text",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 24,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "set_text",
+   "got": "",
+   "verdict": "none"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0015.py:77:34:BUS_SFX",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0015.py",
+   "line": 77,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "BUS_SFX",
+   "got": "BUS_MUSIC",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0033.py:29:8:draw_ray",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0033.py",
+   "line": 29,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "draw_ray",
+   "got": "set_camera_position",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:23:44:Vec3",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 23,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0079.py:61:36:KEY_6",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0079.py",
+   "line": 61,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_6",
+   "got": "KEY_F10",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0048.py:47:12:get_world_position",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0048.py",
+   "line": 47,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "get_world_position",
+   "got": "settings",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0050.py:53:39:KEY_M",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0050.py",
+   "line": 53,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_M",
+   "got": "KEY_SPACE",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0004.py:42:51:EASE_QUAD_IN",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0004.py",
+   "line": 42,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_QUAD_IN",
+   "got": "EASE_IN_OUT",
+   "verdict": "invented"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:99:19:WheelSpec",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 99,
+   "stratum": "real",
+   "tier": "tail",
+   "target": "WheelSpec",
+   "got": "WheelSpec",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/sandbox_gallery.py:98:19:reg_get",
+   "origin": "scripts/behaviors/sandbox_gallery.py",
+   "line": 98,
+   "stratum": "real",
+   "tier": "head",
+   "target": "reg_get",
+   "got": "get_hull",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0101.py:33:12:clamp",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0101.py",
+   "line": 33,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "clamp",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0050.py:60:36:KEY_C",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0050.py",
+   "line": 60,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_C",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:7:17:Vec3",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 7,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "get_forward",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0006.py:17:39:KEY_C",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0006.py",
+   "line": 17,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_C",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:20:51:Vec3",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 20,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/sandbox_gallery.py:288:13:reg_get",
+   "origin": "scripts/behaviors/sandbox_gallery.py",
+   "line": 288,
+   "stratum": "real",
+   "tier": "head",
+   "target": "reg_get",
+   "got": "entity_transform",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0095.py:45:39:KEY_F11",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0095.py",
+   "line": 45,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F11",
+   "got": "KEY_P",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0049.py:15:52:EASE_QUAD_IN_OUT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0049.py",
+   "line": 15,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_QUAD_IN_OUT",
+   "got": "AUDIO_FADE_IN",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0048.py:59:34:BUS_VOICE",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0048.py",
+   "line": 59,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "BUS_VOICE",
+   "got": "AUDIO_BUS_MUSIC",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0012.py:25:36:KEY_RIGHT_ALT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0012.py",
+   "line": 25,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_RIGHT_ALT",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0001.py:50:36:KEY_DELETE",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0001.py",
+   "line": 50,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_DELETE",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0022.py:32:39:KEY_B",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0022.py",
+   "line": 32,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_B",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0108.py:27:39:KEY_E",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0108.py",
+   "line": 27,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_E",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0003.py:17:39:KEY_F4",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0003.py",
+   "line": 17,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F4",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0029.py:43:39:KEY_7",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0029.py",
+   "line": 43,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_7",
+   "got": "KEY_SEMICOLON",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0053.py:13:8:draw_ray",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0053.py",
+   "line": 13,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "draw_ray",
+   "got": "set_ui_group_opacity",
+   "verdict": "invented"
+  },
+  {
+   "id": "scripts/behaviors/attach_script_demo.py:4:46:attach_script",
+   "origin": "scripts/behaviors/attach_script_demo.py",
+   "line": 4,
+   "stratum": "real",
+   "tier": "head",
+   "target": "attach_script",
+   "got": "attach_script",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0076.py:35:52:EASE_QUAD_IN",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0076.py",
+   "line": 35,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_QUAD_IN",
+   "got": "AUDIOMODE_LOOP",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0099.py:15:8:observe_collisions",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0099.py",
+   "line": 15,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "observe_collisions",
+   "got": "set_ui_focus",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0076.py:55:39:KEY_F6",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0076.py",
+   "line": 55,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F6",
+   "got": "KEY_W",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:13:51:Vec3",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 13,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0096.py:14:36:KEY_GRAVE_ACCENT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0096.py",
+   "line": 14,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_GRAVE_ACCENT",
+   "got": "KEY",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0016.py:37:8:draw_ray",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0016.py",
+   "line": 37,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "draw_ray",
+   "got": "camera",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:135:28:Vec3",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 135,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/physics_gallery.py:319:42:Vec3",
+   "origin": "scripts/behaviors/physics_gallery.py",
+   "line": 319,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "Vec3",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0001.py:19:39:KEY_F10",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0001.py",
+   "line": 19,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F10",
+   "got": "KEY_SPACE",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0001.py:33:36:KEY_N",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0001.py",
+   "line": 33,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_N",
+   "got": "KEY_LSHIFT",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:19:4:observe_collisions",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 19,
+   "stratum": "stub",
+   "tier": "tail",
+   "target": "observe_collisions",
+   "got": "set_text",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:198:26:Quat",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 198,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Quat",
+   "got": "Quat",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0118.py:48:8:clear_collision_observers",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0118.py",
+   "line": 48,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "clear_collision_observers",
+   "got": "window",
+   "verdict": "wrong"
+  },
+  {
+   "id": "scripts/behaviors/vehicle_demo.py:140:8:camera",
+   "origin": "scripts/behaviors/vehicle_demo.py",
+   "line": 140,
+   "stratum": "real",
+   "tier": "head",
+   "target": "camera",
+   "got": "camera",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0044.py:45:52:EASE_QUAD_OUT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0044.py",
+   "line": 45,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_QUAD_OUT",
+   "got": "EASE_IN_OUT",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0019.py:48:12:to_radians",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0019.py",
+   "line": 48,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "to_radians",
+   "got": "get_paused",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0097.py:20:52:EASE_CUBIC_IN_OUT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0097.py",
+   "line": 20,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_CUBIC_IN_OUT",
+   "got": "EASING_IN_OUT_SINE",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0063.py:49:52:EASE_QUAD_IN",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0063.py",
+   "line": 49,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_QUAD_IN",
+   "got": "EASE_OUT_QUAD",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0030.py:20:12:is_sleeping",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0030.py",
+   "line": 20,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "is_sleeping",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:26:11:camera",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 26,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "camera",
+   "got": "camera",
+   "verdict": "correct"
+  },
+  {
+   "id": "scripts/behaviors/attach_script_demo.py:60:42:Vec3",
+   "origin": "scripts/behaviors/attach_script_demo.py",
+   "line": 60,
+   "stratum": "real",
+   "tier": "head",
+   "target": "Vec3",
+   "got": "V3",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:16:8:reg_get",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 16,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "reg_get",
+   "got": "get_behaviors",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0100.py:22:12:to_degrees",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0100.py",
+   "line": 22,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "to_degrees",
+   "got": "get",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:29:31:raycast",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 29,
+   "stratum": "stub",
+   "tier": "tail",
+   "target": "raycast",
+   "got": "raycast",
+   "verdict": "correct"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0081.py:69:12:scene_payload",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0081.py",
+   "line": 69,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "scene_payload",
+   "got": "input",
+   "verdict": "wrong"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:25:13:window",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 25,
+   "stratum": "stub",
+   "tier": "head",
+   "target": "window",
+   "got": "camera",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0076.py:27:38:MOUSE_RIGHT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0076.py",
+   "line": 27,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "MOUSE_RIGHT",
+   "got": "MOUSE_LEFT",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0086.py:30:38:MOUSE_RIGHT",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0086.py",
+   "line": 30,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "MOUSE_RIGHT",
+   "got": "INPUT_LEFT_MOUSE",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0104.py:21:36:KEY_F8",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0104.py",
+   "line": 21,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_F8",
+   "got": "KEY_E",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0076.py:52:12:to_radians",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0076.py",
+   "line": 52,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "to_radians",
+   "got": "reg_add",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0075.py:41:12:play_sound",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0075.py",
+   "line": 41,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "play_sound",
+   "got": "get_position",
+   "verdict": "wrong"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0007.py:54:52:EASE_LINEAR",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0007.py",
+   "line": 54,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "EASE_LINEAR",
+   "got": "EASE_IN_OUT",
+   "verdict": "invented"
+  },
+  {
+   "id": "typings/yope3d/__init__.pyi:6:18:clamp",
+   "origin": "typings/yope3d/__init__.pyi",
+   "line": 6,
+   "stratum": "stub",
+   "tier": "tail",
+   "target": "clamp",
+   "got": "get",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0063.py:23:12:play_music",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0063.py",
+   "line": 23,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "play_music",
+   "got": "vec3",
+   "verdict": "invented"
+  },
+  {
+   "id": "fim-finetuning/corpus/probe_synth/synth_0061.py:47:39:KEY_TAB",
+   "origin": "fim-finetuning/corpus/probe_synth/synth_0061.py",
+   "line": 47,
+   "stratum": "synth",
+   "tier": "tail",
+   "target": "KEY_TAB",
+   "got": "KEY_APOSTROPHE",
+   "verdict": "wrong"
+  }
+ ],
+ "p50_ms": 861.4672504991177
+}
