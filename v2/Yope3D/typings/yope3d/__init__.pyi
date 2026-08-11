@@ -1870,6 +1870,18 @@ class World:
             The created entities (one per primitive, plus the synthesized
             anchor/holder entity when one was needed).
         """
+    def save_scene(self, path: str) -> bool:
+        """Write the live world to ``path`` (asset-relative), plus its sidecars.
+
+        Emits ``<scene>.yscene`` and, as needed, ``<scene>.ymesh`` (bulky geometry
+        and per-vertex skin influences) and ``<scene>.yskel`` (skeletons + skinned
+        clips). A skinned character saved this way reloads animating rather than
+        in bind pose.
+
+        The editor's Save is the usual entry point; this exists so a script can
+        drive a save/reload round-trip without a UI.
+        """
+
     def play_skin_clip(self, entity: Entity, clip: str, fade: float = 0.0,
                        loop: bool = True) -> bool:
         """Play a skinned clip on ``entity``, cross-fading over ``fade`` seconds.

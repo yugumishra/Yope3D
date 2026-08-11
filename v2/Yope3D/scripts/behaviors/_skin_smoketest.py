@@ -20,6 +20,7 @@ class SkinSmoketest:
         print("[skin_smoketest] init")
         self.t = 0.0
         self.reported = False
+        self.saved = False
 
         # Ground for the shadow to land on, top surface flush with y=0 (the
         # model's feet). add_static_aabb is COLLISION ONLY — every add_* physics
@@ -85,6 +86,17 @@ class SkinSmoketest:
 
     def update(self, world, entity, dt):
         self.t += dt
+
+        # Save/reload round-trip check (opt-in via YOPE_SKIN_SAVE). Proves the
+        # .ymesh v2 skin block and the .yskel sidecar actually carry a character
+        # across a save — the thing that used to reload as a bind-pose statue.
+        if not self.saved and self.t > 1.5:
+            self.saved = True
+            import os
+            if os.environ.get("YOPE_SKIN_SAVE"):
+                ok = world.save_scene("scenes/_skin_roundtrip.yscene")
+                print(f"[skin_smoketest] save_scene -> {ok}")
+
         if not self.reported and self.t > 3.0:
             self.reported = True
             playing = world.is_skin_playing(self.skinned) if self.skinned else False

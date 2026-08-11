@@ -12,6 +12,7 @@
 #include "audio/Source.h"
 #include "scene/SceneManager.h"
 #include "scene/serialization/SceneSerializer.h"
+#include "assets/AssetResolve.h"
 #include "scripting/Settings.h"
 #include "platform/BundlePaths.h"
 #include "physics/CollisionLayers.h"
@@ -224,6 +225,15 @@ void bind_world(py::module_& m) {
         // ecs::AnimationPlayer / World::attachAnimation). Returns the attached
         // clip's key, or "" on failure.
         .def("attach_animation", &World::attachAnimation, py::arg("entity"), py::arg("path"))
+        // Write the live world to a .yscene (+ its .ymesh / .yskel sidecars).
+        // `path` is asset-relative, mirroring add_model / load_scene. The editor's
+        // Save is the usual entry point; this exists so a script can drive a
+        // save/reload round-trip without a UI.
+        .def("save_scene",
+             [](World& w, const std::string& path) {
+                 return SceneSerializer::save(assets::resolveFilesystemPath(path).c_str(),
+                                              w.getRegistry(), w);
+             }, py::arg("path"))
         // ---- Skinned animation (M16) ----
         // Entity-addressed: the engine resolves the SkinnedMeshRenderer to a pool
         // handle internally, so scripts never hold one.

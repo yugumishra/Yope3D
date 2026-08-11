@@ -17,6 +17,7 @@
 #include "assets/AssetManager.h"
 #include "assets/AssetResolve.h"
 #include "assets/GltfLoader.h"
+#include "SkeletonBlob.h"
 #include "Engine.h"
 #ifdef YOPE_EDITOR
 #include "editor/panels/ConsolePanel.h"
@@ -407,7 +408,7 @@ static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& en
     auto ensureBinOpen = [&]() -> std::ofstream& {
         if (!bin.is_open()) {
             bin.open(binPath, std::ios::binary);
-            if (bin) { const char hdr[8] = {'Y','S','M','B', 1, 0, 0, 0}; bin.write(hdr, 8); }
+            if (bin) { const char hdr[8] = {'Y','S','M','B', 2, 0, 0, 0}; bin.write(hdr, 8); }
         }
         return bin;
     };
@@ -521,10 +522,27 @@ static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& en
                                       static_cast<std::streamsize>(verts.size() * sizeof(Vertex)));
                             bin.write(reinterpret_cast<const char*>(inds.data()),
                                       static_cast<std::streamsize>(inds.size() * sizeof(uint32_t)));
+                            // v2: optional per-vertex skin block, joints then
+                            // weights. Presence is advertised by `infl` in the
+                            // JSON rather than by the file version, so a v1
+                            // sidecar (which never carries the key) reads through
+                            // this path completely unchanged.
+                            const uint8_t infl = mr->mesh->influenceCount;
+                            const size_t  need = verts.size() * infl;
+                            const bool hasSkin = infl > 0
+                                && mr->mesh->cpuSkinJoints.size()  >= need
+                                && mr->mesh->cpuSkinWeights.size() >= need;
+                            if (hasSkin) {
+                                bin.write(reinterpret_cast<const char*>(mr->mesh->cpuSkinJoints.data()),
+                                          static_cast<std::streamsize>(need));
+                                bin.write(reinterpret_cast<const char*>(mr->mesh->cpuSkinWeights.data()),
+                                          static_cast<std::streamsize>(need));
+                            }
                             w.writeKey("geom");
                             w.beginObject();
                             w.writeUInt("vc", static_cast<unsigned>(verts.size()));
                             w.writeUInt("ic", static_cast<unsigned>(inds.size()));
+                            if (hasSkin) w.writeUInt("infl", static_cast<unsigned>(infl));
                             w.endObject();
                         } else {
                             // Legacy inline format: flat [pos.xyz, normal.xyz, uv.xy] per vertex.
@@ -537,6 +555,22 @@ static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& en
                             }
                             w.writePackedFloats("vertices", flat.data(), flat.size());
                             w.writePackedUInts("indices", inds.data(), inds.size());
+                            // Skin data has to ride the inline path too. A mesh
+                            // below kMeshBinVertexThreshold never touches the
+                            // .ymesh sidecar, so putting the skin block only
+                            // there silently drops skinning for small rigs.
+                            const uint8_t inflI = mr->mesh->influenceCount;
+                            const size_t  needI = verts.size() * inflI;
+                            if (inflI > 0 && mr->mesh->cpuSkinJoints.size()  >= needI
+                                          && mr->mesh->cpuSkinWeights.size() >= needI) {
+                                std::vector<uint32_t> sj(mr->mesh->cpuSkinJoints.begin(),
+                                                         mr->mesh->cpuSkinJoints.begin() + needI);
+                                std::vector<uint32_t> sw(mr->mesh->cpuSkinWeights.begin(),
+                                                         mr->mesh->cpuSkinWeights.begin() + needI);
+                                w.writeUInt("infl", static_cast<unsigned>(inflI));
+                                w.writePackedUInts("skinJoints",  sj.data(), sj.size());
+                                w.writePackedUInts("skinWeights", sw.data(), sw.size());
+                            }
                         }
                     }
                 }
@@ -593,6 +627,38 @@ static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& en
     w.endArray();  // entities
 
     return bin.is_open();
+}
+
+// Writes (or removes) the <scene>.yskel sidecar holding this world's skeletons
+// and skinned clips. Written from save() only — NOT from saveEntities(), because
+// a template must not carry the world's whole clip library along with it.
+//
+// Every registered skeleton/clip is emitted rather than only those referenced by
+// the saved entities: clip keys and skeleton keys are independent strings with no
+// reliable link between them, so filtering by reference would silently drop the
+// other clips of a character that the inspector's dropdown still offers. The
+// over-inclusion is bounded by what the session actually imported.
+static void writeSkeletonSidecar(const char* scenePath, World& world) {
+    std::string skelPath =
+        std::filesystem::path(scenePath).replace_extension(".yskel").string();
+
+    skelblob::Payload payload;
+    for (const auto& [key, sk] : world.skeletons())
+        if (sk) payload.skeletons.push_back({ key, *sk });
+    for (const auto& [key, clip] : world.skinnedClips())
+        if (clip) payload.clips.push_back({ key, *clip });
+
+    std::vector<uint8_t> bytes = skelblob::encode(payload);
+    if (bytes.empty()) {
+        // No skeletons this save — drop any sidecar a previous save left behind,
+        // or a later load would resurrect stale rigs.
+        std::error_code ec;
+        std::filesystem::remove(skelPath, ec);
+        return;
+    }
+    std::ofstream f(skelPath, std::ios::binary);
+    if (f) f.write(reinterpret_cast<const char*>(bytes.data()),
+                   static_cast<std::streamsize>(bytes.size()));
 }
 
 // Drops a stale .ymesh sidecar from a previous save when this save wrote
@@ -654,6 +720,7 @@ bool save(const char* path, ecs::Registry& reg, World& world) {
     w.endObject();  // root
 
     cleanupStaleBin(binPath, wroteBin);
+    writeSkeletonSidecar(path, world);
 
     std::ofstream f(path);
     if (!f.is_open()) return false;
@@ -1115,6 +1182,19 @@ bool parseEntityNode(const JsonNode& entNode, SubParse& out,
                 bool ok = true;
                 if (vc) ok = ok && meshBin.read(snap.cpuVerts.data(), vc * sizeof(Vertex));
                 if (ic) ok = ok && meshBin.read(snap.cpuInds.data(), ic * sizeof(uint32_t));
+                // v2 skin block. Absent on v1 sidecars, so the cursor stays in
+                // step for every following mesh either way — which is the whole
+                // reason presence is keyed off the JSON and not the version byte.
+                const uint32_t infl = g.contains("infl") ? g["infl"].asUInt() : 0;
+                if (ok && infl) {
+                    const size_t need = size_t(vc) * infl;
+                    snap.skinJoints.resize(need);
+                    snap.skinWeights.resize(need);
+                    ok = ok && meshBin.read(snap.skinJoints.data(), need);
+                    ok = ok && meshBin.read(snap.skinWeights.data(), need);
+                    if (ok) snap.influenceCount = static_cast<uint8_t>(infl);
+                    else { snap.skinJoints.clear(); snap.skinWeights.clear(); }
+                }
                 if (!ok) { snap.cpuVerts.clear(); snap.cpuInds.clear(); }  // short read → fallback
             }
             else if (mr.contains("vertices") && mr.contains("indices")) {
@@ -1132,6 +1212,24 @@ bool parseEntityNode(const JsonNode& entNode, SubParse& out,
                 snap.cpuInds.reserve(iarr.size());
                 for (const auto& idx : iarr)
                     snap.cpuInds.push_back(static_cast<uint32_t>(idx.asInt()));
+
+                // Inline skin block (see the writer). Sits next to the geometry
+                // rather than in the sidecar for meshes under the bin threshold.
+                if (mr.contains("infl") && mr.contains("skinJoints") && mr.contains("skinWeights")) {
+                    const uint32_t infl = mr["infl"].asUInt();
+                    const auto& ja = mr["skinJoints"].asArray();
+                    const auto& wa = mr["skinWeights"].asArray();
+                    const size_t need = snap.cpuVerts.size() * infl;
+                    if (infl > 0 && ja.size() >= need && wa.size() >= need) {
+                        snap.influenceCount = static_cast<uint8_t>(infl);
+                        snap.skinJoints.resize(need);
+                        snap.skinWeights.resize(need);
+                        for (size_t i = 0; i < need; ++i) {
+                            snap.skinJoints[i]  = static_cast<uint8_t>(ja[i].asUInt());
+                            snap.skinWeights[i] = static_cast<uint8_t>(wa[i].asUInt());
+                        }
+                    }
+                }
             }
         }
     }
@@ -1207,6 +1305,22 @@ ParsedScene parseScene(const char* path) {
     // Runs once over the fully-expanded entity list (including any spliced-in
     // template references), not per nested file, so a nested template's own glb
     // materials aren't scanned twice.
+    // Skeletons + skinned clips (<scene>.yskel). Absent for any scene with no
+    // characters in it, which is not an error.
+    {
+        std::string skelRelPath =
+            std::filesystem::path(relPath).replace_extension(".yskel").generic_string();
+        std::vector<uint8_t> skelBytes = assets::readBytes(skelRelPath);
+        if (!skelBytes.empty() && !skelblob::decode(skelBytes, out.skel)) {
+            // A truncated blob keeps whatever parsed cleanly; the affected
+            // characters fall back to bind pose rather than failing the load.
+#ifdef YOPE_EDITOR
+            Console::log("Scene: .yskel sidecar is corrupt or truncated (" + skelRelPath + ")",
+                         LogSeverity::Warning);
+#endif
+        }
+    }
+
     {
         std::set<std::string> glbPaths;
         auto scan = [&](const char* p) {
@@ -1337,10 +1451,55 @@ static void resolveCrossReferences(ParsedScene& ps, ecs::Registry& reg) {
     }
 }
 
+// Re-establishes skinning for entities restored from a scene file: registers the
+// scene's skeletons and clips, then gives each skinned entity a live SkinInstance
+// and re-uploads its influences. Without this a saved character loads as a
+// bind-pose statue — the component and geometry survive, but the SkinInstance
+// pool is runtime-only and starts empty.
+//
+// Order matters: skeletons must be registered before createSkinInstance, which
+// resolves them by key.
+static void restoreSkinning(ParsedScene& ps, World& world) {
+    for (const auto& ns : ps.skel.skeletons)
+        if (!world.skeleton(ns.key)) world.registerSkeleton(ns.key, ns.skeleton);
+    for (const auto& nc : ps.skel.clips)
+        if (!world.skinnedClip(nc.key)) world.registerSkinnedClip(nc.key, nc.clip);
+
+    ecs::Registry& reg = world.getRegistry();
+    for (const auto& ent : ps.entities) {
+        if (!ent.snap.hasSkinnedMeshRenderer) continue;
+        if (ent.snap.influenceCount == 0 || ent.snap.skinJoints.empty()) continue;
+
+        auto it = ps.fileIdToEntity.find(ent.fileId);
+        if (it == ps.fileIdToEntity.end() || !reg.valid(it->second)) continue;
+        ecs::Entity e = it->second;
+
+        auto* smr = reg.get<ecs::SkinnedMeshRenderer>(e);
+        auto* mr  = reg.get<ecs::MeshRenderer>(e);
+        if (!smr || !mr || !mr->mesh) continue;
+
+        const int handle = world.createSkinInstance(smr->skeleton);
+        if (handle < 0) continue;   // skeleton missing from the sidecar
+
+        LoadedMesh src;
+        src.influenceCount = ent.snap.influenceCount;
+        src.skinJoints     = ent.snap.skinJoints;
+        src.skinWeights    = ent.snap.skinWeights;
+        if (!world.attachSkin(mr->mesh, src, handle)) {
+            world.destroySkinInstance(handle);
+            continue;
+        }
+        smr->instance = handle;
+        if (smr->clip[0] && world.skinnedClip(smr->clip))
+            world.playSkinClip(handle, smr->clip, 0.0f, smr->loop != 0);
+    }
+}
+
 void commitFinalize(ParsedScene& ps, World& world,
                     AudioSystem* audio, AssetManager* assets, bool startAudio) {
     ecs::Registry& reg = world.getRegistry();
     resolveCrossReferences(ps, reg);
+    restoreSkinning(ps, world);
 
     // Reconstruct physics springs from resolved SpringConstraint components.
     for (auto [e, sc] : reg.view<ecs::SpringConstraint>()) {
@@ -1404,6 +1563,7 @@ void commitFinalizeScoped(ParsedScene& ps, World& world,
                          AudioSystem* audio, AssetManager* assets, bool startAudio) {
     ecs::Registry& reg = world.getRegistry();
     resolveCrossReferences(ps, reg);
+    restoreSkinning(ps, world);
 
     // Reconstruct physics springs/joints ONLY for entities just committed — see the
     // declaration comment in SceneSerializer.h for why this must not walk the whole

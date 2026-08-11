@@ -131,6 +131,13 @@ public:
     int             skinInstance    = -1;
     uint8_t         influenceCount  = 0;   // 0 = unskinned; else 4 or 8
 
+    // CPU-side copy of the influences, retained for the same reason cpuVertices
+    // is: the scene serializer has to write them to the .ymesh sidecar, and the
+    // GPU buffer is device-local and unreadable. influenceCount entries per
+    // vertex each, parallel to cpuVertices.
+    std::vector<uint8_t> cpuSkinJoints;
+    std::vector<uint8_t> cpuSkinWeights;
+
     // Compute descriptor set for this mesh's src/skin/dst bindings. Static once
     // written (the three buffers never change), so it is allocated once by the
     // Renderer rather than per frame. The pool handle is retained non-owning

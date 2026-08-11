@@ -33,6 +33,7 @@
 #include "scene/serialization/ComponentSerializers.h"
 #include "scene/serialization/JsonWriter.h"
 #include "scene/serialization/JsonParser.h"
+#include "scene/serialization/SkeletonBlob.h"
 
 #include <string>
 #include <vector>
@@ -616,4 +617,96 @@ TEST_CASE("every serializable component is covered by a round-trip case", "[ser]
     };
     // Bump this when adding a serializer (and add the case + the name above).
     CHECK(covered.size() == 30);
+}
+
+// ============================================================================
+// Skeletal asset sidecar (.yskel) — M16 persistence.
+// ============================================================================
+
+TEST_CASE("yskel: skeleton + clip round-trip", "[ser][skin][yskel]") {
+    skelblob::Payload in;
+
+    anim::Skeleton sk;
+    sk.parent      = { -1, 0, 1 };
+    sk.names       = { "root", "spine", "head" };
+    sk.bindLocal.resize(3);
+    sk.bindLocal[1].position = { 0.0f, 1.5f, 0.0f };
+    sk.bindLocal[2].rotation = math::Quat::fromAxisAngle(math::Vec3{0, 0, 1}, 0.5f);
+    sk.bindLocal[2].scale    = { 2.0f, 2.0f, 2.0f };
+    sk.inverseBind.resize(3);
+    sk.inverseBind[1] = math::Mat4::translate({ 0.0f, -1.5f, 0.0f });
+    in.skeletons.push_back({ "hero:Armature", sk });
+
+    anim::Clip clip;
+    clip.duration = 1.25f;
+    anim::Channel ch;
+    ch.targetNode = 2;
+    ch.path       = anim::Path::Rotation;
+    ch.interp     = anim::Interp::CubicSpline;
+    ch.times      = { 0.0f, 0.5f, 1.25f };
+    ch.values     = { 0,0,0,1,  0,0,0.5f,0.5f,  0,0,1,0 };
+    clip.channels.push_back(ch);
+    in.clips.push_back({ "hero:Run", clip });
+
+    std::vector<uint8_t> bytes = skelblob::encode(in);
+    REQUIRE(!bytes.empty());
+
+    skelblob::Payload out;
+    REQUIRE(skelblob::decode(bytes, out));
+
+    REQUIRE(out.skeletons.size() == 1);
+    const auto& g = out.skeletons[0];
+    CHECK(g.key == "hero:Armature");
+    CHECK(g.skeleton.parent == std::vector<int>{ -1, 0, 1 });
+    CHECK(g.skeleton.names[2] == "head");
+    eqF(g.skeleton.bindLocal[1].position.y, 1.5f);
+    eqF(g.skeleton.bindLocal[2].scale.x,    2.0f);
+    eqF(g.skeleton.bindLocal[2].rotation.z, sk.bindLocal[2].rotation.z);
+    eqF(g.skeleton.inverseBind[1].m[13],   -1.5f);
+    // The invariant buildPalette depends on must survive the round-trip.
+    CHECK(g.skeleton.isTopologicallyOrdered());
+
+    REQUIRE(out.clips.size() == 1);
+    const auto& c = out.clips[0];
+    CHECK(c.key == "hero:Run");
+    eqF(c.clip.duration, 1.25f);
+    REQUIRE(c.clip.channels.size() == 1);
+    CHECK(c.clip.channels[0].targetNode == 2);
+    CHECK(c.clip.channels[0].path   == anim::Path::Rotation);
+    CHECK(c.clip.channels[0].interp == anim::Interp::CubicSpline);
+    REQUIRE(c.clip.channels[0].times.size()  == 3);
+    REQUIRE(c.clip.channels[0].values.size() == 12);
+    eqF(c.clip.channels[0].times.back(),  1.25f);
+    eqF(c.clip.channels[0].values[6],     0.5f);
+}
+
+TEST_CASE("yskel: empty payload writes no file, junk decodes false", "[ser][skin][yskel]") {
+    // An empty payload must produce zero bytes so scenes with no characters never
+    // gain a sidecar (and save() removes any stale one).
+    CHECK(skelblob::encode(skelblob::Payload{}).empty());
+
+    skelblob::Payload out;
+    CHECK_FALSE(skelblob::decode({}, out));
+    CHECK_FALSE(skelblob::decode({'N','O','P','E', 1, 0, 0, 0}, out));
+    // Right magic, wrong version — must be refused rather than misparsed.
+    CHECK_FALSE(skelblob::decode({'Y','S','K','L', 99, 0, 0, 0}, out));
+}
+
+TEST_CASE("yskel: truncated blob keeps what parsed and reports failure", "[ser][skin][yskel]") {
+    skelblob::Payload in;
+    anim::Skeleton sk;
+    sk.parent = { -1 };
+    sk.names  = { "root" };
+    sk.bindLocal.resize(1);
+    sk.inverseBind.resize(1);
+    in.skeletons.push_back({ "a:Rig", sk });
+
+    std::vector<uint8_t> bytes = skelblob::encode(in);
+    REQUIRE(bytes.size() > 16);
+    bytes.resize(bytes.size() - 4);   // lop off the tail
+
+    skelblob::Payload out;
+    // Reports failure rather than asserting; a corrupt sidecar degrades a
+    // character to bind pose instead of failing the whole scene load.
+    CHECK_FALSE(skelblob::decode(bytes, out));
 }

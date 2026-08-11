@@ -279,6 +279,7 @@ set(ENGINE_SOURCES
     src/scene/serialization/JsonParser.cpp
     src/scene/serialization/ComponentSerializers.cpp
     src/scene/serialization/SceneSerializer.cpp
+    src/scene/serialization/SkeletonBlob.cpp
     src/debug/Profiler.cpp
     src/debug/Console.cpp
     src/debug/TaskProgress.cpp
@@ -626,6 +627,8 @@ add_executable(yope_serialization_tests
     src/scene/serialization/ComponentSerializers.cpp
     src/scene/serialization/JsonWriter.cpp
     src/scene/serialization/JsonParser.cpp
+    src/scene/serialization/SkeletonBlob.cpp   # .yskel codec — engine-include-free
+    src/assets/Skeleton.cpp                    # isTopologicallyOrdered, asserted post-round-trip
     src/ecs/Registry.cpp
     src/math/MathImpl.cpp
 )

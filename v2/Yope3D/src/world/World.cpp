@@ -2117,6 +2117,13 @@ bool World::attachSkin(RenderMesh* mesh, const LoadedMesh& src, int instanceHand
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
+    // Retain the CPU copy so the scene serializer can write it out — the GPU
+    // buffer above is device-local and cannot be read back.
+    mesh->cpuSkinJoints.assign(src.skinJoints.begin(),
+                               src.skinJoints.begin() + size_t(verts) * infl);
+    mesh->cpuSkinWeights.assign(src.skinWeights.begin(),
+                                src.skinWeights.begin() + size_t(verts) * infl);
+
     mesh->influenceCount = static_cast<uint8_t>(infl);
     mesh->skinInstance   = instanceHandle;
     return true;

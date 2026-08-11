@@ -4,6 +4,7 @@
 #include <map>
 #include <cstdint>
 #include "scene/ComponentSnapshot.h"
+#include "scene/serialization/SkeletonBlob.h"
 #include "math/Vec3.h"
 
 class World;
@@ -108,6 +109,11 @@ struct ParsedScene {
     // the main thread in commitFinalize.
     struct GlbImage { std::string key; bool srgb = true; std::vector<uint8_t> bytes; };
     std::vector<GlbImage> glbImages;
+
+    // <scene>.yskel — the scene's skeletons and skinned clips. Registered into
+    // the World by commitFinalize BEFORE any SkinInstance is created, since
+    // createSkinInstance resolves its skeleton by key.
+    skelblob::Payload skel;
 
     // Incremental-commit state (populated during commit; ignored by parseScene).
     bool                            begun  = false;

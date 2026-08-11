@@ -363,6 +363,9 @@ public:
     const std::unordered_map<std::string, std::unique_ptr<anim::Clip>>& skinnedClips() const {
         return skinnedClips_;
     }
+    const std::unordered_map<std::string, std::unique_ptr<anim::Skeleton>>& skeletons() const {
+        return skeletons_;
+    }
     // Scrub support for the inspector: current playback time of the incoming clip.
     float skinTime(int handle) const;
     void  setSkinTime(int handle, float t);

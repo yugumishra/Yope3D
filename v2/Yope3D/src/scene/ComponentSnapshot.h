@@ -44,6 +44,15 @@ struct ComponentSnapshot {
     std::vector<uint32_t> cpuInds;
     std::string meshSourcePath;  // Absolute .obj path; non-empty only for drag-dropped meshes
 
+    // Per-vertex influences, carried through save/load so a skinned character
+    // reloads deforming rather than as a bind-pose statue. Empty for every
+    // unskinned mesh, which is why a v1 .ymesh (no skin block) round-trips
+    // unchanged. Restored by commitFinalize, not by restore() — attachSkin needs
+    // a SkinInstance, which needs the skeleton registered first.
+    uint8_t              influenceCount = 0;
+    std::vector<uint8_t> skinJoints;
+    std::vector<uint8_t> skinWeights;
+
     // PBR material (resolved GPU handle is never snapshotted; re-resolved on restore)
     bool hasMaterial = false;  ecs::Material material;
 
