@@ -84,6 +84,12 @@ TEST_CASE("glTF node keeps local TRS; verts stay mesh-local (Option B)", "[gltf]
     CHECK(m.vertices.size() == 3);
     CHECK(m.indices.size() == 3);
 
+    // An unskinned primitive must stay unskinned — influenceCount 0 is what the
+    // rest of the engine tests to decide whether a mesh needs the skinning path.
+    CHECK(m.influenceCount == 0);
+    CHECK(m.skinJoints.empty());
+    CHECK(m.skinWeights.empty());
+
     // Vertices are RAW/local — the (5,0,0) translation is NOT baked in.
     CHECK(approx(m.vertices[0].position[0], 0.0f));
     CHECK(approx(m.vertices[1].position[0], 1.0f));
@@ -290,6 +296,352 @@ TEST_CASE("glTF rigid animation: LINEAR translation + CUBICSPLINE scale, node re
     CHECK(approx(s0.x, 0.0f));
     CHECK(approx(s1.x, 2.0f));
     CHECK(approx(sm.x, 1.0f));
+}
+
+// ---------------------------------------------------------------------------
+// Skinning (M16). Fixtures below share a 3-vertex triangle at buffer offset 0 and
+// 3 uint16 indices at 36, padded to 44 so the following views stay 4-byte aligned.
+// ---------------------------------------------------------------------------
+
+static void pushFloat(std::vector<uint8_t>& buf, float f) {
+    uint8_t p[4]; std::memcpy(p, &f, 4);
+    for (int i = 0; i < 4; ++i) buf.push_back(p[i]);
+}
+
+// POSITION [0,36) + indices [36,42) + 2 bytes of padding, leaving size == 44.
+static std::vector<uint8_t> triangleHead() {
+    std::vector<uint8_t> buf;
+    const float pos[9] = {0,0,0,  1,0,0,  0,1,0};
+    for (float f : pos) pushFloat(buf, f);
+    const uint16_t idx[3] = {0, 1, 2};
+    for (uint16_t v : idx) { buf.push_back(uint8_t(v & 0xFF)); buf.push_back(uint8_t(v >> 8)); }
+    buf.push_back(0); buf.push_back(0);
+    return buf;
+}
+
+static std::string dataUri(const std::vector<uint8_t>& buf) {
+    return "data:application/octet-stream;base64," + b64(buf);
+}
+
+// Sums one vertex's quantised weights. The packer's contract is that this is
+// exactly 255 — see LoadedMesh.
+static int weightSum(const LoadedMesh& m, size_t vertex) {
+    int s = 0;
+    for (int k = 0; k < m.influenceCount; ++k)
+        s += m.skinWeights[vertex * m.influenceCount + k];
+    return s;
+}
+
+// One skinned triangle: 2 joints, per-vertex influences chosen to exercise the
+// quantiser (clean split / single influence / a pair that naively rounds to 256).
+// Node layout deliberately mismatches glTF node order against traversal order so
+// the joint remap is actually tested: scene root is glTF node 3 (a bare group)
+// whose children are [0,1,2], so gltfNodeToLocal ends up {1,2,3,0}.
+static std::string skinnedTriangleJson() {
+    std::vector<uint8_t> buf = triangleHead();
+
+    const uint8_t joints[12] = { 0,1,0,0,   1,0,0,0,   0,1,0,0 };
+    for (uint8_t j : joints) buf.push_back(j);                          // [44,56)
+
+    const float weights[12] = { 0.75f,0.25f,0,0,   1.0f,0,0,0,   0.5f,0.5f,0,0 };
+    for (float f : weights) pushFloat(buf, f);                          // [56,104)
+
+    // inverseBindMatrices, column-major: jointA = translate(-1,0,0),
+    // jointB = translate(0,-2,0). Distinct so a swapped/short read is visible.
+    const float ibm[32] = {
+        1,0,0,0,  0,1,0,0,  0,0,1,0,  -1, 0,0,1,
+        1,0,0,0,  0,1,0,0,  0,0,1,0,   0,-2,0,1,
+    };
+    for (float f : ibm) pushFloat(buf, f);                              // [104,232)
+
+    return std::string(R"({
+      "asset":{"version":"2.0"},
+      "scene":0,
+      "scenes":[{"nodes":[3]}],
+      "nodes":[
+        {"mesh":0,"skin":0},
+        {"name":"jointA"},
+        {"name":"jointB"},
+        {"children":[0,1,2]}
+      ],
+      "skins":[{"name":"rig","skeleton":1,"joints":[1,2],"inverseBindMatrices":4}],
+      "meshes":[{"primitives":[{"attributes":{"POSITION":0,"JOINTS_0":2,"WEIGHTS_0":3},"indices":1}]}],
+      "accessors":[
+        {"bufferView":0,"componentType":5126,"count":3,"type":"VEC3"},
+        {"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"},
+        {"bufferView":2,"componentType":5121,"count":3,"type":"VEC4"},
+        {"bufferView":3,"componentType":5126,"count":3,"type":"VEC4"},
+        {"bufferView":4,"componentType":5126,"count":2,"type":"MAT4"}
+      ],
+      "bufferViews":[
+        {"buffer":0,"byteOffset":0,"byteLength":36},
+        {"buffer":0,"byteOffset":36,"byteLength":6},
+        {"buffer":0,"byteOffset":44,"byteLength":12},
+        {"buffer":0,"byteOffset":56,"byteLength":48},
+        {"buffer":0,"byteOffset":104,"byteLength":128}
+      ],
+      "buffers":[{"byteLength":232,"uri":")") + dataUri(buf) + R"("}]
+    })";
+}
+
+TEST_CASE("glTF skin: joints and skeleton remap to node indices, inverse binds load", "[gltf][skin]") {
+    GltfLoader::LoadedModel model = loadJson(skinnedTriangleJson());
+
+    REQUIRE(model.nodes.size() == 4);
+    REQUIRE(model.skins.size() == 1);
+    const GltfLoader::LoadedSkin& sk = model.skins[0];
+    CHECK(sk.name == "rig");
+
+    // Traversal order (group first, then children 0,1,2) means glTF joints [1,2]
+    // must land on LoadedModel indices [2,3] — NOT verbatim.
+    REQUIRE(sk.joints.size() == 2);
+    CHECK(sk.joints[0] == 2);
+    CHECK(sk.joints[1] == 3);
+    CHECK(model.nodes[sk.joints[0]].name == "jointA");
+    CHECK(model.nodes[sk.joints[1]].name == "jointB");
+    CHECK(sk.skeletonRoot == 2);
+
+    // The mesh node is glTF node 0, which traversal visited second.
+    CHECK(model.nodes[1].skin == 0);
+    REQUIRE(model.nodes[1].meshes.size() == 1);
+
+    REQUIRE(sk.inverseBind.size() == 2);
+    CHECK(approx(sk.inverseBind[0].m[12], -1.0f));
+    CHECK(approx(sk.inverseBind[1].m[13], -2.0f));
+    CHECK(approx(sk.inverseBind[0].m[0],   1.0f));   // column-major copy, not transposed
+    CHECK(approx(sk.inverseBind[1].m[12],  0.0f));
+}
+
+TEST_CASE("glTF skin weights: exact 255 sum, largest last, zero-padded front", "[gltf][skin]") {
+    GltfLoader::LoadedModel model = loadJson(skinnedTriangleJson());
+    REQUIRE(model.nodes.size() == 4);
+    REQUIRE(model.nodes[1].meshes.size() == 1);
+    const LoadedMesh& m = model.nodes[1].meshes[0];
+
+    // Only two influences are ever used, so the mesh stays 4-wide.
+    REQUIRE(m.influenceCount == 4);
+    REQUIRE(m.skinJoints.size()  == 12);
+    REQUIRE(m.skinWeights.size() == 12);
+    CHECK(m.truncatedVertices == 0);
+
+    // v0: 0.75/0.25 on joints 0/1. Largest last, padding at the front.
+    CHECK(m.skinWeights[0] == 0);   CHECK(m.skinWeights[1] == 0);
+    CHECK(m.skinWeights[2] == 64);  CHECK(m.skinWeights[3] == 191);
+    CHECK(m.skinJoints[2]  == 1);   CHECK(m.skinJoints[3]  == 0);
+
+    // v1: a single full-weight influence occupies only the last slot.
+    CHECK(m.skinWeights[4] == 0); CHECK(m.skinWeights[5] == 0); CHECK(m.skinWeights[6] == 0);
+    CHECK(m.skinWeights[7] == 255);
+    CHECK(m.skinJoints[7]  == 1);
+
+    // v2: 0.5/0.5 rounds to 128+128 = 256 naively. The remainder must be absorbed
+    // so the pair still sums to exactly 255 (which of the tied pair takes the hit
+    // is unspecified, so assert the invariant rather than the split).
+    CHECK(m.skinWeights[8] == 0); CHECK(m.skinWeights[9] == 0);
+    CHECK(m.skinWeights[10] + m.skinWeights[11] == 255);
+
+    for (size_t v = 0; v < 3; ++v) CHECK(weightSum(m, v) == 255);
+}
+
+TEST_CASE("glTF skin: an all-zero JOINTS_1 set does not widen the mesh to 8", "[gltf][skin]") {
+    // Exporters routinely emit a second influence set that carries no weight.
+    // Width comes from what vertices actually use, not from attribute presence.
+    std::vector<uint8_t> buf = triangleHead();
+    const uint8_t j0[12] = { 0,1,0,0,  1,0,0,0,  0,1,0,0 };
+    for (uint8_t j : j0) buf.push_back(j);                              // [44,56)
+    const uint8_t j1[12] = { 0,0,0,0,  0,0,0,0,  0,0,0,0 };
+    for (uint8_t j : j1) buf.push_back(j);                              // [56,68)
+    const float w0[12] = { 0.75f,0.25f,0,0,  1.0f,0,0,0,  0.5f,0.5f,0,0 };
+    for (float f : w0) pushFloat(buf, f);                               // [68,116)
+    for (int i = 0; i < 12; ++i) pushFloat(buf, 0.0f);                  // [116,164)
+
+    std::string json = std::string(R"({
+      "asset":{"version":"2.0"},
+      "scene":0,
+      "scenes":[{"nodes":[0,1]}],
+      "nodes":[{"mesh":0,"skin":0},{"name":"j"}],
+      "skins":[{"joints":[1]}],
+      "meshes":[{"primitives":[{"attributes":{
+        "POSITION":0,"JOINTS_0":2,"WEIGHTS_0":4,"JOINTS_1":3,"WEIGHTS_1":5},"indices":1}]}],
+      "accessors":[
+        {"bufferView":0,"componentType":5126,"count":3,"type":"VEC3"},
+        {"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"},
+        {"bufferView":2,"componentType":5121,"count":3,"type":"VEC4"},
+        {"bufferView":3,"componentType":5121,"count":3,"type":"VEC4"},
+        {"bufferView":4,"componentType":5126,"count":3,"type":"VEC4"},
+        {"bufferView":5,"componentType":5126,"count":3,"type":"VEC4"}
+      ],
+      "bufferViews":[
+        {"buffer":0,"byteOffset":0,"byteLength":36},
+        {"buffer":0,"byteOffset":36,"byteLength":6},
+        {"buffer":0,"byteOffset":44,"byteLength":12},
+        {"buffer":0,"byteOffset":56,"byteLength":12},
+        {"buffer":0,"byteOffset":68,"byteLength":48},
+        {"buffer":0,"byteOffset":116,"byteLength":48}
+      ],
+      "buffers":[{"byteLength":164,"uri":")") + dataUri(buf) + R"("}]
+    })";
+
+    GltfLoader::LoadedModel model = loadJson(json);
+    REQUIRE(model.nodes.size() == 2);
+    REQUIRE(model.nodes[0].meshes.size() == 1);
+    const LoadedMesh& m = model.nodes[0].meshes[0];
+
+    CHECK(m.influenceCount == 4);
+    CHECK(m.truncatedVertices == 0);
+    CHECK(m.skinWeights.size() == 12);
+    for (size_t v = 0; v < 3; ++v) CHECK(weightSum(m, v) == 255);
+}
+
+TEST_CASE("glTF skin: influences past 8 are dropped and counted", "[gltf][skin]") {
+    // Three full sets = 12 non-zero influences on every vertex. The mesh widens to
+    // 8 and each vertex is reported as truncated.
+    std::vector<uint8_t> buf = triangleHead();
+    for (int set = 0; set < 3; ++set)                                   // [44,80)
+        for (int v = 0; v < 3; ++v)
+            for (int k = 0; k < 4; ++k)
+                buf.push_back(uint8_t(set * 4 + k));
+    for (int set = 0; set < 3; ++set)                                   // [80,224)
+        for (int i = 0; i < 12; ++i)
+            pushFloat(buf, 1.0f / 12.0f);
+
+    std::string json = std::string(R"({
+      "asset":{"version":"2.0"},
+      "scene":0,
+      "scenes":[{"nodes":[0,1]}],
+      "nodes":[{"mesh":0,"skin":0},{"name":"j"}],
+      "skins":[{"joints":[1]}],
+      "meshes":[{"primitives":[{"attributes":{
+        "POSITION":0,
+        "JOINTS_0":2,"JOINTS_1":3,"JOINTS_2":4,
+        "WEIGHTS_0":5,"WEIGHTS_1":6,"WEIGHTS_2":7},"indices":1}]}],
+      "accessors":[
+        {"bufferView":0,"componentType":5126,"count":3,"type":"VEC3"},
+        {"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"},
+        {"bufferView":2,"componentType":5121,"count":3,"type":"VEC4"},
+        {"bufferView":3,"componentType":5121,"count":3,"type":"VEC4"},
+        {"bufferView":4,"componentType":5121,"count":3,"type":"VEC4"},
+        {"bufferView":5,"componentType":5126,"count":3,"type":"VEC4"},
+        {"bufferView":6,"componentType":5126,"count":3,"type":"VEC4"},
+        {"bufferView":7,"componentType":5126,"count":3,"type":"VEC4"}
+      ],
+      "bufferViews":[
+        {"buffer":0,"byteOffset":0,"byteLength":36},
+        {"buffer":0,"byteOffset":36,"byteLength":6},
+        {"buffer":0,"byteOffset":44,"byteLength":12},
+        {"buffer":0,"byteOffset":56,"byteLength":12},
+        {"buffer":0,"byteOffset":68,"byteLength":12},
+        {"buffer":0,"byteOffset":80,"byteLength":48},
+        {"buffer":0,"byteOffset":128,"byteLength":48},
+        {"buffer":0,"byteOffset":176,"byteLength":48}
+      ],
+      "buffers":[{"byteLength":224,"uri":")") + dataUri(buf) + R"("}]
+    })";
+
+    GltfLoader::LoadedModel model = loadJson(json);
+    REQUIRE(model.nodes.size() == 2);
+    REQUIRE(model.nodes[0].meshes.size() == 1);
+    const LoadedMesh& m = model.nodes[0].meshes[0];
+
+    CHECK(m.influenceCount == 8);
+    CHECK(m.truncatedVertices == 3);
+    REQUIRE(m.skinWeights.size() == 24);
+    // Renormalising 8 equal influences still has to land on exactly 255.
+    for (size_t v = 0; v < 3; ++v) CHECK(weightSum(m, v) == 255);
+}
+
+TEST_CASE("glTF skin: joint indices marked normalized are rejected", "[gltf][skin]") {
+    // readFloats would decode a normalized u8 to [0,1], silently collapsing every
+    // joint index to 0. Refusing beats deforming the character onto one bone.
+    std::vector<uint8_t> buf = triangleHead();
+    const uint8_t j0[12] = { 0,1,0,0,  1,0,0,0,  0,1,0,0 };
+    for (uint8_t j : j0) buf.push_back(j);
+    const float w0[12] = { 0.75f,0.25f,0,0,  1.0f,0,0,0,  0.5f,0.5f,0,0 };
+    for (float f : w0) pushFloat(buf, f);
+
+    std::string json = std::string(R"({
+      "asset":{"version":"2.0"},
+      "scene":0,
+      "scenes":[{"nodes":[0,1]}],
+      "nodes":[{"mesh":0,"skin":0},{"name":"j"}],
+      "skins":[{"joints":[1]}],
+      "meshes":[{"primitives":[{"attributes":{"POSITION":0,"JOINTS_0":2,"WEIGHTS_0":3},"indices":1}]}],
+      "accessors":[
+        {"bufferView":0,"componentType":5126,"count":3,"type":"VEC3"},
+        {"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"},
+        {"bufferView":2,"componentType":5121,"count":3,"type":"VEC4","normalized":true},
+        {"bufferView":3,"componentType":5126,"count":3,"type":"VEC4"}
+      ],
+      "bufferViews":[
+        {"buffer":0,"byteOffset":0,"byteLength":36},
+        {"buffer":0,"byteOffset":36,"byteLength":6},
+        {"buffer":0,"byteOffset":44,"byteLength":12},
+        {"buffer":0,"byteOffset":56,"byteLength":48}
+      ],
+      "buffers":[{"byteLength":104,"uri":")") + dataUri(buf) + R"("}]
+    })";
+
+    CHECK_THROWS(loadJson(json));
+}
+
+TEST_CASE("glTF skin: the committed skinTest asset loads as a 2-bone rig", "[gltf][skin]") {
+    // The engine's only skinned asset (tools/gen_skin_test_asset.py). Guards the
+    // generator and the loader against each other — a change to either that broke
+    // the contract would otherwise only surface as a mangled character on screen.
+    std::string path = std::string(YOPE_ASSETS_DIR) + "/models/skinTest.gltf";
+    if (!std::filesystem::exists(path)) { WARN("skinTest.gltf not present; skipping"); return; }
+
+    GltfLoader::LoadedModel model = GltfLoader::load(path);
+
+    REQUIRE(model.skins.size() == 1);
+    const GltfLoader::LoadedSkin& sk = model.skins[0];
+    CHECK(sk.name == "TestRig");
+    REQUIRE(sk.joints.size() == 2);
+    REQUIRE(sk.inverseBind.size() == 2);
+    // bone0 at the origin, bone1 one unit up => inverse binds of 0 and -1 in y.
+    CHECK(approx(sk.inverseBind[0].m[13],  0.0f));
+    CHECK(approx(sk.inverseBind[1].m[13], -1.0f));
+
+    // Find the skinned mesh node.
+    const GltfLoader::LoadedNode* meshNode = nullptr;
+    for (const auto& n : model.nodes)
+        if (n.skin == 0 && !n.meshes.empty()) meshNode = &n;
+    REQUIRE(meshNode != nullptr);
+
+    // Flat-shaded: 4 side faces x 3 rings x 2 verts, plus 4-vert caps = 32.
+    const LoadedMesh& m = meshNode->meshes[0];
+    CHECK(m.vertices.size() == 32);
+    CHECK(m.influenceCount == 4);          // only 2 influences used => stays 4-wide
+    CHECK(m.truncatedVertices == 0);
+    REQUIRE(m.skinWeights.size() == 32 * 4);
+
+    // The invariant that matters everywhere downstream.
+    for (size_t v = 0; v < 32; ++v) {
+        INFO("vertex " << v);
+        int sum = 0;
+        for (int k = 0; k < 4; ++k) sum += m.skinWeights[v * 4 + k];
+        CHECK(sum == 255);
+    }
+
+    // Face 0 emits (ring0,a) (ring0,b) (ring1,a) (ring1,b) (ring2,a) (ring2,b),
+    // so verts 0-1 are rigid to bone 0, 2-3 are the 50/50 band, 4-5 rigid to bone 1.
+    CHECK(m.skinWeights[0 * 4 + 3] == 255);      // ring 0 -> bone 0, largest last
+    CHECK(m.skinJoints [0 * 4 + 3] == 0);
+    CHECK(m.skinWeights[2 * 4 + 0] == 0);        // ring 1 -> blend band, front padded
+    CHECK(m.skinWeights[2 * 4 + 1] == 0);
+    CHECK(m.skinWeights[2 * 4 + 2] + m.skinWeights[2 * 4 + 3] == 255);
+    CHECK(m.skinWeights[4 * 4 + 3] == 255);      // ring 2 -> bone 1
+    CHECK(m.skinJoints [4 * 4 + 3] == 1);
+
+    // Flat shading is the point of the 32-vertex build: the two verts sharing a
+    // corner across adjacent faces must carry DIFFERENT normals, or the box
+    // shades like a cylinder.
+    CHECK(m.vertices.size() > 12);
+
+    // The bend clip targets bone1's node.
+    REQUIRE(model.animations.size() == 1);
+    CHECK(model.animations[0].name == "bend");
+    CHECK(approx(model.animations[0].duration, 2.0f));
 }
 
 TEST_CASE("glTF node with multiple primitives yields multiple meshes", "[gltf]") {

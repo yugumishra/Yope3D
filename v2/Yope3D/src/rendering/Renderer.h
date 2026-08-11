@@ -6,6 +6,7 @@
 #include "../world/RenderMesh.h"
 #include "gpu/UniformBuffer.h"
 #include "gpu/StorageBuffer.h"
+#include "gpu/ComputePipeline.h"
 #include "gpu/DepthBuffer.h"
 #include "gpu/UIBuffer.h"
 #include "gpu/Text3DBuffer.h"
@@ -114,6 +115,35 @@ private:
     math::Mat4                shadowLightViewProjCPU_{};
     std::array<math::Mat4, 6> shadowLightViewProjPointCPU_{};
     bool                       shadowCasterIsPoint_ = false;
+
+    // ---- Skinning pre-pass (M16) ----
+    // Compute pass that deforms skinned meshes into per-mesh output vertex
+    // buffers before ANY graphics pass reads them. Two descriptor sets:
+    //   set 0 — src verts / skin records / dst verts. Per mesh, and static once
+    //           written (the three buffers never change), so it is allocated once
+    //           per mesh and lives on the RenderMesh itself.
+    //   set 1 — the joint palette. Per frame-in-flight, shared by every dispatch.
+    // Splitting them this way is what keeps the per-mesh set out of the per-frame
+    // ring: one set per mesh instead of one per mesh per frame.
+    VkDescriptorSetLayout        skinMeshSetLayout_    = VK_NULL_HANDLE;
+    VkDescriptorSetLayout        skinPaletteSetLayout_ = VK_NULL_HANDLE;
+    VkDescriptorPool             skinMeshPool_         = VK_NULL_HANDLE;
+    VkDescriptorPool             skinPalettePool_      = VK_NULL_HANDLE;
+    VkPipelineLayout             skinPipelineLayout_   = VK_NULL_HANDLE;
+    ComputePipeline              skinPipeline_;
+    // Cached purely so recordSkinningPass can lazily allocate a mesh's descriptor
+    // set at record time. The Renderer otherwise holds no device handle.
+    VkDevice                     skinDevice_           = VK_NULL_HANDLE;
+    std::array<StorageBuffer,   MAX_FRAMES> jointBuffers_;
+    std::array<VkDescriptorSet, MAX_FRAMES> skinPaletteSets_{};
+    // Scratch for packing every instance's palette into one flat upload.
+    std::vector<float>           jointPack_;
+
+    // Ceiling on concurrently skinned meshes (descriptor-set pool size) and on
+    // total joints in flight across all of them. 4096 matrices is 256 KB per
+    // frame-in-flight — cheap, and ~64 characters at 64 bones.
+    static constexpr uint32_t MAX_SKINNED_MESHES = 256;
+    static constexpr uint32_t MAX_JOINTS_TOTAL   = 4096;
 
     std::vector<VkFramebuffer> framebuffers;
 
@@ -226,6 +256,15 @@ private:
     void createShadowPass(GpuDevice& gpu);
     void createShadowPipeline(VkDevice device);
     void recordShadowPass(VkCommandBuffer cmd, World& world);
+
+    // Skinning pre-pass. MUST be recorded before recordShadowPass — the shadow
+    // pass is the first consumer of the skinned vertex buffers, not the main
+    // pass. Records nothing (and issues no barrier) when no mesh is skinned.
+    void recordSkinningPass(VkCommandBuffer cmd, World& world);
+    void createSkinningPipeline(GpuDevice& gpu);
+    // Lazily allocates + writes `mesh`'s set-0 (src/skin/dst). Returns false if
+    // the pool is exhausted, in which case the mesh is skipped this frame.
+    bool ensureSkinMeshSet(VkDevice device, RenderMesh& mesh);
 
     // Records the scene mesh draws (mesh loop + debug-physics meshes) into the
     // main 3D pass. Shared by the runtime and editor-offscreen record paths.

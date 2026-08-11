@@ -61,6 +61,12 @@ struct ComponentSnapshot {
     // Rigid animation playback (clip key + speed/loop; time/playing never persisted)
     bool hasAnimationPlayer      = false;  ecs::AnimationPlayer      animationPlayer;
 
+    // Skinned playback. The SkinInstance pool handle is runtime-only and is NOT
+    // captured — Play/Stop reuses the live pool, so restore() keeps whatever
+    // handle the entity already has rather than stamping a stale one over it.
+    bool hasSkinnedMeshRenderer  = false;  ecs::SkinnedMeshRenderer  skinnedMeshRenderer;
+    bool hasBoneAttachment       = false;  ecs::BoneAttachment       boneAttachment;
+
     // Reconstruct the entity in the world and return the new entity handle.
     ecs::Entity restore(World& world) const;
 };

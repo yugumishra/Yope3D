@@ -57,6 +57,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
     // TextLabel3D's gating) — typically added automatically by importModel()
     // for animated glTF models, but can be attached manually too.
     bool hasAnimPlayer = ctx.registry->has<ecs::AnimationPlayer>(e);
+    bool hasBoneAttach = ctx.registry->has<ecs::BoneAttachment>(e);
 
     // Check if any component can still be added — always show the button.
     // "Add Joint..." stays available whenever hasHull is true regardless of
@@ -161,6 +162,17 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 if (hasTransform && !hasAnimPlayer) {
                     if (ImGui::Selectable("Animation Player")) {
                         ctx.registry->add<ecs::AnimationPlayer>(e, ecs::AnimationPlayer{});
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+                // SkinnedMeshRenderer is deliberately absent: it is only meaningful
+                // alongside a live SkinInstance and uploaded GPU skin buffers, which
+                // only the glTF import path can produce. Adding a bare one by hand
+                // would render bind-pose and read as broken. BoneAttachment IS
+                // hand-addable — it just needs a bone name and a target entity.
+                if (hasTransform && !hasBoneAttach) {
+                    if (ImGui::Selectable("Bone Attachment")) {
+                        ctx.registry->add<ecs::BoneAttachment>(e, ecs::BoneAttachment{});
                         ImGui::CloseCurrentPopup();
                     }
                 }

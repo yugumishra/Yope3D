@@ -715,4 +715,43 @@ bool deserializeAnimationPlayer(const JsonNode& n, void* comp) {
     return true;
 }
 
+void serializeSkinnedMeshRenderer(const void* comp, JsonWriter& w) {
+    auto* s = static_cast<const ecs::SkinnedMeshRenderer*>(comp);
+    if (s->skeleton[0]) w.writeString("skeleton", s->skeleton);
+    if (s->clip[0])     w.writeString("clip",     s->clip);
+    w.writeFloat("speed", s->speed);
+    w.writeInt  ("loop",  s->loop);
+    w.writeInt  ("mode",  s->mode);
+    // `instance` is a handle into World's runtime SkinInstance pool, which is
+    // rebuilt from scratch on load — persisting it would restore an index
+    // pointing at another character's palette, or at nothing at all.
+}
+bool deserializeSkinnedMeshRenderer(const JsonNode& n, void* comp) {
+    auto* s = static_cast<ecs::SkinnedMeshRenderer*>(comp);
+    if (n.contains("skeleton"))
+        std::strncpy(s->skeleton, n["skeleton"].asString().c_str(), sizeof(s->skeleton) - 1);
+    if (n.contains("clip"))
+        std::strncpy(s->clip, n["clip"].asString().c_str(), sizeof(s->clip) - 1);
+    if (n.contains("speed")) s->speed = n["speed"].asFloat();
+    if (n.contains("loop"))  s->loop  = n["loop"].asInt();
+    if (n.contains("mode"))  s->mode  = n["mode"].asInt();
+    s->playing  = 1;
+    s->instance = -1;   // re-established by the loader; never read from the file
+    return true;
+}
+
+void serializeBoneAttachment(const void* comp, JsonWriter& w) {
+    auto* b = static_cast<const ecs::BoneAttachment*>(comp);
+    // `skinned` is an entity reference, rewritten through SceneSerializer's fileId
+    // two-pass exactly like ecs::Parent — only the bone name belongs in the JSON.
+    if (b->boneName[0]) w.writeString("boneName", b->boneName);
+}
+bool deserializeBoneAttachment(const JsonNode& n, void* comp) {
+    auto* b = static_cast<ecs::BoneAttachment*>(comp);
+    if (n.contains("boneName"))
+        std::strncpy(b->boneName, n["boneName"].asString().c_str(), sizeof(b->boneName) - 1);
+    b->boneIndex = -1;   // resolved against the skeleton at bind time
+    return true;
+}
+
 } // namespace compser

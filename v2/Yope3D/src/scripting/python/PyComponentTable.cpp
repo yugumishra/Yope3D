@@ -62,6 +62,8 @@ void build() {
         entryFor<ecs::UIButton>        ("UIButton"),
         entryFor<ecs::TextLabel3D>      ("TextLabel3D"),
         entryFor<ecs::AnimationPlayer>  ("AnimationPlayer"),
+        entryFor<ecs::SkinnedMeshRenderer>("SkinnedMeshRenderer"),
+        entryFor<ecs::BoneAttachment>   ("BoneAttachment"),
         entryFor<ecs::AudioSource>      ("AudioSource"),
         tagEntryFor<ecs::Fixed>         ("Fixed"),
         tagEntryFor<ecs::Transient>     ("Transient"),

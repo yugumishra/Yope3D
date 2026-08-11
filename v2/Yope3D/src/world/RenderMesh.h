@@ -111,11 +111,44 @@ public:
     // Empty for procedural/primitive meshes. Used for reference-based serialization.
     std::string sourcePath;
 
+    // ---- Skinning (M16) ----
+    //
+    // A skinned mesh carries two extra buffers: `skinBuffer` (per-vertex joint
+    // indices + weights, read as an SSBO by skin.comp) and `skinnedVertexBuffer`
+    // (the compute pass's output, in the SAME 32-byte PackedVertex layout as the
+    // source). draw() binds the output when present, which is the whole reason
+    // this design keeps the main/shadow/picking passes untouched — they cannot
+    // tell a pre-skinned mesh from a static one.
+    //
+    // The output buffer is per-mesh and meshes are never shared between entities
+    // (World::attachMesh allocates a fresh RenderMesh each time), so per-mesh is
+    // already per-instance.
+    //
+    // `skinInstance` indexes World's SkinInstance pool, which supplies the joint
+    // palette. -1 until World::attachSkin wires it up.
+    Buffer          skinBuffer;
+    Buffer          skinnedVertexBuffer;
+    int             skinInstance    = -1;
+    uint8_t         influenceCount  = 0;   // 0 = unskinned; else 4 or 8
+
+    // Compute descriptor set for this mesh's src/skin/dst bindings. Static once
+    // written (the three buffers never change), so it is allocated once by the
+    // Renderer rather than per frame. The pool handle is retained non-owning
+    // purely so destroy() can hand the set back — otherwise a long session that
+    // spawns and despawns characters would exhaust the pool.
+    VkDescriptorSet  skinSet     = VK_NULL_HANDLE;
+    VkDescriptorPool skinSetPool = VK_NULL_HANDLE;
+
+    bool     isSkinned()  const { return influenceCount > 0 && skinnedVertexBuffer.get() != VK_NULL_HANDLE; }
+    uint32_t vertexCount() const { return vertexCount_; }
+    VkBuffer sourceVertexBuffer() const { return vertexBuffer.get(); }
+
     RenderMesh(const RenderMesh&) = delete;
     RenderMesh& operator=(const RenderMesh&) = delete;
 
 private:
     Buffer   vertexBuffer;
     Buffer   indexBuffer;
-    uint32_t indexCount = 0;
+    uint32_t indexCount  = 0;
+    uint32_t vertexCount_ = 0;   // needed to size the skinning dispatch + output buffer
 };

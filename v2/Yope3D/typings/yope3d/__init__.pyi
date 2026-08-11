@@ -930,6 +930,53 @@ class AnimationPlayer:
     playing: int
     """Non-zero = ``time`` advances each tick. Set to 0 to pause at the current frame."""
 
+class SkinnedMeshRenderer:
+    """Skinned (vertex-deforming) animation playback state.
+
+    Attached by :meth:`World.add_model` to an imported glTF node that carries a
+    skin. As with :class:`AnimationPlayer`, the bulky data lives World-side —
+    ``skeleton`` and ``clip`` are keys, not the bone arrays or keyframes
+    themselves.
+
+    Deformation runs as a compute pre-pass that writes an ordinary vertex buffer,
+    so a skinned mesh casts a correctly deformed shadow and picks against its
+    deformed silhouette with no special handling.
+    """
+
+    skeleton: str
+    """Key of the skeleton this mesh is bound to (``"<model>:<skinName>"``)."""
+    clip: str
+    """Key of the clip being played (``"<model>:<animName>"``); ``""`` when none."""
+    speed: float
+    """Playback rate multiplier (1.0 = authored speed)."""
+    loop: int
+    """Non-zero = wrap at the clip's duration instead of clamping."""
+    playing: int
+    """Non-zero = playback advances each frame."""
+    mode: int
+    """Skinning path. 0 = compute pre-skin, the only value currently supported."""
+    instance: int
+    """Read-only handle into the engine's skin-instance pool; -1 when unbound.
+
+    Runtime-only and never serialized — a scene reloads with -1 until the import
+    path re-establishes it.
+    """
+
+class BoneAttachment:
+    """Makes this entity follow a bone of a skinned character (a socket).
+
+    Bones are not entities (that would put a 60-row hierarchy and 60 per-tick
+    Transform writes into the registry for every character), so this is the
+    supported way to pin a prop to a hand, a scabbard to a hip, and so on.
+    """
+
+    skinned: Entity
+    """The entity carrying the :class:`SkinnedMeshRenderer` to follow."""
+    bone_name: str
+    """Bone to attach to. Assigning re-resolves ``bone_index`` on the next bind."""
+    bone_index: int
+    """Read-only resolved bone index; -1 until resolved against the skeleton."""
+
 class Material:
     """PBR metallic-roughness material (pairs with a MeshRenderer).
 
@@ -1013,6 +1060,8 @@ ComponentName = Literal[
     "UIButton",
     "TextLabel3D",
     "AnimationPlayer",
+    "SkinnedMeshRenderer",
+    "BoneAttachment",
     "AudioSource",
     "Fixed",
     "Transient",
@@ -1821,6 +1870,58 @@ class World:
             The created entities (one per primitive, plus the synthesized
             anchor/holder entity when one was needed).
         """
+    def play_skin_clip(self, entity: Entity, clip: str, fade: float = 0.0,
+                       loop: bool = True) -> bool:
+        """Play a skinned clip on ``entity``, cross-fading over ``fade`` seconds.
+
+        ``fade`` of 0 snaps. Returns False if the entity has no
+        :class:`SkinnedMeshRenderer` or the clip key is unknown. Clip keys come
+        from the model import and look like ``"<model>:<animName>"``.
+
+        v1 blending is two-slot: starting a fade while one is already running
+        fades from the current target and drops the in-flight blend.
+        """
+
+    def crossfade_skin(self, entity: Entity, clip: str, seconds: float = 0.2) -> bool:
+        """Cross-fade into ``clip`` over ``seconds``. Same as ``play_skin_clip``
+        with a non-zero fade."""
+
+    def stop_skin(self, entity: Entity) -> None:
+        """Pause skinned playback, holding the current pose."""
+
+    def is_skin_playing(self, entity: Entity) -> bool:
+        """True while the entity's skinned clip is advancing."""
+
+    def set_skin_speed(self, entity: Entity, speed: float) -> None:
+        """Playback rate multiplier (1.0 = authored speed)."""
+
+    def skin_time(self, entity: Entity) -> float:
+        """Current playback position in seconds, or 0.0 if not skinned."""
+
+    def set_skin_time(self, entity: Entity, time: float) -> None:
+        """Scrub to an absolute time. Collapses any in-flight cross-fade, since a
+        scrub is an absolute statement about the pose."""
+
+    def bone_count(self, entity: Entity) -> int:
+        """Number of bones in the entity's skeleton, or 0 if not skinned."""
+
+    def bone_name(self, entity: Entity, index: int) -> str:
+        """Name of bone ``index``, or ``""`` if out of range."""
+
+    def bone_index(self, entity: Entity, name: str) -> int:
+        """Index of the named bone, or -1. Linear — resolve once at setup."""
+
+    def attach_to_bone(self, entity: Entity, skinned: Entity, bone_name: str) -> bool:
+        """Pin ``entity`` to a bone of the skinned character ``skinned``.
+
+        Adds a :class:`BoneAttachment`. The attached entity's own Transform stays
+        meaningful as a local offset from the bone. Returns False if either entity
+        is invalid, ``skinned`` has no skeleton, or the bone name is unknown.
+
+        This is the supported alternative to bones-as-entities: the engine keeps
+        skeletons out of the registry, so there is no bone entity to parent to.
+        """
+
     def attach_animation(self, entity: Entity, path: str) -> str:
         """Attach a reusable, single-object clip directly to ``entity``'s own Transform.
 
@@ -2480,6 +2581,10 @@ def reg_get(e: Entity, name: Literal["UIButton"]) -> UIButton | None: ...
 def reg_get(e: Entity, name: Literal["TextLabel3D"]) -> TextLabel3D | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["AnimationPlayer"]) -> AnimationPlayer | None: ...
+@overload
+def reg_get(e: Entity, name: Literal["SkinnedMeshRenderer"]) -> SkinnedMeshRenderer | None: ...
+@overload
+def reg_get(e: Entity, name: Literal["BoneAttachment"]) -> BoneAttachment | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["AudioSource"]) -> AudioSource | None: ...
 @overload

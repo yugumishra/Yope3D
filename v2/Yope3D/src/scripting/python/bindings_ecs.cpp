@@ -345,6 +345,38 @@ void bind_ecs(py::module_& m) {
         .def_readwrite("loop",    &ecs::AnimationPlayer::loop)
         .def_readwrite("playing", &ecs::AnimationPlayer::playing);
 
+    py::class_<ecs::SkinnedMeshRenderer>(m, "SkinnedMeshRenderer")
+        .def_property("skeleton",
+            [](const ecs::SkinnedMeshRenderer& s) { return std::string(s.skeleton); },
+            [](ecs::SkinnedMeshRenderer& s, const std::string& v) {
+                std::strncpy(s.skeleton, v.c_str(), sizeof(s.skeleton) - 1);
+                s.skeleton[sizeof(s.skeleton) - 1] = '\0';
+            })
+        .def_property("clip",
+            [](const ecs::SkinnedMeshRenderer& s) { return std::string(s.clip); },
+            [](ecs::SkinnedMeshRenderer& s, const std::string& v) {
+                std::strncpy(s.clip, v.c_str(), sizeof(s.clip) - 1);
+                s.clip[sizeof(s.clip) - 1] = '\0';
+            })
+        .def_readwrite("speed",   &ecs::SkinnedMeshRenderer::speed)
+        .def_readwrite("loop",    &ecs::SkinnedMeshRenderer::loop)
+        .def_readwrite("playing", &ecs::SkinnedMeshRenderer::playing)
+        .def_readwrite("mode",    &ecs::SkinnedMeshRenderer::mode)
+        // Read-only: the pool handle is engine-owned and runtime-only. Letting a
+        // script assign it would point the renderer at another character's palette.
+        .def_readonly("instance", &ecs::SkinnedMeshRenderer::instance);
+
+    py::class_<ecs::BoneAttachment>(m, "BoneAttachment")
+        .def_readwrite("skinned", &ecs::BoneAttachment::skinned)
+        .def_property("bone_name",
+            [](const ecs::BoneAttachment& b) { return std::string(b.boneName); },
+            [](ecs::BoneAttachment& b, const std::string& v) {
+                std::strncpy(b.boneName, v.c_str(), sizeof(b.boneName) - 1);
+                b.boneName[sizeof(b.boneName) - 1] = '\0';
+                b.boneIndex = -1;   // force re-resolution against the skeleton
+            })
+        .def_readonly("bone_index", &ecs::BoneAttachment::boneIndex);
+
     {
         py::class_<ecs::Material>(m, "Material")
             .def_property("albedo_map",

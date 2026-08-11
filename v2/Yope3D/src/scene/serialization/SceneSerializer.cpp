@@ -83,6 +83,8 @@ static std::vector<CompSerEntry> buildSerTable() {
         { ecs::typeId<ecs::UIButton>(),              "UIButton",              compser::serializeUIButton,              compser::deserializeUIButton              },
         { ecs::typeId<ecs::TextLabel3D>(),           "TextLabel3D",           compser::serializeTextLabel3D,           compser::deserializeTextLabel3D           },
         { ecs::typeId<ecs::AnimationPlayer>(),       "AnimationPlayer",       compser::serializeAnimationPlayer,       compser::deserializeAnimationPlayer       },
+        { ecs::typeId<ecs::SkinnedMeshRenderer>(),   "SkinnedMeshRenderer",   compser::serializeSkinnedMeshRenderer,   compser::deserializeSkinnedMeshRenderer   },
+        { ecs::typeId<ecs::BoneAttachment>(),        "BoneAttachment",        compser::serializeBoneAttachment,        compser::deserializeBoneAttachment        },
     };
 }
 
@@ -107,7 +109,9 @@ static bool snapshotHasSameShape(const ComponentSnapshot& a, const ComponentSnap
            a.hasUITexturedBackground == b.hasUITexturedBackground &&
            a.hasUICurvedBackground == b.hasUICurvedBackground && a.hasUIText == b.hasUIText &&
            a.hasUIButton == b.hasUIButton && a.hasTextLabel3D == b.hasTextLabel3D &&
-           a.hasAnimationPlayer == b.hasAnimationPlayer;
+           a.hasAnimationPlayer == b.hasAnimationPlayer &&
+           a.hasSkinnedMeshRenderer == b.hasSkinnedMeshRenderer &&
+           a.hasBoneAttachment == b.hasBoneAttachment;
 }
 
 // liveSubtree/baseEntities must both be parent-before-child, root-first order
@@ -166,6 +170,8 @@ static void computeOverrides(const ComponentSnapshot& live, const ComponentSnaps
     diff(live.hasUIButton, base.hasUIButton, "UIButton", &live.uiButton, &base.uiButton, compser::serializeUIButton);
     diff(live.hasTextLabel3D, base.hasTextLabel3D, "TextLabel3D", &live.textLabel3D, &base.textLabel3D, compser::serializeTextLabel3D);
     diff(live.hasAnimationPlayer, base.hasAnimationPlayer, "AnimationPlayer", &live.animationPlayer, &base.animationPlayer, compser::serializeAnimationPlayer);
+    diff(live.hasSkinnedMeshRenderer, base.hasSkinnedMeshRenderer, "SkinnedMeshRenderer", &live.skinnedMeshRenderer, &base.skinnedMeshRenderer, compser::serializeSkinnedMeshRenderer);
+    diff(live.hasBoneAttachment, base.hasBoneAttachment, "BoneAttachment", &live.boneAttachment, &base.boneAttachment, compser::serializeBoneAttachment);
     // Spring/Joint overrides deliberately excluded — see applyComponentOverrides.
 
     // MeshRenderer: bespoke, not via the generic diff() lambda above —
@@ -852,6 +858,8 @@ void applyComponentOverrides(const JsonNode& ov, ComponentSnapshot& snap) {
     if (ov.contains("UIButton"))             compser::deserializeUIButton(ov["UIButton"], &snap.uiButton);
     if (ov.contains("TextLabel3D"))          compser::deserializeTextLabel3D(ov["TextLabel3D"], &snap.textLabel3D);
     if (ov.contains("AnimationPlayer"))      compser::deserializeAnimationPlayer(ov["AnimationPlayer"], &snap.animationPlayer);
+    if (ov.contains("SkinnedMeshRenderer"))  compser::deserializeSkinnedMeshRenderer(ov["SkinnedMeshRenderer"], &snap.skinnedMeshRenderer);
+    if (ov.contains("BoneAttachment"))       compser::deserializeBoneAttachment(ov["BoneAttachment"], &snap.boneAttachment);
     // Spring/Joint overrides are deliberately not supported: their "target" is a
     // fileId cross-reference into this already-renumbered document, and overriding
     // just the numeric fields (k/restLength/limits) without a target isn't a case
@@ -1028,6 +1036,14 @@ bool parseEntityNode(const JsonNode& entNode, SubParse& out,
     if (entNode.contains("AnimationPlayer")) {
         snap.hasAnimationPlayer = true;
         compser::deserializeAnimationPlayer(entNode["AnimationPlayer"], &snap.animationPlayer);
+    }
+    if (entNode.contains("SkinnedMeshRenderer")) {
+        snap.hasSkinnedMeshRenderer = true;
+        compser::deserializeSkinnedMeshRenderer(entNode["SkinnedMeshRenderer"], &snap.skinnedMeshRenderer);
+    }
+    if (entNode.contains("BoneAttachment")) {
+        snap.hasBoneAttachment = true;
+        compser::deserializeBoneAttachment(entNode["BoneAttachment"], &snap.boneAttachment);
     }
     if (entNode.contains("Material")) {
         snap.hasMaterial = true;

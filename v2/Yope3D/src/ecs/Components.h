@@ -366,4 +366,40 @@ struct AnimationPlayer {
     int   playing   = 0;
 };
 
+// ---- Skinned (vertex-deforming) animation playback ----
+// Placed on an imported glTF node that carries a skin. `skeleton` and `clip` key
+// into World::skeletons_ / World::skinnedClips_ — the bone arrays and keyframes
+// are variable-length, so as with AnimationPlayer only POD playback state lives
+// here (see AnimationClip.h / Skeleton.h for the full reasoning).
+//
+// `instance` indexes World's SkinInstance pool and is RUNTIME-ONLY: the pool is
+// rebuilt from scratch on load, so persisting the handle would restore a
+// dangling index. World::importModel / scene load re-establish it.
+//
+// `mode` selects the skinning path. Compute pre-skinning is the only legal value
+// today; the field exists now because adding a FIELD to a serialized component
+// later forces a scene migration, whereas adding a VALUE to an enum does not.
+struct SkinnedMeshRenderer {
+    enum Mode : int { ComputePreSkin = 0 };
+
+    char  skeleton[128] = {};
+    char  clip[128]     = {};
+    float speed         = 1.0f;
+    int   loop          = 1;
+    int   playing       = 1;
+    int   mode          = ComputePreSkin;
+    int   instance      = -1;   // runtime-only; never serialized
+};
+
+// ---- Socket: follow a bone of a skinned character ----
+// The narrow, cheap answer to "attach a sword to hand.R" without making every
+// bone an ECS entity (see Skeleton.h). World::publishSnapshot composes this
+// entity's world transform from the named bone instead of walking a Parent
+// chain. `boneIndex` is resolved from `boneName` once at bind time; -1 until then.
+struct BoneAttachment {
+    Entity skinned      = NullEntity;   // entity carrying SkinnedMeshRenderer
+    char   boneName[64] = {};
+    int    boneIndex    = -1;
+};
+
 } // namespace ecs

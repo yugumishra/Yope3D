@@ -43,6 +43,7 @@ set(SHADER_SOURCES
     "${SHADER_SRC_DIR}/skybox.vert"
     "${SHADER_SRC_DIR}/skybox.frag"
     "${SHADER_SRC_DIR}/raytracer.comp"
+    "${SHADER_SRC_DIR}/skin.comp"
     "${SHADER_SRC_DIR}/fullscreen.vert"
     "${SHADER_SRC_DIR}/fullscreen.frag"
     "${SHADER_SRC_DIR}/id_buffer.vert"
@@ -256,6 +257,7 @@ set(ENGINE_SOURCES
     src/assets/AssetResolve.cpp
     src/assets/ObjLoader.cpp
     src/assets/GltfLoader.cpp
+    src/assets/Skeleton.cpp
     src/assets/ImageLoader.cpp
     src/assets/TextureStreamer.cpp
     src/assets/AudioLoader.cpp
@@ -338,6 +340,7 @@ set(EDITOR_SOURCES
     src/editor/inspectors/UIBackgroundInspector.cpp
     src/editor/inspectors/UIButtonInspector.cpp
     src/editor/inspectors/AnimationPlayerInspector.cpp
+    src/editor/inspectors/SkinnedMeshRendererInspector.cpp
     src/editor/picking/IdBufferPass.cpp
     src/platform/FileWatcher.cpp
     src/editor/panels/ViewportPanel.cpp
@@ -508,6 +511,23 @@ add_executable(yope_text_tests
 
 target_include_directories(yope_text_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(yope_text_tests PRIVATE Catch2::Catch2WithMain)
+
+# ---------------------------------------------------------------------------
+# Skeletal animation test — pose sampling, cross-fade blending, joint palette.
+# Skeleton.cpp is deliberately free of engine/Vulkan includes (same discipline as
+# TextLayout.cpp above), so the whole pose pipeline is provable with no GPU and
+# no ECS. MathImpl.cpp supplies the Mat4/Quat bodies (header-only behind
+# YOPE_MATH_IMPL — see src/math).
+# ---------------------------------------------------------------------------
+
+add_executable(yope_animation_tests
+    tests/animation_tests.cpp
+    src/assets/Skeleton.cpp
+    src/math/MathImpl.cpp
+)
+
+target_include_directories(yope_animation_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(yope_animation_tests PRIVATE Catch2::Catch2WithMain)
 
 # ---------------------------------------------------------------------------
 # Physics test executable — no Vulkan/GLFW/OpenAL dependency

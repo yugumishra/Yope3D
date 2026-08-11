@@ -664,6 +664,9 @@ std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
     // (common to both loader paths) to register any parsed animations.
     GltfLoader::LoadedModel  gltfModel;
     std::vector<ecs::Entity> gltfNodeEntity;
+    // For nodes with N>1 primitives the geometry lives on child entities, not the
+    // node itself. Skinning needs to reach every one of them, so record them here.
+    std::vector<std::vector<ecs::Entity>> gltfNodePrims;
 
     if (ext == ".glb" || ext == ".gltf") {
         // Decode glTF-embedded/base64 images and register them as GPU textures.
@@ -697,8 +700,17 @@ std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
                 if (ch.targetNode >= 0 && ch.targetNode < static_cast<int>(animatedNode.size()))
                     animatedNode[ch.targetNode] = true;
 
+        // A SKINNED node must never be re-centered either, and for a sharper
+        // reason: recenterMesh shifts the vertices themselves, but the skin's
+        // inverse bind matrices were authored against the original bind-pose
+        // positions. Moving one without the other offsets every vertex from the
+        // bone it is weighted to — the mesh renders shredded, with no error.
+        for (size_t i = 0; i < model.nodes.size(); ++i)
+            if (model.nodes[i].skin >= 0) animatedNode[i] = true;
+
         // One entity per node (Option B: nodes carry local TRS, mesh verts are local).
         std::vector<ecs::Entity> nodeEntity(model.nodes.size(), ecs::NullEntity);
+        std::vector<std::vector<ecs::Entity>> nodePrimEntities(model.nodes.size());
         for (size_t i = 0; i < model.nodes.size(); ++i) {
             GltfLoader::LoadedNode& node = model.nodes[i];
             ecs::Entity e;
@@ -728,13 +740,17 @@ std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
             // its own pivot (and collider) lands on that primitive's geometry.
             if (node.meshes.size() > 1) {
                 for (LoadedMesh& prim : node.meshes) {
-                    math::Vec3 c = recenterMesh(prim);
+                    // Same rule as the single-primitive branch: a skinned node's
+                    // vertices must stay where the inverse bind matrices expect
+                    // them. Re-centering a skinned primitive shreds the mesh.
+                    math::Vec3 c = (node.skin >= 0) ? math::Vec3{0, 0, 0} : recenterMesh(prim);
                     ecs::Entity pe = addRenderObject(prim);
                     std::lock_guard lk(structureMtx_);
                     applyMaterialData(registry_, pe, prim.material);
                     if (auto* tf = registry_.get<Transform>(pe)) tf->position = c;
                     registry_.add<ecs::Parent>(pe, ecs::Parent{e});
                     entities.push_back(pe);
+                    nodePrimEntities[i].push_back(pe);
                 }
             }
         }
@@ -751,6 +767,7 @@ std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
 
         gltfModel      = std::move(model);
         gltfNodeEntity = std::move(nodeEntity);
+        gltfNodePrims  = std::move(nodePrimEntities);
     } else {
         LoadedMesh m = ObjLoader::load(fullPath);
         math::Vec3 c = recenterMesh(m);
@@ -806,7 +823,170 @@ std::vector<ecs::Entity> World::importModel(const std::string& absPath) {
     //   itself an animation channel target, in which case wrap it in a fresh
     //   anchor parent (mirrors the multi-root holder pattern) so its own local
     //   transform stays exclusively animation-owned.
-    if (!gltfModel.animations.empty() && !gltfNodeEntity.empty()) {
+    // ---- Skinned models (M16) -------------------------------------------
+    // Build one anim::Skeleton per glTF skin, remap the file's node-indexed
+    // animation channels onto BONE indices, create a SkinInstance per skinned
+    // mesh and upload its influences. After this the mesh reports isSkinned()
+    // and Renderer::recordSkinningPass starts dispatching for it.
+    const bool modelHasSkin = !gltfModel.skins.empty() && !gltfNodeEntity.empty();
+    if (modelHasSkin) {
+        const std::string stem = std::filesystem::path(absPath).stem().string();
+
+        // Per skin: the bone order actually used, and node -> bone lookup.
+        std::vector<std::vector<int>>            skinBoneOrder(gltfModel.skins.size());
+        std::vector<std::unordered_map<int,int>> nodeToBone(gltfModel.skins.size());
+
+        for (size_t si = 0; si < gltfModel.skins.size(); ++si) {
+            const GltfLoader::LoadedSkin& ls = gltfModel.skins[si];
+
+            // glTF does not require `joints` to be in hierarchy order, but
+            // buildPalette's single forward pass does (parent[i] < i). Sorting the
+            // joints by NODE index yields exactly that, because LoadedModel::nodes
+            // is already topologically ordered — so an ancestor bone always has the
+            // lower node index. The resulting permutation has to be applied to the
+            // per-vertex joint indices too, which is why it is kept around below.
+            std::vector<int> order(ls.joints.size());
+            for (size_t i = 0; i < order.size(); ++i) order[i] = static_cast<int>(i);
+            std::stable_sort(order.begin(), order.end(),
+                [&](int a, int b) { return ls.joints[a] < ls.joints[b]; });
+
+            anim::Skeleton sk;
+            const size_t n = order.size();
+            sk.parent.assign(n, -1);
+            sk.bindLocal.assign(n, Transform{});
+            sk.inverseBind.assign(n, math::Mat4{});
+            sk.names.assign(n, std::string{});
+
+            auto& n2b = nodeToBone[si];
+            for (size_t bone = 0; bone < n; ++bone) {
+                const int oldIdx = order[bone];
+                const int nodeIdx = ls.joints[oldIdx];
+                if (nodeIdx >= 0 && nodeIdx < static_cast<int>(gltfModel.nodes.size()))
+                    n2b[nodeIdx] = static_cast<int>(bone);
+                if (oldIdx < static_cast<int>(ls.inverseBind.size()))
+                    sk.inverseBind[bone] = ls.inverseBind[oldIdx];
+            }
+            for (size_t bone = 0; bone < n; ++bone) {
+                const int nodeIdx = ls.joints[order[bone]];
+                if (nodeIdx < 0 || nodeIdx >= static_cast<int>(gltfModel.nodes.size())) continue;
+                const GltfLoader::LoadedNode& jn = gltfModel.nodes[nodeIdx];
+                sk.bindLocal[bone] = jn.local;
+                sk.names[bone]     = jn.name;
+                // A joint whose parent node is not itself a joint is a skeleton
+                // root as far as the palette is concerned.
+                auto pit = n2b.find(jn.parent);
+                sk.parent[bone] = (pit == n2b.end()) ? -1 : pit->second;
+            }
+
+            skinBoneOrder[si] = std::move(order);
+
+            const std::string skelKey = stem + ":" + (ls.name.empty()
+                                        ? ("skin" + std::to_string(si)) : ls.name);
+            registerSkeleton(skelKey, std::move(sk));
+
+            // Remap this file's animations onto bone indices. Channels targeting
+            // non-joint nodes are dropped — they belong to the rigid path, which
+            // speaks a different index space entirely.
+            for (size_t ai = 0; ai < gltfModel.animations.size(); ++ai) {
+                const auto& la = gltfModel.animations[ai];
+                anim::Clip clip;
+                clip.name     = stem + ":" + (la.name.empty() ? ("anim" + std::to_string(ai)) : la.name);
+                clip.duration = la.duration;
+                for (const anim::Channel& ch : la.channels) {
+                    auto bit = nodeToBone[si].find(ch.targetNode);
+                    if (bit == nodeToBone[si].end()) continue;
+                    anim::Channel bc = ch;
+                    bc.targetNode = bit->second;
+                    clip.channels.push_back(std::move(bc));
+                }
+                // Hoist the key into its own string BEFORE the call. Passing
+                // `clip.name` alongside `std::move(clip)` is an unspecified-order
+                // trap: the key parameter is a const&, so it can bind to the
+                // member and then be read AFTER the move has emptied it —
+                // registering the clip under "" and leaving lookups to fail with
+                // everything else looking correct.
+                const std::string clipKey = clip.name;
+                if (!clip.channels.empty()) registerSkinnedClip(clipKey, std::move(clip));
+            }
+        }
+
+        // Attach an instance + GPU skin buffers to every skinned mesh node.
+        for (size_t i = 0; i < gltfModel.nodes.size() && i < gltfNodeEntity.size(); ++i) {
+            const GltfLoader::LoadedNode& node = gltfModel.nodes[i];
+            if (node.skin < 0 || node.skin >= static_cast<int>(gltfModel.skins.size())) continue;
+            if (node.meshes.empty()) continue;
+
+            ecs::Entity e = gltfNodeEntity[i];
+            std::lock_guard lk(structureMtx_);
+            if (!registry_.valid(e)) continue;
+
+            // Where the geometry actually lives. A 1-primitive node carries it on
+            // the node entity; an N-primitive node (a character split by material
+            // — body / eyes / hair — which is the usual shape of a downloaded rig)
+            // puts each primitive on its own child. All of them must be skinned,
+            // and by the SAME instance: one skeleton, one pose, many surfaces.
+            std::vector<std::pair<RenderMesh*, const LoadedMesh*>> targets;
+            if (node.meshes.size() == 1) {
+                if (auto* mr = registry_.get<ecs::MeshRenderer>(e); mr && mr->mesh)
+                    targets.push_back({ mr->mesh, &node.meshes[0] });
+            } else {
+                const auto& prims = gltfNodePrims[i];
+                for (size_t k = 0; k < prims.size() && k < node.meshes.size(); ++k) {
+                    if (!registry_.valid(prims[k])) continue;
+                    if (auto* mr = registry_.get<ecs::MeshRenderer>(prims[k]); mr && mr->mesh)
+                        targets.push_back({ mr->mesh, &node.meshes[k] });
+                }
+            }
+            // A primitive with no influences is an unskinned prop merged into the
+            // character's mesh list — leave it rendering statically, as authored.
+            std::erase_if(targets, [](const auto& t) { return t.second->influenceCount == 0; });
+            if (targets.empty()) continue;
+
+            const GltfLoader::LoadedSkin& ls = gltfModel.skins[node.skin];
+            const std::string skelKey = stem + ":" + (ls.name.empty()
+                                        ? ("skin" + std::to_string(node.skin)) : ls.name);
+
+            // Joint permutation from the topological sort above. Skipping this
+            // silently binds vertices to the wrong bones whenever an exporter
+            // emits `joints` out of hierarchy order.
+            const std::vector<int>& order = skinBoneOrder[node.skin];
+            std::vector<int> oldToNew(order.size(), 0);
+            for (size_t bone = 0; bone < order.size(); ++bone)
+                oldToNew[order[bone]] = static_cast<int>(bone);
+
+            const int handle = createSkinInstance(skelKey);
+            if (handle < 0) continue;
+
+            int attached = 0;
+            for (auto& [mesh, srcMesh] : targets) {
+                LoadedMesh src = *srcMesh;
+                for (uint8_t& j : src.skinJoints)
+                    if (j < oldToNew.size()) j = static_cast<uint8_t>(oldToNew[j]);
+                if (attachSkin(mesh, src, handle)) ++attached;
+            }
+            if (attached == 0) { destroySkinInstance(handle); continue; }
+
+            ecs::SkinnedMeshRenderer smr{};
+            std::strncpy(smr.skeleton, skelKey.c_str(), sizeof(smr.skeleton) - 1);
+            smr.instance = handle;
+            if (!gltfModel.animations.empty()) {
+                const auto& la = gltfModel.animations[0];
+                std::string clipKey = stem + ":" + (la.name.empty() ? "anim0" : la.name);
+                if (skinnedClip(clipKey)) {
+                    std::strncpy(smr.clip, clipKey.c_str(), sizeof(smr.clip) - 1);
+                    playSkinClip(handle, clipKey, 0.0f, true);
+                }
+            }
+            registry_.add<ecs::SkinnedMeshRenderer>(e, smr);
+        }
+    }
+
+    // A skinned model's clips drive its SKELETON, not the bone entities' own
+    // Transforms — registering them on the rigid path too would re-pose those
+    // entities at 240 Hz to no visible effect. (A file mixing a skinned character
+    // with an independently animated rigid prop would lose the latter; no such
+    // asset exists yet, and splitting per-channel is Phase 5+ work if one appears.)
+    if (!gltfModel.animations.empty() && !gltfNodeEntity.empty() && !modelHasSkin) {
         ecs::Entity contentRoot = (topRoots.size() > 1) ? entities.back()
                                 : (!topRoots.empty()     ? topRoots.front() : ecs::NullEntity);
         std::lock_guard lk(structureMtx_);
@@ -1760,6 +1940,348 @@ void World::resetAnimationPose(ecs::Entity root) {
     // the clip over the rest pose just written above.
     if (auto* ap = registry_.get<ecs::AnimationPlayer>(root))
         animLastSampled_[root.id] = { ap->clip, ap->time };
+}
+
+// ---------------------------------------------------------------------------
+// Skinned animation (M16)
+// ---------------------------------------------------------------------------
+
+namespace {
+// Advance a clip time by `delta`, matching updateAnimations' loop/clamp semantics
+// exactly so rigid and skinned playback behave identically at clip ends.
+void advanceClipTime(float& t, float delta, float duration, bool loop, bool& playing) {
+    t += delta;
+    if (duration <= 0.0f) return;
+    if (loop) {
+        t = std::fmod(t, duration);
+        if (t < 0.0f) t += duration;
+    } else if (t >= duration) {
+        t = duration; playing = false;
+    } else if (t < 0.0f) {
+        t = 0.0f;     playing = false;
+    }
+}
+} // namespace
+
+void World::registerSkeleton(const std::string& key, anim::Skeleton skeleton) {
+    skeletons_[key] = std::make_unique<anim::Skeleton>(std::move(skeleton));
+}
+
+const anim::Skeleton* World::skeleton(const std::string& key) const {
+    auto it = skeletons_.find(key);
+    return it == skeletons_.end() ? nullptr : it->second.get();
+}
+
+void World::registerSkinnedClip(const std::string& key, anim::Clip clip) {
+    skinnedClips_[key] = std::make_unique<anim::Clip>(std::move(clip));
+}
+
+const anim::Clip* World::skinnedClip(const std::string& key) const {
+    auto it = skinnedClips_.find(key);
+    return it == skinnedClips_.end() ? nullptr : it->second.get();
+}
+
+World::SkinInstance* World::skinInstancePtr(int handle) {
+    if (handle < 0 || handle >= static_cast<int>(skinInstances_.size())) return nullptr;
+    return skinInstances_[handle].get();
+}
+
+const World::SkinInstance* World::skinInstancePtr(int handle) const {
+    if (handle < 0 || handle >= static_cast<int>(skinInstances_.size())) return nullptr;
+    return skinInstances_[handle].get();
+}
+
+int World::createSkinInstance(const std::string& skeletonKey) {
+    if (!skeleton(skeletonKey)) return -1;
+
+    auto si = std::make_unique<SkinInstance>();
+    si->skeleton = skeletonKey;
+
+    // Reuse a freed slot so handles stay dense. Handles are never recycled while
+    // live, but a destroyed-then-recreated slot does reuse its index — callers
+    // must drop stale handles on destroy rather than assuming uniqueness forever.
+    if (!freeSkinInstances_.empty()) {
+        const int h = freeSkinInstances_.back();
+        freeSkinInstances_.pop_back();
+        skinInstances_[h] = std::move(si);
+        return h;
+    }
+    skinInstances_.push_back(std::move(si));
+    return static_cast<int>(skinInstances_.size()) - 1;
+}
+
+void World::destroySkinInstance(int handle) {
+    if (handle < 0 || handle >= static_cast<int>(skinInstances_.size())) return;
+    if (!skinInstances_[handle]) return;
+    skinInstances_[handle].reset();
+    freeSkinInstances_.push_back(handle);
+}
+
+bool World::skinInstanceValid(int handle) const { return skinInstancePtr(handle) != nullptr; }
+
+void World::playSkinClip(int handle, const std::string& clip, float fadeSeconds, bool loop) {
+    SkinInstance* si = skinInstancePtr(handle);
+    if (!si || !skinnedClip(clip)) return;
+
+    const bool crossFade = fadeSeconds > 0.0f && !si->toClip.empty() && si->toClip != clip;
+    if (crossFade) {
+        // The clip currently being played into becomes the outgoing side. Starting
+        // a fade while one is already running therefore drops the in-flight blend
+        // and fades from the current `to` — a genuine simplification of true N-way
+        // blending, and the reason v1 is documented as two-slot cross-fade only.
+        si->fromClip      = si->toClip;
+        si->fromTime      = si->toTime;
+        si->blend         = 0.0f;
+        si->blendDuration = fadeSeconds;
+    } else {
+        si->fromClip.clear();
+        si->blend         = 1.0f;
+        si->blendDuration = 0.0f;
+    }
+    si->toClip  = clip;
+    si->toTime  = 0.0f;
+    si->loop    = loop;
+    si->playing = true;
+}
+
+void World::stopSkinClip(int handle) {
+    if (SkinInstance* si = skinInstancePtr(handle)) si->playing = false;
+}
+
+void World::setSkinSpeed(int handle, float speed) {
+    if (SkinInstance* si = skinInstancePtr(handle)) si->speed = speed;
+}
+
+float World::skinTime(int handle) const {
+    const SkinInstance* si = skinInstancePtr(handle);
+    return si ? si->toTime : 0.0f;
+}
+
+void World::setSkinTime(int handle, float t) {
+    SkinInstance* si = skinInstancePtr(handle);
+    if (!si) return;
+    si->toTime = t;
+    // Collapse any in-flight fade: a manual scrub is an absolute statement about
+    // the pose, so leaving a blend running would show a mix of the scrubbed frame
+    // and a stale outgoing clip.
+    si->blend = 1.0f;
+    si->fromClip.clear();
+}
+
+const std::vector<math::Mat4>* World::skinPalette(int handle) const {
+    const SkinInstance* si = skinInstancePtr(handle);
+    return si ? &si->palette : nullptr;
+}
+
+bool World::attachSkin(RenderMesh* mesh, const LoadedMesh& src, int instanceHandle) {
+    if (!mesh || !gpu_) return false;
+    if (src.influenceCount == 0 || src.skinJoints.empty()) return false;
+    if (!skinInstancePtr(instanceHandle)) return false;
+
+    const uint32_t verts  = mesh->vertexCount();
+    const uint32_t infl   = src.influenceCount;
+    const uint32_t groups = infl / 4;                 // 4 influences per packed uint
+    if (verts == 0 || groups == 0) return false;
+    if (src.skinJoints.size() < size_t(verts) * infl) return false;
+
+    // Pack into skin.comp's layout: `groups` uints of joint indices followed by
+    // `groups` uints of unorm8 weights, per vertex. Bytes are placed with explicit
+    // shifts (not memcpy) so byte k of a word is influence k on any endianness —
+    // the shader unpacks with the mirrored `(w >> (k*8)) & 0xFF` / unpackUnorm4x8.
+    std::vector<uint32_t> packed(size_t(verts) * groups * 2, 0u);
+    for (uint32_t v = 0; v < verts; ++v) {
+        const uint8_t* j = &src.skinJoints [size_t(v) * infl];
+        const uint8_t* w = &src.skinWeights[size_t(v) * infl];
+        uint32_t* out = &packed[size_t(v) * groups * 2];
+        for (uint32_t g = 0; g < groups; ++g) {
+            uint32_t jp = 0, wp = 0;
+            for (uint32_t k = 0; k < 4; ++k) {
+                jp |= uint32_t(j[g * 4 + k]) << (k * 8);
+                wp |= uint32_t(w[g * 4 + k]) << (k * 8);
+            }
+            out[g]          = jp;
+            out[groups + g] = wp;
+        }
+    }
+
+    mesh->skinBuffer = Buffer::uploadStaged(*gpu_, pool_,
+        packed.data(), packed.size() * sizeof(uint32_t),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+
+    // Output buffer: same PackedVertex layout as the source, so every graphics
+    // pass consumes it through the ordinary vertex path. VERTEX for those reads,
+    // STORAGE for the compute write. Device-local and never uploaded from the
+    // host — the compute pass is its only writer.
+    mesh->skinnedVertexBuffer = Buffer::create(*gpu_,
+        VkDeviceSize(verts) * sizeof(PackedVertex),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    mesh->influenceCount = static_cast<uint8_t>(infl);
+    mesh->skinInstance   = instanceHandle;
+    return true;
+}
+
+void World::updateSkinnedAnimations(float dt) {
+    for (auto& up : skinInstances_) {
+        if (!up) continue;
+        SkinInstance& si = *up;
+
+        const anim::Skeleton* sk = skeleton(si.skeleton);
+        const anim::Clip*     to = skinnedClip(si.toClip);
+        if (!sk || !to) continue;
+
+        if (si.playing) {
+            advanceClipTime(si.toTime, dt * si.speed, to->duration, si.loop, si.playing);
+            if (si.blend < 1.0f) {
+                if (const anim::Clip* from = skinnedClip(si.fromClip)) {
+                    // The outgoing clip keeps running while it fades; freezing it
+                    // would make the blend visibly drag against the incoming motion.
+                    bool fromPlaying = true;
+                    advanceClipTime(si.fromTime, dt * si.speed, from->duration, si.loop, fromPlaying);
+                }
+            }
+        }
+
+        if (si.blend < 1.0f) {
+            si.blend = si.blendDuration > 0.0f
+                         ? std::min(1.0f, si.blend + dt / si.blendDuration)
+                         : 1.0f;
+            if (si.blend >= 1.0f) si.fromClip.clear();   // release the outgoing slot
+        }
+
+        const anim::Clip* from = si.blend < 1.0f ? skinnedClip(si.fromClip) : nullptr;
+        if (from) {
+            anim::samplePose(*sk, *to,   si.toTime,   si.poseTo);
+            anim::samplePose(*sk, *from, si.fromTime, si.poseFrom);
+            anim::blendPoses(si.poseFrom, si.poseTo, si.blend, si.pose);
+        } else {
+            // Steady state: sample straight into the final pose, no blend buffers.
+            anim::samplePose(*sk, *to, si.toTime, si.pose);
+        }
+
+        // World pose first (sockets need where the bone IS), then the palette on
+        // top of it. buildPalette repeats the sweep, but at these bone counts the
+        // clarity is worth more than the duplicated pass.
+        anim::buildWorldPose(*sk, si.pose, si.worldPose);
+        anim::buildPalette(*sk, si.pose, si.palette);
+    }
+}
+
+// ---- Entity-addressed skinned API -----------------------------------------
+
+int World::skinHandleOf(ecs::Entity e) const {
+    if (!registry_.valid(e)) return -1;
+    auto* smr = const_cast<ecs::Registry&>(registry_).get<ecs::SkinnedMeshRenderer>(e);
+    return smr ? smr->instance : -1;
+}
+
+bool World::playSkin(ecs::Entity e, const std::string& clip, float fadeSeconds, bool loop) {
+    const int h = skinHandleOf(e);
+    if (h < 0 || !skinnedClip(clip)) return false;
+    playSkinClip(h, clip, fadeSeconds, loop);
+    // Keep the component in step so the inspector and a later save agree with
+    // what is actually playing.
+    if (auto* smr = registry_.get<ecs::SkinnedMeshRenderer>(e)) {
+        std::strncpy(smr->clip, clip.c_str(), sizeof(smr->clip) - 1);
+        smr->clip[sizeof(smr->clip) - 1] = '\0';
+        smr->loop    = loop ? 1 : 0;
+        smr->playing = 1;
+    }
+    return true;
+}
+
+void World::stopSkin(ecs::Entity e) {
+    const int h = skinHandleOf(e);
+    if (h < 0) return;
+    stopSkinClip(h);
+    if (auto* smr = registry_.get<ecs::SkinnedMeshRenderer>(e)) smr->playing = 0;
+}
+
+bool World::isSkinPlaying(ecs::Entity e) const {
+    const SkinInstance* si = skinInstancePtr(skinHandleOf(e));
+    return si && si->playing;
+}
+
+void World::setSkinSpeedFor(ecs::Entity e, float speed) {
+    const int h = skinHandleOf(e);
+    if (h < 0) return;
+    setSkinSpeed(h, speed);
+    if (auto* smr = registry_.get<ecs::SkinnedMeshRenderer>(e)) smr->speed = speed;
+}
+
+float World::skinTimeFor(ecs::Entity e) const { return skinTime(skinHandleOf(e)); }
+
+void World::setSkinTimeFor(ecs::Entity e, float t) {
+    const int h = skinHandleOf(e);
+    if (h >= 0) setSkinTime(h, t);
+}
+
+const anim::Skeleton* World::skeletonOf(ecs::Entity e) const {
+    if (!registry_.valid(e)) return nullptr;
+    auto* smr = const_cast<ecs::Registry&>(registry_).get<ecs::SkinnedMeshRenderer>(e);
+    return smr ? skeleton(smr->skeleton) : nullptr;
+}
+
+int World::boneCount(ecs::Entity e) const {
+    const anim::Skeleton* sk = skeletonOf(e);
+    return sk ? static_cast<int>(sk->boneCount()) : 0;
+}
+
+std::string World::boneNameOf(ecs::Entity e, int index) const {
+    const anim::Skeleton* sk = skeletonOf(e);
+    if (!sk || index < 0 || index >= static_cast<int>(sk->names.size())) return {};
+    return sk->names[index];
+}
+
+int World::boneIndexOf(ecs::Entity e, const std::string& name) const {
+    const anim::Skeleton* sk = skeletonOf(e);
+    return sk ? anim::findBone(*sk, name) : -1;
+}
+
+bool World::attachToBone(ecs::Entity target, ecs::Entity skinned, const std::string& boneName) {
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(target) || !registry_.valid(skinned)) return false;
+
+    const int bone = boneIndexOf(skinned, boneName);
+    if (bone < 0) return false;
+
+    ecs::BoneAttachment ba{};
+    ba.skinned   = skinned;
+    ba.boneIndex = bone;
+    std::strncpy(ba.boneName, boneName.c_str(), sizeof(ba.boneName) - 1);
+
+    if (auto* existing = registry_.get<ecs::BoneAttachment>(target)) *existing = ba;
+    else                                                             registry_.add<ecs::BoneAttachment>(target, ba);
+    return true;
+}
+
+void World::applyBoneAttachments() {
+    std::lock_guard lk(structureMtx_);
+    for (auto [e, ba, mr] : registry_.view<ecs::BoneAttachment, ecs::MeshRenderer>()) {
+        if (!mr.mesh || !registry_.valid(ba.skinned)) continue;
+
+        // Late-resolve a name that arrived from a scene file (deserialization
+        // deliberately drops the cached index, since bone order is a property of
+        // the skeleton asset rather than of the save).
+        if (ba.boneIndex < 0 && ba.boneName[0])
+            ba.boneIndex = boneIndexOf(ba.skinned, ba.boneName);
+        if (ba.boneIndex < 0) continue;
+
+        const SkinInstance* si = skinInstancePtr(skinHandleOf(ba.skinned));
+        if (!si || ba.boneIndex >= static_cast<int>(si->worldPose.size())) continue;
+
+        // The character's own placement, then the bone within it, then the
+        // socket's local offset.
+        auto* hostMr = registry_.get<ecs::MeshRenderer>(ba.skinned);
+        const math::Mat4 hostModel = (hostMr && hostMr->mesh) ? hostMr->mesh->modelMatrix
+                                                              : math::Mat4{};
+        math::Mat4 local{};
+        if (auto* tf = registry_.get<Transform>(e)) local = tf->getModelMatrix();
+
+        mr.mesh->modelMatrix    = hostModel * si->worldPose[ba.boneIndex] * local;
+        mr.mesh->transformReady = true;
+    }
 }
 
 std::string World::attachAnimation(ecs::Entity target, const std::string& path) {

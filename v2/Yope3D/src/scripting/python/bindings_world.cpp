@@ -224,6 +224,25 @@ void bind_world(py::module_& m) {
         // ecs::AnimationPlayer / World::attachAnimation). Returns the attached
         // clip's key, or "" on failure.
         .def("attach_animation", &World::attachAnimation, py::arg("entity"), py::arg("path"))
+        // ---- Skinned animation (M16) ----
+        // Entity-addressed: the engine resolves the SkinnedMeshRenderer to a pool
+        // handle internally, so scripts never hold one.
+        .def("play_skin_clip", &World::playSkin,
+             py::arg("entity"), py::arg("clip"), py::arg("fade") = 0.0f, py::arg("loop") = true)
+        .def("crossfade_skin",
+             [](World& w, ecs::Entity e, const std::string& clip, float seconds) {
+                 return w.playSkin(e, clip, seconds, true);
+             }, py::arg("entity"), py::arg("clip"), py::arg("seconds") = 0.2f)
+        .def("stop_skin",        &World::stopSkin,        py::arg("entity"))
+        .def("is_skin_playing",  &World::isSkinPlaying,   py::arg("entity"))
+        .def("set_skin_speed",   &World::setSkinSpeedFor, py::arg("entity"), py::arg("speed"))
+        .def("skin_time",        &World::skinTimeFor,     py::arg("entity"))
+        .def("set_skin_time",    &World::setSkinTimeFor,  py::arg("entity"), py::arg("time"))
+        .def("bone_count",       &World::boneCount,       py::arg("entity"))
+        .def("bone_name",        &World::boneNameOf,      py::arg("entity"), py::arg("index"))
+        .def("bone_index",       &World::boneIndexOf,     py::arg("entity"), py::arg("name"))
+        .def("attach_to_bone",   &World::attachToBone,
+             py::arg("entity"), py::arg("skinned"), py::arg("bone_name"))
         // ---- Cubemap skybox: 6 asset-relative faces (+X,-X,+Y,-Y,+Z,-Z) ----
         .def("set_skybox", [](World& w, const std::vector<std::string>& faces) {
             if (faces.size() != 6)

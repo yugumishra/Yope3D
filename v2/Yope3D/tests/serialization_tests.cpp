@@ -492,6 +492,38 @@ TEST_CASE("round-trip AnimationPlayer (time/playing reset on load)", "[ser][anim
     CHECK(out.playing == 0);      // reset by design
 }
 
+TEST_CASE("round-trip SkinnedMeshRenderer (instance handle never persists)", "[ser][anim][skin]") {
+    ecs::SkinnedMeshRenderer in;
+    std::strncpy(in.skeleton, "hero:Armature", sizeof(in.skeleton) - 1);
+    std::strncpy(in.clip,     "hero:Run",      sizeof(in.clip) - 1);
+    in.speed    = 1.25f;
+    in.loop     = 0;
+    in.mode     = ecs::SkinnedMeshRenderer::ComputePreSkin;
+    in.instance = 7;      // live pool handle — must NOT survive
+
+    auto out = roundtrip<ecs::SkinnedMeshRenderer>(compser::serializeSkinnedMeshRenderer,
+                                                   compser::deserializeSkinnedMeshRenderer, in);
+    CHECK(std::string(out.skeleton) == "hero:Armature");
+    CHECK(std::string(out.clip)     == "hero:Run");
+    eqF(out.speed, in.speed);
+    CHECK(out.loop == in.loop);
+    CHECK(out.mode == ecs::SkinnedMeshRenderer::ComputePreSkin);
+    // Persisting this would restore an index into a pool rebuilt from scratch —
+    // pointing at another character's palette, or at nothing.
+    CHECK(out.instance == -1);
+}
+
+TEST_CASE("round-trip BoneAttachment (bone index re-resolved, not stored)", "[ser][anim][skin]") {
+    ecs::BoneAttachment in;
+    std::strncpy(in.boneName, "hand.R", sizeof(in.boneName) - 1);
+    in.boneIndex = 12;    // cache of a lookup, not authored state
+
+    auto out = roundtrip<ecs::BoneAttachment>(compser::serializeBoneAttachment,
+                                              compser::deserializeBoneAttachment, in);
+    CHECK(std::string(out.boneName) == "hand.R");
+    CHECK(out.boneIndex == -1);
+}
+
 // ============================================================================
 // Components handled OUTSIDE the pair (documented behavior, pinned here so a
 // change to it is visible).
@@ -578,9 +610,10 @@ TEST_CASE("every serializable component is covered by a round-trip case", "[ser]
         "HingeJointConstraint", "ConeTwistJointConstraint", "AudioSource",
         "ScriptComponent", "UITransform", "UIBackground", "UITexturedBackground",
         "UICurvedBackground", "UIText", "UIButton", "TextLabel3D", "AnimationPlayer",
+        "SkinnedMeshRenderer", "BoneAttachment",
         // handled outside the pair (deserialize is a no-op / empty), pinned above
         "MeshRenderer", "Parent",
     };
     // Bump this when adding a serializer (and add the case + the name above).
-    CHECK(covered.size() == 28);
+    CHECK(covered.size() == 30);
 }

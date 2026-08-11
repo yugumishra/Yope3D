@@ -384,6 +384,25 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
         if (!reg.has<ecs::AnimationPlayer>(e)) reg.add<ecs::AnimationPlayer>(e, animationPlayer);
         else if (auto* t = reg.get<ecs::AnimationPlayer>(e)) *t = animationPlayer;
     }
+    if (hasSkinnedMeshRenderer) {
+        // Preserve the LIVE instance handle. The SkinInstance pool and the GPU
+        // skin buffers survive Play/Stop untouched (they hang off the RenderMesh,
+        // not the registry), so overwriting the handle with the snapshot's -1
+        // would orphan a perfectly good instance and stop the character animating
+        // for the rest of the session.
+        ecs::SkinnedMeshRenderer s = skinnedMeshRenderer;
+        if (auto* live = reg.get<ecs::SkinnedMeshRenderer>(e)) {
+            s.instance = live->instance;
+            *live = s;
+        } else {
+            s.instance = -1;
+            reg.add<ecs::SkinnedMeshRenderer>(e, s);
+        }
+    }
+    if (hasBoneAttachment) {
+        if (!reg.has<ecs::BoneAttachment>(e)) reg.add<ecs::BoneAttachment>(e, boneAttachment);
+        else if (auto* t = reg.get<ecs::BoneAttachment>(e)) *t = boneAttachment;
+    }
 
     return e;
 }
@@ -472,6 +491,12 @@ ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world
         s.animationPlayer.time    = 0.0f;   // never snapshot live playback position
         s.animationPlayer.playing = 0;
     }
+    if (auto* t = reg.get<ecs::SkinnedMeshRenderer>(e)) {
+        s.hasSkinnedMeshRenderer = true;
+        s.skinnedMeshRenderer    = *t;
+        s.skinnedMeshRenderer.instance = -1;   // pool handle is not authored state
+    }
+    if (auto* t = reg.get<ecs::BoneAttachment>(e)) { s.hasBoneAttachment = true; s.boneAttachment = *t; }
 
     return s;
 }

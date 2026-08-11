@@ -183,6 +183,7 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
     createDescriptorSets(gpu.device());
     createPipeline(gpu.device());
     createShadowPipeline(gpu.device());
+    createSkinningPipeline(gpu);
     createSkyboxPipeline(gpu.device());
     createFramebuffers(gpu.device());
     createUIRenderPass(gpu);
@@ -222,6 +223,23 @@ Renderer::Renderer(GpuDevice& gpu, Window& window) {
 
 Renderer::~Renderer() {
     // Caller must have called waitIdle() before destroying.
+    //
+    // The skinning descriptor pool is torn down HERE rather than in waitIdle(),
+    // and the ordering is load-bearing. Every skinned RenderMesh holds a set
+    // allocated from skinMeshPool_ and frees it in RenderMesh::destroy(). Engine
+    // ::cleanup runs waitIdle() (743) -> world->cleanup() (748) -> renderer.reset()
+    // (749), so destroying the pool in waitIdle() left the meshes freeing sets
+    // from an already-dead pool. The destructor is the first point that is
+    // guaranteed to run after every mesh is gone but before the VkDevice is.
+    if (skinDevice_ == VK_NULL_HANDLE) return;
+    skinPipeline_ = ComputePipeline{};
+    vkDestroyPipelineLayout(skinDevice_, skinPipelineLayout_, nullptr);
+    vkDestroyDescriptorPool(skinDevice_, skinMeshPool_, nullptr);
+    vkDestroyDescriptorPool(skinDevice_, skinPalettePool_, nullptr);
+    vkDestroyDescriptorSetLayout(skinDevice_, skinMeshSetLayout_, nullptr);
+    vkDestroyDescriptorSetLayout(skinDevice_, skinPaletteSetLayout_, nullptr);
+    for (auto& jb : jointBuffers_) jb.destroy(skinDevice_);
+    skinDevice_ = VK_NULL_HANDLE;
 }
 
 VkDescriptorSetLayout Renderer::getTextureSetLayout() const {
@@ -293,6 +311,10 @@ void Renderer::waitIdle(GpuDevice& gpu) {
     destroyOffscreenUIFramebuffer(gpu.device());
     offscreenUIPass_.reset();
 #endif
+
+    // NOTE: the skinning pre-pass is deliberately NOT torn down here — skinned
+    // RenderMeshes outlive this call and free their descriptor sets from
+    // skinMeshPool_. See ~Renderer() for the ordering.
 
     for (auto& ub : uniformBuffers) ub.destroy(gpu.device());
     for (auto& sb : lightBuffers) sb.destroy(gpu.device());
@@ -1183,6 +1205,236 @@ void Renderer::recordSceneMeshes(VkCommandBuffer cmd, World& world, AssetManager
     }
 }
 
+// ---------------------------------------------------------------------------
+// Skinning pre-pass (M16)
+// ---------------------------------------------------------------------------
+
+namespace {
+// Push constants for skin.comp. Tiny by design — everything per-mesh that isn't
+// a buffer binding rides here instead of in a descriptor.
+struct SkinPush {
+    uint32_t vertexCount;
+    uint32_t influenceCount;
+    uint32_t jointBase;
+};
+constexpr uint32_t kSkinLocalSize = 64;   // must match skin.comp's local_size_x
+} // namespace
+
+void Renderer::createSkinningPipeline(GpuDevice& gpu) {
+    VkDevice device = gpu.device();
+
+    // ---- set 0: per-mesh src / skin / dst ----
+    VkDescriptorSetLayoutBinding meshBindings[3]{};
+    for (uint32_t i = 0; i < 3; ++i) {
+        meshBindings[i].binding         = i;
+        meshBindings[i].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        meshBindings[i].descriptorCount = 1;
+        meshBindings[i].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+    }
+    VkDescriptorSetLayoutCreateInfo meshCi{};
+    meshCi.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    meshCi.bindingCount = 3;
+    meshCi.pBindings    = meshBindings;
+    if (vkCreateDescriptorSetLayout(device, &meshCi, nullptr, &skinMeshSetLayout_) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create skinning mesh descriptor set layout");
+
+    // ---- set 1: per-frame joint palette ----
+    VkDescriptorSetLayoutBinding paletteBinding{};
+    paletteBinding.binding         = 0;
+    paletteBinding.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    paletteBinding.descriptorCount = 1;
+    paletteBinding.stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo palCi{};
+    palCi.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    palCi.bindingCount = 1;
+    palCi.pBindings    = &paletteBinding;
+    if (vkCreateDescriptorSetLayout(device, &palCi, nullptr, &skinPaletteSetLayout_) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create skinning palette descriptor set layout");
+
+    // Mesh-set pool. FREE_DESCRIPTOR_SET_BIT because sets are returned in
+    // RenderMesh::destroy — without it, spawning and despawning characters over a
+    // long session would exhaust the pool.
+    VkDescriptorPoolSize meshPoolSize{};
+    meshPoolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    meshPoolSize.descriptorCount = MAX_SKINNED_MESHES * 3;
+
+    VkDescriptorPoolCreateInfo meshPoolCi{};
+    meshPoolCi.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    meshPoolCi.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    meshPoolCi.poolSizeCount = 1;
+    meshPoolCi.pPoolSizes    = &meshPoolSize;
+    meshPoolCi.maxSets       = MAX_SKINNED_MESHES;
+    if (vkCreateDescriptorPool(device, &meshPoolCi, nullptr, &skinMeshPool_) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create skinning mesh descriptor pool");
+
+    // Palette pool + sets (one per frame in flight, allocated up front).
+    VkDescriptorPoolSize palPoolSize{};
+    palPoolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    palPoolSize.descriptorCount = MAX_FRAMES;
+
+    VkDescriptorPoolCreateInfo palPoolCi{};
+    palPoolCi.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    palPoolCi.poolSizeCount = 1;
+    palPoolCi.pPoolSizes    = &palPoolSize;
+    palPoolCi.maxSets       = MAX_FRAMES;
+    if (vkCreateDescriptorPool(device, &palPoolCi, nullptr, &skinPalettePool_) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create skinning palette descriptor pool");
+
+    for (auto& jb : jointBuffers_)
+        jb = StorageBuffer(gpu, VkDeviceSize(MAX_JOINTS_TOTAL) * 16 * sizeof(float));
+
+    std::array<VkDescriptorSetLayout, MAX_FRAMES> palLayouts{};
+    palLayouts.fill(skinPaletteSetLayout_);
+    VkDescriptorSetAllocateInfo palAi{};
+    palAi.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    palAi.descriptorPool     = skinPalettePool_;
+    palAi.descriptorSetCount = MAX_FRAMES;
+    palAi.pSetLayouts        = palLayouts.data();
+    if (vkAllocateDescriptorSets(device, &palAi, skinPaletteSets_.data()) != VK_SUCCESS)
+        throw std::runtime_error("Failed to allocate skinning palette descriptor sets");
+
+    for (int i = 0; i < MAX_FRAMES; ++i) {
+        VkDescriptorBufferInfo bi{};
+        bi.buffer = jointBuffers_[i].get();
+        bi.offset = 0;
+        bi.range  = jointBuffers_[i].getSize();
+
+        VkWriteDescriptorSet w{};
+        w.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w.dstSet          = skinPaletteSets_[i];
+        w.dstBinding      = 0;
+        w.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        w.descriptorCount = 1;
+        w.pBufferInfo     = &bi;
+        vkUpdateDescriptorSets(device, 1, &w, 0, nullptr);
+    }
+
+    VkPushConstantRange pcr{};
+    pcr.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pcr.offset     = 0;
+    pcr.size       = sizeof(SkinPush);
+
+    VkDescriptorSetLayout setLayouts[2] = { skinMeshSetLayout_, skinPaletteSetLayout_ };
+    VkPipelineLayoutCreateInfo li{};
+    li.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    li.setLayoutCount         = 2;
+    li.pSetLayouts            = setLayouts;
+    li.pushConstantRangeCount = 1;
+    li.pPushConstantRanges    = &pcr;
+    if (vkCreatePipelineLayout(device, &li, nullptr, &skinPipelineLayout_) != VK_SUCCESS)
+        throw std::runtime_error("Failed to create skinning pipeline layout");
+
+    ShaderModule cs(device, std::string(YOPE_SHADER_DIR) + "/skin.comp.spv");
+    skinPipeline_ = ComputePipeline(device, skinPipelineLayout_, cs.get());
+    skinDevice_   = device;
+}
+
+bool Renderer::ensureSkinMeshSet(VkDevice device, RenderMesh& mesh) {
+    if (mesh.skinSet != VK_NULL_HANDLE) return true;
+
+    VkDescriptorSetAllocateInfo ai{};
+    ai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    ai.descriptorPool     = skinMeshPool_;
+    ai.descriptorSetCount = 1;
+    ai.pSetLayouts        = &skinMeshSetLayout_;
+    // Out of sets means too many skinned meshes at once — skip this one rather
+    // than aborting the frame. It draws in bind pose until a slot frees.
+    if (vkAllocateDescriptorSets(device, &ai, &mesh.skinSet) != VK_SUCCESS) {
+        mesh.skinSet = VK_NULL_HANDLE;
+        return false;
+    }
+    mesh.skinSetPool = skinMeshPool_;
+
+    VkDescriptorBufferInfo infos[3]{};
+    infos[0].buffer = mesh.sourceVertexBuffer();
+    infos[0].range  = VK_WHOLE_SIZE;
+    infos[1].buffer = mesh.skinBuffer.get();
+    infos[1].range  = VK_WHOLE_SIZE;
+    infos[2].buffer = mesh.skinnedVertexBuffer.get();
+    infos[2].range  = VK_WHOLE_SIZE;
+
+    VkWriteDescriptorSet writes[3]{};
+    for (uint32_t i = 0; i < 3; ++i) {
+        writes[i].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[i].dstSet          = mesh.skinSet;
+        writes[i].dstBinding      = i;
+        writes[i].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[i].descriptorCount = 1;
+        writes[i].pBufferInfo     = &infos[i];
+    }
+    vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
+    return true;
+}
+
+void Renderer::recordSkinningPass(VkCommandBuffer cmd, World& world) {
+    auto& reg = world.getRegistry();
+
+    // Gather this frame's skinned meshes and pack every palette into the single
+    // flat SSBO, recording each mesh's base offset as we go.
+    struct Dispatch { RenderMesh* mesh; uint32_t jointBase; };
+    std::vector<Dispatch> dispatches;
+    jointPack_.clear();
+
+    for (auto [entity, tf, mr] : reg.view<Transform, ecs::MeshRenderer>()) {
+        RenderMesh* m = mr.mesh;
+        if (!m || !m->isSkinned() || !m->visible) continue;
+
+        const std::vector<math::Mat4>* palette = world.skinPalette(m->skinInstance);
+        if (!palette || palette->empty()) continue;
+
+        const uint32_t base = static_cast<uint32_t>(jointPack_.size() / 16);
+        if (base + palette->size() > MAX_JOINTS_TOTAL) break;   // budget exhausted
+
+        for (const math::Mat4& mat : *palette)
+            jointPack_.insert(jointPack_.end(), mat.m, mat.m + 16);
+        dispatches.push_back({ m, base });
+    }
+
+    // No skinned geometry: emit nothing at all. In particular no barrier — an
+    // empty pass must not cost a pipeline stall on every frame of every scene
+    // that has no characters in it.
+    if (dispatches.empty()) return;
+
+    jointBuffers_[currentFrame].write(jointPack_.data(), jointPack_.size() * sizeof(float));
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, skinPipeline_.get());
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, skinPipelineLayout_,
+        1, 1, &skinPaletteSets_[currentFrame], 0, nullptr);
+
+    for (const Dispatch& d : dispatches) {
+        if (!ensureSkinMeshSet(skinDevice_, *d.mesh)) continue;
+
+        SkinPush push{};
+        push.vertexCount    = d.mesh->vertexCount();
+        push.influenceCount = d.mesh->influenceCount;
+        push.jointBase      = d.jointBase;
+
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, skinPipelineLayout_,
+            0, 1, &d.mesh->skinSet, 0, nullptr);
+        vkCmdPushConstants(cmd, skinPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
+            0, sizeof(SkinPush), &push);
+        vkCmdDispatch(cmd, (push.vertexCount + kSkinLocalSize - 1) / kSkinLocalSize, 1, 1);
+    }
+
+    // One global barrier covers every output buffer written above — cheaper and
+    // no less correct than N per-buffer barriers.
+    //
+    // The destination stage is VERTEX_INPUT, not VERTEX_SHADER: these buffers are
+    // consumed through the fixed-function vertex-fetch path, not by a shader read.
+    // And this must be recorded before recordShadowPass — the shadow pass is the
+    // FIRST reader of the skinned buffers, so ordering against the main pass
+    // instead would leave the shadow draw racing the compute write. That failure
+    // is silent on tile-based GPUs that happen to serialise anyway.
+    VkMemoryBarrier barrier{};
+    barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+    vkCmdPipelineBarrier(cmd,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+        0, 1, &barrier, 0, nullptr, 0, nullptr);
+}
+
 void Renderer::recordShadowPass(VkCommandBuffer cmd, World& world) {
     // triangle.frag statically declares both the spot/directional and point
     // shadow sampler bindings, so the main pipeline's validation-expected layout
@@ -1318,6 +1570,9 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, Wor
         // Shadow depth pass (before the main pass — the render-pass dependencies on
         // both passes handle the write->sample ordering on the shared shadow image).
         if (!suppressScene_) {
+            // Skinning compute BEFORE the shadow pass: the shadow draw is the
+            // first consumer of the skinned vertex buffers.
+            recordSkinningPass(cmd, world);
             YOPE_GPU_STAGE_BEGIN(cmd, ShadowPass);
             recordShadowPass(cmd, world);
             YOPE_GPU_STAGE_END(cmd, ShadowPass);
@@ -2542,6 +2797,9 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
             buildECSText3DGeometry(text3DBuffers_[currentFrame], world);
             uploadDebugLines(world);
         }
+
+        // Skinning compute BEFORE the shadow pass (see the runtime path).
+        recordSkinningPass(cmd, world);
 
         // Shadow depth pass (before the main pass — see recordCommandBuffer's
         // runtime equivalent for the write->sample ordering note).

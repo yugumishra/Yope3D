@@ -9,6 +9,7 @@
 #include "RenderMesh.h"
 #include "Transform.h"
 #include "../assets/AnimationClip.h"
+#include "../assets/Skeleton.h"
 #include "../rendering/Light.h"
 #include "../ecs/Registry.h"
 #include "../ecs/Components.h"
@@ -341,6 +342,92 @@ public:
     // file-picker / asset-browser drag-drop, which may live outside the
     // assets tree — mirrors importModel vs. addModel).
     std::string attachAnimationAbs(ecs::Entity target, const std::string& absPath);
+
+    // ---- Skinned animation (M16) ----
+    // Skeletons and skinned clips are shared/immutable, keyed like
+    // animationClips_. Per-character playback state lives in a SkinInstance
+    // addressed by an integer handle — ecs::SkinnedMeshRenderer will carry that
+    // handle rather than the pose data itself, for the same reason anim::Clip is
+    // not a component (see AnimationClip.h / Skeleton.h).
+    void registerSkeleton(const std::string& key, anim::Skeleton skeleton);
+    const anim::Skeleton* skeleton(const std::string& key) const;
+
+    // Skinned clips live in their OWN store, deliberately not animationClips_:
+    // a skinned clip's Channel::targetNode is a BONE index, a rigid clip's is a
+    // LoadedModel node index. The two are indistinguishable at the type level, so
+    // keeping them in one map is a standing invitation to bind a clip to the
+    // wrong index space. The importer remaps glTF's node-indexed channels through
+    // LoadedSkin::joints on the way in here.
+    void registerSkinnedClip(const std::string& key, anim::Clip clip);
+    const anim::Clip* skinnedClip(const std::string& key) const;
+    const std::unordered_map<std::string, std::unique_ptr<anim::Clip>>& skinnedClips() const {
+        return skinnedClips_;
+    }
+    // Scrub support for the inspector: current playback time of the incoming clip.
+    float skinTime(int handle) const;
+    void  setSkinTime(int handle, float t);
+
+    // Instance pool. Returns a stable handle, or -1 if the skeleton is unknown.
+    int  createSkinInstance(const std::string& skeletonKey);
+    void destroySkinInstance(int handle);
+    bool skinInstanceValid(int handle) const;
+
+    // Start `clip`, cross-fading from whatever is currently playing over
+    // `fadeSeconds` (0 snaps). No-op for an unknown handle or clip.
+    void playSkinClip(int handle, const std::string& clip,
+                      float fadeSeconds = 0.0f, bool loop = true);
+    void stopSkinClip(int handle);
+    void setSkinSpeed(int handle, float speed);
+
+    // The joint palette for `handle`, or nullptr. This is what Phase 3's compute
+    // dispatch uploads. MODEL-FREE by contract — see anim::buildPalette; the
+    // renderer still applies the entity's model matrix as it does for static
+    // geometry. Valid until the next destroySkinInstance.
+    const std::vector<math::Mat4>* skinPalette(int handle) const;
+
+    // Upload `mesh`'s per-vertex influences and allocate its skinned output
+    // buffer, binding it to skin instance `instanceHandle`. After this the mesh
+    // reports isSkinned() and the renderer's compute pre-pass picks it up.
+    // Returns false if the mesh/instance is invalid or the source carries no
+    // skin data. `src` supplies skinJoints/skinWeights/influenceCount as packed
+    // by GltfLoader.
+    bool attachSkin(RenderMesh* mesh, const LoadedMesh& src, int instanceHandle);
+
+    // ---- Entity-addressed skinned API (the scripting surface) ----
+    // Each resolves the entity's ecs::SkinnedMeshRenderer to a pool handle, so
+    // scripts never see or hold a raw handle. All are no-ops / defaults for an
+    // entity that is not skinned.
+    bool  playSkin(ecs::Entity e, const std::string& clip,
+                   float fadeSeconds = 0.0f, bool loop = true);
+    void  stopSkin(ecs::Entity e);
+    bool  isSkinPlaying(ecs::Entity e) const;
+    void  setSkinSpeedFor(ecs::Entity e, float speed);
+    float skinTimeFor(ecs::Entity e) const;
+    void  setSkinTimeFor(ecs::Entity e, float t);
+
+    int         boneCount(ecs::Entity e) const;
+    std::string boneNameOf(ecs::Entity e, int index) const;
+    int         boneIndexOf(ecs::Entity e, const std::string& name) const;
+
+    // Pin `target` to `skinned`'s bone. Adds/updates ecs::BoneAttachment and
+    // resolves the bone index once. False if either entity is invalid, `skinned`
+    // has no skeleton, or the bone name is unknown.
+    bool attachToBone(ecs::Entity target, ecs::Entity skinned, const std::string& boneName);
+
+    // Overwrites bone-attached entities' RenderMesh model matrices from the live
+    // skeleton pose. Called from Engine::render() AFTER syncRenderMeshesFromFront,
+    // which is load-bearing twice over: that sync stamps every mesh from the
+    // physics snapshot and would otherwise clobber this, and the palette is owned
+    // by the render thread, so reading it here avoids a cross-thread race that
+    // composing inside publishSnapshot (physics thread) would introduce.
+    void applyBoneAttachments();
+
+    // Advances every live instance's clip times and blend, then rebuilds its
+    // palette. Called once per frame from Engine::update() — NOT from advance().
+    // Skinned pose is presentation, not simulation: running it at the physics
+    // thread's 240 Hz would rebuild every character's matrices four times per
+    // displayed frame on the physics budget. Rigid clips stay in advance().
+    void updateSkinnedAnimations(float dt);
 
     // ---- UI input routing (screen-space pointer -> ECS UI entities) ----
     // Called once per frame by Engine after cursor pos + per-button edge flags
@@ -710,6 +797,44 @@ private:
     // clips while paused at the same time value in both.
     struct AnimSampleKey { std::string clip; float time = 0.0f; };
     std::unordered_map<uint32_t, AnimSampleKey>                   animLastSampled_;
+
+    // ---- Skinned animation state (M16) ----
+    // One live skinned character. `to` is the clip currently being played into;
+    // `from` is whatever it is fading out of, valid only while blend < 1.
+    //
+    // The pose/palette vectors are scratch owned by the instance rather than the
+    // update loop, so a steady-state frame allocates nothing: they are sized once
+    // on the first tick and reused.
+    struct SkinInstance {
+        std::string             skeleton;
+        std::string             toClip,  fromClip;
+        float                   toTime = 0.0f, fromTime = 0.0f;
+        float                   blend         = 1.0f;   // 1 = fully on `to`
+        float                   blendDuration = 0.0f;
+        float                   speed         = 1.0f;
+        bool                    loop          = true;
+        bool                    playing       = false;
+        std::vector<Transform>  poseTo, poseFrom, pose;
+        std::vector<math::Mat4> palette;
+        // Bone world matrices, kept alongside the palette for sockets. Sharing
+        // the pose sweep is why this is nearly free; recovering it from the
+        // palette instead would mean inverting an inverse-bind per attachment.
+        std::vector<math::Mat4> worldPose;
+    };
+
+    std::unordered_map<std::string, std::unique_ptr<anim::Skeleton>> skeletons_;
+    std::unordered_map<std::string, std::unique_ptr<anim::Clip>>     skinnedClips_;
+    // unique_ptr for pointer stability across vector growth (same rationale as
+    // springs_/joints_ below) — skinPalette() hands out a pointer into an
+    // instance, which must survive another instance being created.
+    std::vector<std::unique_ptr<SkinInstance>>                       skinInstances_;
+    std::vector<int>                                                 freeSkinInstances_;
+
+    SkinInstance*       skinInstancePtr(int handle);
+    const SkinInstance* skinInstancePtr(int handle) const;
+    // Entity -> pool handle / skeleton, for the entity-addressed API above.
+    int                   skinHandleOf(ecs::Entity e) const;
+    const anim::Skeleton* skeletonOf(ecs::Entity e) const;
 
     std::vector<std::unique_ptr<physics::Spring>>        springs_;
     // unique_ptr purely for pointer stability across vector growth (same

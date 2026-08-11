@@ -7,11 +7,14 @@
 #include <cstring>
 #include <array>
 #include <cmath>
+#include <algorithm>
+#include <string>
 
 namespace {
 
 using Bytes = std::vector<uint8_t>;
 using Mat16 = std::array<float, 16>;   // column-major 4x4
+using GltfLoader::kMaxInfluences;
 
 // path is a full filesystem path (already resolved against YOPE_ASSETS_DIR by
 // the caller, or a sibling of one via gltfDir/uri) — normalize it back to an
@@ -138,6 +141,11 @@ struct Ctx {
         }
         outComps = comps;
         return out;
+    }
+
+    bool accessorIsNormalized(int accessorIdx) const {
+        const JsonNode& acc = arr("accessors").asArray()[accessorIdx];
+        return acc.contains("normalized") && acc["normalized"].asBool();
     }
 
     std::vector<uint32_t> readIndices(int accessorIdx) const {
@@ -268,12 +276,132 @@ struct Ctx {
                 if (!uv.empty()) { v.uv[0] = uv[i*2+0]; v.uv[1] = uv[i*2+1]; }
             }
 
+            emitSkin(attrs, vcount, lm);
+
             if (prim.contains("indices")) lm.indices = readIndices(prim["indices"].asInt());
             else { lm.indices.resize(vcount); for (uint32_t i = 0; i < vcount; ++i) lm.indices[i] = i; }
 
             lm.material = material(prim.contains("material") ? prim["material"].asInt() : -1);
             if (mesh.contains("name")) lm.name = mesh["name"].asString();
             out.push_back(std::move(lm));
+        }
+    }
+
+    // Fill lm's skin fields from a primitive's JOINTS_n / WEIGHTS_n attributes.
+    // No-op (leaving influenceCount == 0) when the primitive is unskinned.
+    //
+    // glTF supplies influences four at a time — JOINTS_0/WEIGHTS_0 is influences
+    // 1-4, JOINTS_1/WEIGHTS_1 is 5-8, and so on — so every present set is read and
+    // then reduced per vertex to at most kMaxInfluences.
+    void emitSkin(const JsonNode& attrs, size_t vcount, LoadedMesh& lm) const {
+        std::vector<std::vector<float>> jointSets, weightSets;
+        for (int s = 0;; ++s) {
+            const std::string jk = "JOINTS_"  + std::to_string(s);
+            const std::string wk = "WEIGHTS_" + std::to_string(s);
+            if (!attrs.contains(jk) || !attrs.contains(wk)) break;
+
+            const int jIdx = attrs[jk].asInt();
+            // readFloats expands normalised integers to [0,1]. That is exactly right
+            // for weights and catastrophic for joints, which are raw indices — a
+            // valid glTF never marks them normalized, so refuse rather than silently
+            // decode every index to 0.
+            if (accessorIsNormalized(jIdx))
+                throw std::runtime_error("GltfLoader: " + jk +
+                    " is marked normalized; joint indices must be raw");
+
+            int jc = 0, wc = 0;
+            std::vector<float> js = readFloats(jIdx, jc);
+            std::vector<float> ws = readFloats(attrs[wk].asInt(), wc);
+            // A short or non-VEC4 set would desynchronise the per-vertex stride
+            // below; treat it as the end of the usable sets rather than trusting it.
+            if (jc != 4 || wc != 4 || js.size() < vcount * 4 || ws.size() < vcount * 4) break;
+            jointSets.push_back(std::move(js));
+            weightSets.push_back(std::move(ws));
+        }
+        if (jointSets.empty()) return;
+        const int sets = static_cast<int>(jointSets.size());
+
+        // Pass 1 — how many influences does the heaviest vertex actually use, and
+        // how many vertices overflow the cap? Exporters routinely emit a JOINTS_1
+        // set that is entirely zero-weight, so the attribute count is not the
+        // answer; only a scan is. This is what lets a nominally-8 mesh store 4.
+        int      maxUsed   = 0;
+        uint32_t truncated = 0;
+        for (size_t i = 0; i < vcount; ++i) {
+            int used = 0;
+            for (int s = 0; s < sets; ++s)
+                for (int k = 0; k < 4; ++k)
+                    if (weightSets[s][i * 4 + k] > 0.0f) ++used;
+            maxUsed = std::max(maxUsed, used);
+            if (used > kMaxInfluences) ++truncated;
+        }
+
+        const int slots = maxUsed > 4 ? kMaxInfluences : 4;
+        lm.influenceCount    = static_cast<uint8_t>(slots);
+        lm.truncatedVertices = truncated;
+        lm.skinJoints .assign(vcount * slots, 0);
+        lm.skinWeights.assign(vcount * slots, 0);
+
+        // Pass 2 — sort, truncate, renormalise, quantise, write largest-last.
+        struct Inf { int joint; float weight; };
+        std::vector<Inf> infl;
+        infl.reserve(static_cast<size_t>(sets) * 4);
+
+        for (size_t i = 0; i < vcount; ++i) {
+            infl.clear();
+            for (int s = 0; s < sets; ++s)
+                for (int k = 0; k < 4; ++k) {
+                    const float w = weightSets[s][i * 4 + k];
+                    if (w <= 0.0f) continue;
+                    const float jf = jointSets[s][i * 4 + k];
+                    const int   j  = static_cast<int>(jf);
+                    // uint8 storage caps a skin at 256 joints. Wrapping silently here
+                    // would bind vertices to an unrelated bone somewhere else in the
+                    // skeleton — a bug that looks like bad weight painting.
+                    if (j < 0 || j > 255)
+                        throw std::runtime_error("GltfLoader: joint index " + std::to_string(j) +
+                            " exceeds the 256-joint limit for a single skin");
+                    infl.push_back({ j, w });
+                }
+
+            uint8_t* jo = &lm.skinJoints [i * slots];
+            uint8_t* wo = &lm.skinWeights[i * slots];
+
+            // Degenerate vertex (no positive weight anywhere). Binding it rigidly to
+            // the skin's first joint keeps it attached to the character; leaving the
+            // weights at zero would collapse it onto the origin.
+            if (infl.empty()) { jo[slots - 1] = 0; wo[slots - 1] = 255; continue; }
+
+            // Largest first, so truncation drops the least significant influences.
+            std::sort(infl.begin(), infl.end(),
+                      [](const Inf& a, const Inf& b) { return a.weight > b.weight; });
+            if (static_cast<int>(infl.size()) > slots) infl.resize(slots);
+
+            float sum = 0.0f;
+            for (const Inf& f : infl) sum += f.weight;
+
+            int q[kMaxInfluences] = {};
+            int qsum = 0;
+            for (size_t k = 0; k < infl.size(); ++k) {
+                q[k] = static_cast<int>(std::lround(infl[k].weight / sum * 255.0f));
+                qsum += q[k];
+            }
+            // Absorb the rounding remainder into the dominant influence so the set
+            // sums to exactly 255. Rounding each weight independently instead leaves
+            // sums at 254 or 256, scaling the vertex by +-0.4% — and because the drift
+            // varies per vertex and shifts as the pose changes, it reads as a crawling
+            // shimmer across blend bands. That artifact, not the 1/255 step, is what
+            // usually gets blamed on 8-bit weights.
+            q[0] = std::clamp(q[0] + (255 - qsum), 0, 255);
+
+            // Written back reversed: largest weight in the LAST slot, zero padding at
+            // the front. See LoadedMesh — this is what lets a consumer drop the last
+            // weight and derive it as 255 - sum without losing exactness.
+            for (size_t k = 0; k < infl.size(); ++k) {
+                const size_t dst = static_cast<size_t>(slots) - 1 - k;
+                jo[dst] = static_cast<uint8_t>(infl[k].joint);
+                wo[dst] = static_cast<uint8_t>(q[k]);
+            }
         }
     }
 
@@ -299,6 +427,9 @@ struct Ctx {
         if (node.contains("name")) ln.name = node["name"].asString();
         ln.local  = nodeLocal(node);
         ln.parent = parentIdx;
+        // Raw glTF skin index — the skins array is not reordered, so this needs no
+        // remap (unlike the node indices inside each skin, which loadSkins fixes up).
+        if (node.contains("skin")) ln.skin = node["skin"].asInt();
         if (node.contains("mesh")) emitMesh(node["mesh"].asInt(), ln.meshes);
 
         int myIdx = static_cast<int>(model.nodes.size());
@@ -309,6 +440,41 @@ struct Ctx {
         if (node.contains("children"))
             for (const JsonNode& ch : node["children"].asArray())
                 traverse(ch.asInt(), myIdx, model);
+    }
+
+    // Parse the top-level "skins" array into LoadedModel::skins.
+    // Requires gltfNodeToLocal to already be filled (call after node traversal),
+    // since joint and skeleton entries are glTF node indices.
+    void loadSkins(GltfLoader::LoadedModel& model) const {
+        if (!root->contains("skins")) return;
+
+        auto remap = [&](int gltfNode) -> int {
+            return (gltfNode >= 0 && gltfNode < static_cast<int>(gltfNodeToLocal.size()))
+                     ? gltfNodeToLocal[gltfNode] : -1;
+        };
+
+        for (const JsonNode& s : arr("skins").asArray()) {
+            GltfLoader::LoadedSkin sk;
+            if (s.contains("name"))     sk.name         = s["name"].asString();
+            if (s.contains("skeleton")) sk.skeletonRoot = remap(s["skeleton"].asInt());
+            if (s.contains("joints"))
+                for (const JsonNode& j : s["joints"].asArray())
+                    sk.joints.push_back(remap(j.asInt()));
+
+            // inverseBindMatrices is optional; the spec's default is identity per
+            // joint, which is also the right fallback for a short accessor.
+            sk.inverseBind.assign(sk.joints.size(), math::Mat4{});
+            if (s.contains("inverseBindMatrices")) {
+                int c = 0;
+                std::vector<float> ibm = readFloats(s["inverseBindMatrices"].asInt(), c);
+                // Both glTF and math::Mat4 are column-major, so this copies straight in.
+                const size_t n = std::min(sk.joints.size(), ibm.size() / 16);
+                for (size_t i = 0; i < n; ++i)
+                    std::memcpy(sk.inverseBind[i].m, &ibm[i * 16], 16 * sizeof(float));
+            }
+
+            model.skins.push_back(std::move(sk));
+        }
     }
 
     // Parse the top-level "animations" array into LoadedModel::animations.
@@ -436,6 +602,7 @@ LoadedModel load(const std::string& absPath, const RegisterImageFn& registerImag
         const JsonNode& scene = root["scenes"].asArray()[sceneIdx];
         if (scene.contains("nodes"))
             for (const JsonNode& n : scene["nodes"].asArray()) ctx.traverse(n.asInt(), -1, out);
+        ctx.loadSkins(out);
         ctx.loadAnimations(out);
     } else if (root.contains("meshes")) {
         for (size_t i = 0; i < root["meshes"].asArray().size(); ++i) {

@@ -518,6 +518,17 @@ void Engine::update() {
 
     updateScripts(dt);
 
+    // Skinned pose runs here, on the render tick, NOT inside World::advance().
+    // Rebuilding every character's joint matrices at the physics thread's 240 Hz
+    // would burn the physics budget re-posing four times per displayed frame for
+    // something purely presentational. Placed after updateScripts so a clip a
+    // script starts this frame is reflected in this frame's palette. Rigid
+    // (node-TRS) clips stay in advance() — see World::updateSkinnedAnimations.
+    {
+        YOPE_PROF_SCOPE("skinned_animation", "render");
+        world->updateSkinnedAnimations(dt);
+    }
+
     // Listener tracks camera (updated after script may have moved it).
     Listener::setPosition(camera->getPosition());
     Listener::setOrientation(camera->getForward(), {0.0f, 1.0f, 0.0f});
@@ -703,6 +714,12 @@ void Engine::render() {
         YOPE_PROF_SCOPE("snapshot_sync", "render");
         world->syncRenderMeshesFromFront();
     }
+    // Bone sockets ride on top of the snapshot, so this must follow the sync
+    // above unconditionally — not inside the branch. The sync only runs on frames
+    // where physics published, but the skinned pose advances EVERY frame, so a
+    // socket left un-recomposed on the other frames would visibly stutter against
+    // the character it is pinned to.
+    world->applyBoneAttachments();
     // Upload textures streamed in from background decode (glb embedded images).
     // Must run on this thread — the graphics queue is externally synchronized
     // with drawFrame() below.

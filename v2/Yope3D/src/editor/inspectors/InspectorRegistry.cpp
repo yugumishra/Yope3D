@@ -35,6 +35,7 @@ void drawUITextComponent                 (void*, EditorContext&, ecs::Entity);
 void drawUIButtonComponent               (void*, EditorContext&, ecs::Entity);
 void drawTextLabel3DComponent            (void*, EditorContext&, ecs::Entity);
 void drawAnimationPlayerComponent        (void*, EditorContext&, ecs::Entity);
+void drawSkinnedMeshRendererComponent    (void*, EditorContext&, ecs::Entity);
 
 std::vector<ComponentDrawer> g_drawers;
 
@@ -68,6 +69,7 @@ void registerAllInspectors() {
         { ecs::typeId<ecs::UIButton>(),              drawUIButtonComponent              },
         { ecs::typeId<ecs::TextLabel3D>(),           drawTextLabel3DComponent           },
         { ecs::typeId<ecs::AnimationPlayer>(),       drawAnimationPlayerComponent       },
+        { ecs::typeId<ecs::SkinnedMeshRenderer>(),   drawSkinnedMeshRendererComponent   },
     };
 }
 

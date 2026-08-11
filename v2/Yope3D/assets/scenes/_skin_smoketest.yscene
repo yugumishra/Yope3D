@@ -1,0 +1,24 @@
+{
+    "version": 1,
+    "gravity": [0, -9.80665, 0],
+    "entities": [
+        {
+            "fileId": 0,
+            "runtimeId": 0,
+            "Name": { "value": "SkinSmoketestHost" },
+            "ScriptComponent": {
+                "scriptClass": "PythonScript",
+                "paramsBlob": "{\n    \"module\": \"behaviors._skin_smoketest\",\n    \"class\": \"SkinSmoketest\"\n}"
+            }
+        },
+        {
+            "fileId": 1,
+            "runtimeId": 1,
+            "Name": { "value": "FreeCam" },
+            "ScriptComponent": {
+                "scriptClass": "PythonScript",
+                "paramsBlob": "{\n    \"module\": \"behaviors._freecam\",\n    \"class\": \"FreeCam\",\n    \"start_pos\": [0.0, 1.6, 6.0],\n    \"start_yaw\": 0.0,\n    \"start_pitch\": -0.12,\n    \"fly_speed\": 5.0\n}"
+            }
+        }
+    ]
+}

@@ -103,4 +103,14 @@ bool deserializeTextLabel3D          (const JsonNode& node, void* comp);
 void serializeAnimationPlayer       (const void* comp, JsonWriter& w);
 bool deserializeAnimationPlayer      (const JsonNode& node, void* comp);
 
+// SkinnedMeshRenderer (skeleton + clip keys + playback state). The `instance`
+// pool handle is runtime-only and deliberately not persisted.
+void serializeSkinnedMeshRenderer   (const void* comp, JsonWriter& w);
+bool deserializeSkinnedMeshRenderer  (const JsonNode& node, void* comp);
+
+// BoneAttachment (bone name only; the `skinned` entity ref goes through the
+// fileId two-pass like ecs::Parent)
+void serializeBoneAttachment        (const void* comp, JsonWriter& w);
+bool deserializeBoneAttachment       (const JsonNode& node, void* comp);
+
 } // namespace compser

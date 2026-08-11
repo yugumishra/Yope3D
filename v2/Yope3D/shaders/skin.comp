@@ -1,0 +1,123 @@
+#version 450
+
+// ---------------------------------------------------------------------------
+// skin.comp — GPU vertex skinning as a PRE-PASS.
+//
+// Reads the bind-pose vertex buffer + per-vertex influences + the joint palette,
+// writes a deformed vertex buffer in the SAME 32-byte PackedVertex layout. The
+// output is therefore indistinguishable from a static mesh downstream: the main
+// pass, the shadow pass (all 6 cube faces) and the editor's id-buffer pass bind
+// it through the ordinary vertex path with no skinned pipeline variants, no
+// per-draw palette offset, and no shader changes. That is the entire reason this
+// is a compute pre-pass rather than vertex-shader skinning.
+//
+// Dispatched by Renderer::recordSkinningPass BEFORE recordShadowPass — the
+// shadow pass, not the main pass, is the first consumer of this output.
+//
+// PackedVertex is read/written as raw uints because GLSL cannot express its
+// int16 fields in std430. Layout (32 bytes, 8 words):
+//   word 0..2  position   float32 x3
+//   word 3..4  uv         float32 x2
+//   word 5     normalOct  snorm16 x2
+//   word 6     tangentOct snorm16 x2
+//   word 7     handedness float32
+// unpackSnorm2x16/packSnorm2x16 match math::OctEncode's snorm16 convention
+// exactly (round(clamp(v,-1,1) * 32767)), so the round-trip is lossless beyond
+// the quantisation already present in the source.
+// ---------------------------------------------------------------------------
+
+layout(local_size_x = 64) in;
+
+layout(std430, set = 0, binding = 0) readonly  buffer SrcVerts { uint src[];  };
+layout(std430, set = 0, binding = 1) readonly  buffer SkinData { uint skin[]; };
+layout(std430, set = 0, binding = 2) writeonly buffer DstVerts { uint dst[];  };
+
+// One flat array across every skinned mesh in the frame; `jointBase` selects
+// this dispatch's slice. Model-free by contract (see anim::buildPalette) — the
+// graphics passes still apply push.model exactly as they do for static geometry.
+layout(std430, set = 1, binding = 0) readonly buffer JointPalette { mat4 palette[]; };
+
+layout(push_constant) uniform PushConstants {
+    uint vertexCount;
+    uint influenceCount;   // 4 or 8; uniform across the dispatch
+    uint jointBase;        // first palette index belonging to this mesh
+} push;
+
+// [-1,1]^2 -> unit vector. Inverse of math::octEncode; identical to the decode
+// in triangle.vert.
+vec3 octDecode(vec2 e) {
+    vec3 n = vec3(e.xy, 1.0 - abs(e.x) - abs(e.y));
+    float t = max(-n.z, 0.0);
+    n.x += (n.x >= 0.0) ? -t : t;
+    n.y += (n.y >= 0.0) ? -t : t;
+    return normalize(n);
+}
+
+// Unit vector -> [-1,1]^2. Port of math::octEncode.
+vec2 octEncode(vec3 n) {
+    n /= (abs(n.x) + abs(n.y) + abs(n.z));
+    if (n.z < 0.0) {
+        vec2 s = vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+        n.xy = (1.0 - abs(n.yx)) * s;
+    }
+    return n.xy;
+}
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    if (gid >= push.vertexCount) return;
+
+    // Blend the influencing bone matrices into one skinning matrix. Influences
+    // come four to a uint pair: `groups` words of packed joint indices followed by
+    // `groups` words of packed unorm8 weights. Weights are guaranteed by the
+    // importer to sum to exactly 255, so unpackUnorm4x8 gives a partition of 1.0
+    // and no renormalisation is needed here.
+    uint groups = push.influenceCount / 4u;
+    uint sbase  = gid * groups * 2u;
+
+    mat4 skinMat = mat4(0.0);
+    for (uint g = 0u; g < groups; ++g) {
+        uint jpack = skin[sbase + g];
+        vec4 w     = unpackUnorm4x8(skin[sbase + groups + g]);
+        for (uint k = 0u; k < 4u; ++k) {
+            float wt = w[k];
+            if (wt == 0.0) continue;
+            uint j = (jpack >> (k * 8u)) & 0xFFu;
+            skinMat += palette[push.jointBase + j] * wt;
+        }
+    }
+
+    uint base = gid * 8u;
+
+    vec3 p = vec3(uintBitsToFloat(src[base + 0u]),
+                  uintBitsToFloat(src[base + 1u]),
+                  uintBitsToFloat(src[base + 2u]));
+
+    vec3 n = octDecode(unpackSnorm2x16(src[base + 5u]));
+    vec3 t = octDecode(unpackSnorm2x16(src[base + 6u]));
+
+    // Normals and tangents take the skinning matrix's 3x3. That is the correct
+    // inverse-transpose only while bone transforms stay rigid (rotation + uniform
+    // scale); a non-uniformly scaled bone would skew them. Nothing currently
+    // detects that case — it is a known, undiagnosed limitation rather than a
+    // checked precondition. The per-vertex adjugate that would fix it is not
+    // worth paying for until a rig actually needs it.
+    //
+    // Separately, in a blend band the weighted sum of two rotations is not itself
+    // a rotation, so normals there are slightly sheared. That is inherent to
+    // linear blend skinning, not a bug.
+    mat3 skin3 = mat3(skinMat);
+
+    vec3 sp = (skinMat * vec4(p, 1.0)).xyz;
+    vec3 sn = normalize(skin3 * n);
+    vec3 st = normalize(skin3 * t);
+
+    dst[base + 0u] = floatBitsToUint(sp.x);
+    dst[base + 1u] = floatBitsToUint(sp.y);
+    dst[base + 2u] = floatBitsToUint(sp.z);
+    dst[base + 3u] = src[base + 3u];              // uv is unaffected by skinning
+    dst[base + 4u] = src[base + 4u];
+    dst[base + 5u] = packSnorm2x16(octEncode(sn));
+    dst[base + 6u] = packSnorm2x16(octEncode(st));
+    dst[base + 7u] = src[base + 7u];              // handedness likewise
+}
