@@ -11,12 +11,13 @@ layout(push_constant) uniform Push {
 
 layout(location = 0) in vec4  vColor;
 layout(location = 1) in float vDistPx;
+layout(location = 2) flat in float vWidthPx;
 
 layout(location = 0) out vec4 outColor;
 
 void main() {
     float d     = abs(vDistPx);
-    float halfW = 0.5 * push.widthPx;
+    float halfW = 0.5 * vWidthPx;
     float aa    = max(fwidth(vDistPx), 1e-3);
 
     // Core: opaque inside, ~1px analytic AA at the edge.

@@ -1586,9 +1586,9 @@ void World::applyImpulseAt(ecs::Entity e, math::Vec3 impulse, math::Vec3 worldPo
     wake(e);
 }
 
-void World::addDebugLine(math::Vec3 a, math::Vec3 b, math::Vec3 color) {
-    debugLines_.push_back({ a.x, a.y, a.z, color.x, color.y, color.z, 1.0f });
-    debugLines_.push_back({ b.x, b.y, b.z, color.x, color.y, color.z, 1.0f });
+void World::addDebugLine(math::Vec3 a, math::Vec3 b, math::Vec3 color, float widthPx) {
+    debugLines_.push_back({ a.x, a.y, a.z, color.x, color.y, color.z, 1.0f, widthPx });
+    debugLines_.push_back({ b.x, b.y, b.z, color.x, color.y, color.z, 1.0f, widthPx });
 }
 
 void World::emitContactDebugLines(float crossSize, float normalLen) {

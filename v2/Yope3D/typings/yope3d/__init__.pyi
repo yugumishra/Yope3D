@@ -3056,13 +3056,14 @@ def set_profile_scene(name: str) -> None:
         Profiling is debug-build-only; in release builds this is a no-op.
     """
 
-def draw_line(a: Vec3, b: Vec3, color: Vec3 | None = None) -> None:
+def draw_line(a: Vec3, b: Vec3, color: Vec3 | None = None, width: float = 0.0) -> None:
     """Draw a world-space debug segment for this frame.
 
     Args:
         a: Start point.
         b: End point.
         color: RGB in ``[0, 1]`` (defaults to yellow).
+        width: Stroke width in pixels. A non-positive value uses the global default.
 
     Note:
         Always-on-top. Debug lines are cleared automatically each frame before
@@ -3071,7 +3072,8 @@ def draw_line(a: Vec3, b: Vec3, color: Vec3 | None = None) -> None:
     """
 
 def draw_ray(
-    origin: Vec3, dir: Vec3, length: float = 1.0, color: Vec3 | None = None
+    origin: Vec3, dir: Vec3, length: float = 1.0, color: Vec3 | None = None,
+    width: float = 0.0
 ) -> None:
     """Draw a debug ray for this frame.
 
@@ -3080,6 +3082,7 @@ def draw_ray(
         dir: Ray direction.
         length: Length in meters.
         color: RGB in ``[0, 1]`` (defaults to yellow).
+        width: Stroke width in pixels. A non-positive value uses the global default.
     """
 
 def get_position(entity: Entity) -> Vec3 | None:

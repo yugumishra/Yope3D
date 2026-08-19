@@ -883,20 +883,21 @@ void bind_world(py::module_& m) {
     // Per-frame debug overlay: accumulate a world-space segment / ray (drawn always-on-top).
     // Cleared automatically each frame before scripts run, so call from update().
     m.def("draw_line",
-        [](math::Vec3 a, math::Vec3 b, py::object color_obj) {
+        [](math::Vec3 a, math::Vec3 b, py::object color_obj, float width_px) {
             math::Vec3 c{1.f, 1.f, 0.f};
             if (!color_obj.is_none()) c = color_obj.cast<math::Vec3>();
             auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
-            world->addDebugLine(a, b, c);
-        }, py::arg("a"), py::arg("b"), py::arg("color") = py::none());
+            world->addDebugLine(a, b, c, width_px);
+        }, py::arg("a"), py::arg("b"), py::arg("color") = py::none(),
+           py::arg("width") = 0.0f);
     m.def("draw_ray",
-        [](math::Vec3 origin, math::Vec3 dir, float length, py::object color_obj) {
+        [](math::Vec3 origin, math::Vec3 dir, float length, py::object color_obj, float width_px) {
             math::Vec3 c{1.f, 1.f, 0.f};
             if (!color_obj.is_none()) c = color_obj.cast<math::Vec3>();
             auto* world = py::module_::import("yope3d").attr("world").cast<World*>();
-            world->addDebugLine(origin, origin + dir.normalize() * length, c);
+            world->addDebugLine(origin, origin + dir.normalize() * length, c, width_px);
         }, py::arg("origin"), py::arg("dir"), py::arg("length") = 1.0f,
-           py::arg("color") = py::none());
+           py::arg("color") = py::none(), py::arg("width") = 0.0f);
 
     // Module-level singletons — set to None until bindContext() is called
     m.attr("world")         = py::none();

@@ -701,9 +701,10 @@ public:
     void setDebugLines(std::vector<DebugLineVertex> lines) { debugLines_ = std::move(lines); }
     void clearDebugLines() { debugLines_.clear(); }
     const std::vector<DebugLineVertex>& getDebugLines() const { return debugLines_; }
-    // Append one world-space segment (a→b) in `color`. Used by script yope3d.draw_line;
+    // Append one world-space segment (a→b) in `color`. A non-positive width inherits
+    // the renderer's global debug stroke width. Used by script yope3d.draw_line;
     // Engine clears debugLines_ each frame before scripts run, so segments are per-frame.
-    void addDebugLine(math::Vec3 a, math::Vec3 b, math::Vec3 color);
+    void addDebugLine(math::Vec3 a, math::Vec3 b, math::Vec3 color, float widthPx = 0.0f);
 
     void toggleProxies(bool enabled);
 

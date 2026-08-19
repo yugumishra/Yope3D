@@ -24,9 +24,11 @@ layout(location = 0) in vec3 inP0;
 layout(location = 1) in vec4 inColor0;
 layout(location = 2) in vec3 inP1;
 layout(location = 3) in vec4 inColor1;
+layout(location = 4) in float inWidthPx;
 
 layout(location = 0) out vec4  vColor;
 layout(location = 1) out float vDistPx;   // signed perpendicular distance, px
+layout(location = 2) flat out float vWidthPx;
 
 void main() {
     // gl_VertexIndex 0..5 → two triangles of the ribbon quad.
@@ -54,8 +56,11 @@ void main() {
     dir  = (len > 1e-6) ? dir / len : vec2(1.0, 0.0);
     vec2 perp = vec2(-dir.y, dir.x);
 
+    // A non-positive per-segment width inherits the global push-constant style.
+    float widthPx = (inWidthPx > 0.0) ? inWidthPx : push.widthPx;
+
     // +1px pad so the AA fade has geometry to live in even when glow == 0.
-    float halfExtentPx = 0.5 * push.widthPx + push.glowPx + 1.0;
+    float halfExtentPx = 0.5 * widthPx + push.glowPx + 1.0;
 
     vec4 clip    = (end < 0.5) ? clip0 : clip1;
     vec2 baseNdc = (end < 0.5) ? ndc0 : ndc1;
@@ -67,4 +72,5 @@ void main() {
 
     vColor  = (end < 0.5) ? inColor0 : inColor1;
     vDistPx = side * halfExtentPx;
+    vWidthPx = widthPx;
 }

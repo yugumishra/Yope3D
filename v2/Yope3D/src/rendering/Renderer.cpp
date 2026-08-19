@@ -2309,7 +2309,7 @@ void Renderer::createLinePipeline(VkDevice device) {
     stages[1].module = frag.get();
     stages[1].pName  = "main";
 
-    // One segment = one instance = a pair of DebugLineVertex (p0,color0,p1,color1).
+    // One segment = one instance = a pair of DebugLineVertex (p0,color0,p1,color1,width).
     // The stroke vertex shader synthesizes the 6 quad corners from gl_VertexIndex;
     // there is no per-vertex data, only per-instance segment endpoints.
     VkVertexInputBindingDescription binding{};
@@ -2317,17 +2317,18 @@ void Renderer::createLinePipeline(VkDevice device) {
     binding.stride    = 2 * sizeof(DebugLineVertex);
     binding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
-    VkVertexInputAttributeDescription attrs[4]{};
+    VkVertexInputAttributeDescription attrs[5]{};
     attrs[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT,    offsetof(DebugLineVertex, x) };                        // p0
     attrs[1] = { 1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(DebugLineVertex, r) };                        // color0
     attrs[2] = { 2, 0, VK_FORMAT_R32G32B32_SFLOAT,    sizeof(DebugLineVertex) + offsetof(DebugLineVertex, x) }; // p1
     attrs[3] = { 3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(DebugLineVertex) + offsetof(DebugLineVertex, r) }; // color1
+    attrs[4] = { 4, 0, VK_FORMAT_R32_SFLOAT,           offsetof(DebugLineVertex, widthPx) };                    // segment width (p0)
 
     VkPipelineVertexInputStateCreateInfo vertexInput{};
     vertexInput.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInput.vertexBindingDescriptionCount   = 1;
     vertexInput.pVertexBindingDescriptions      = &binding;
-    vertexInput.vertexAttributeDescriptionCount = 4;
+    vertexInput.vertexAttributeDescriptionCount = 5;
     vertexInput.pVertexAttributeDescriptions    = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
