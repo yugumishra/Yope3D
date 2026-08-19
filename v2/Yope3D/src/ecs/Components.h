@@ -289,6 +289,16 @@ struct UIBackground {
     float r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f;
 };
 
+// Solid screen-space segment. Pairs with UITransform: minX/minY are the start
+// point and maxX/maxY are the end point (rather than rectangle corners).
+// widthPx stays in physical pixels so a line has the same weight at all window
+// resolutions. UILine is visual-only and deliberately does not participate in
+// UI hit testing.
+struct UILine {
+    float r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f;
+    float widthPx = 1.0f;
+};
+
 // Texture-modulated rectangle. Pair with UITransform.
 // texture: runtime-only, loaded from path; path is the serializable state.
 struct UITexturedBackground {

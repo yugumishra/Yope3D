@@ -1744,6 +1744,33 @@ void Renderer::destroyUIFramebuffers(VkDevice device) {
 // ECS UI geometry builder
 // ---------------------------------------------------------------------------
 
+static UIDrawCall buildUILineMesh(UIBuffer& buf, math::Vec2 a, math::Vec2 b,
+                                  math::Vec4 color, float widthPx,
+                                  float screenW, float screenH) {
+    const float dx = (b.x - a.x) * screenW;
+    const float dy = (b.y - a.y) * screenH;
+    const float len = std::sqrt(dx * dx + dy * dy);
+    if (len < 1e-4f || widthPx <= 0.0f) return {};
+
+    // Work in screen pixels to keep width physically constant, then convert the
+    // perpendicular offset to NDC. UI's Y axis points down in both spaces.
+    const float half = 0.5f * widthPx;
+    const float offX = (-dy / len) * half * 2.0f / screenW;
+    const float offY = ( dx / len) * half * 2.0f / screenH;
+    const float ax = a.x * 2.0f - 1.0f, ay = a.y * 2.0f - 1.0f;
+    const float bx = b.x * 2.0f - 1.0f, by = b.y * 2.0f - 1.0f;
+
+    UIVertex verts[4] = {
+        { ax + offX, ay + offY, 0,0, color.x, color.y, color.z, color.w },
+        { bx + offX, by + offY, 1,0, color.x, color.y, color.z, color.w },
+        { bx - offX, by - offY, 1,1, color.x, color.y, color.z, color.w },
+        { ax - offX, ay - offY, 0,1, color.x, color.y, color.z, color.w },
+    };
+    uint32_t indices[6] = { 0, 1, 2, 0, 2, 3 };
+    auto range = buf.push(verts, 4, indices, 6);
+    return { range.indexCount, range.indexOffset, range.vertexOffset, 0, VK_NULL_HANDLE };
+}
+
 void Renderer::buildECSUIGeometry(UIBuffer& buf, World& world, float sw, float sh) {
     ecsUIDrawCalls_.clear();
     if (!uiManager_) buf.begin();   // UIManager calls begin(); we must if it's absent
@@ -1779,6 +1806,11 @@ void Renderer::buildECSUIGeometry(UIBuffer& buf, World& world, float sw, float s
             Background tmp(mn, mx, {bg->r, bg->g, bg->b, bg->a * op}, uiTf->depth);
             tmp.buildMesh(buf, sw, sh);
             if (tmp.drawCall.indexCount > 0) ecsUIDrawCalls_.push_back(tmp.drawCall);
+
+        } else if (const auto* line = reg.get<ecs::UILine>(e)) {
+            UIDrawCall dc = buildUILineMesh(buf, mn, mx,
+                {line->r, line->g, line->b, line->a * op}, line->widthPx, sw, sh);
+            if (dc.indexCount > 0) ecsUIDrawCalls_.push_back(dc);
 
         } else if (const auto* cbg = reg.get<ecs::UICurvedBackground>(e)) {
             CurvedBackground tmp(mn, mx, {cbg->r, cbg->g, cbg->b, cbg->a * op},

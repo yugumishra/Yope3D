@@ -258,6 +258,13 @@ void bind_ecs(py::module_& m) {
         .def_readwrite("b", &ecs::UIBackground::b)
         .def_readwrite("a", &ecs::UIBackground::a);
 
+    py::class_<ecs::UILine>(m, "UILine")
+        .def_readwrite("r", &ecs::UILine::r)
+        .def_readwrite("g", &ecs::UILine::g)
+        .def_readwrite("b", &ecs::UILine::b)
+        .def_readwrite("a", &ecs::UILine::a)
+        .def_readwrite("width_px", &ecs::UILine::widthPx);
+
     py::class_<ecs::UITexturedBackground>(m, "UITexturedBackground")
         .def_property("path",
             [](const ecs::UITexturedBackground& t) { return std::string(t.path); },

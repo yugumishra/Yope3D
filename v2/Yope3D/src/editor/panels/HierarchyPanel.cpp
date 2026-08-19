@@ -146,6 +146,12 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                     EntityKind::UIBackground));
             ImGui::CloseCurrentPopup();
         }
+        if (ImGui::MenuItem("UI Line")) {
+            if (ctx.world && ctx.history)
+                ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(
+                    EntityKind::UILine));
+            ImGui::CloseCurrentPopup();
+        }
         if (ImGui::MenuItem("UI Textured Background")) {
             if (ctx.world && ctx.history)
                 ctx.history->execute(ctx, std::make_unique<CreateEntityCommand>(

@@ -16,7 +16,7 @@
 // What "mechanically verify everything" means here: one round-trip case per
 // registered serializer that populates every serialized field with a distinct
 // non-default value and asserts it survives serialize -> parse -> deserialize.
-// The completeness guard at the bottom lists all 28 serializers so a newly
+// The completeness guard at the bottom lists all serializers so a newly
 // added one without a case is visible.
 //
 // Fidelity caveat baked into the expectations: JsonWriter emits floats with
@@ -405,6 +405,16 @@ TEST_CASE("round-trip UIBackground / UICurvedBackground", "[ser][ui]") {
     eqF(cout.curvature, cin.curvature);
 }
 
+TEST_CASE("round-trip UILine", "[ser][ui]") {
+    ecs::UILine in;
+    in.r = 0.15f; in.g = 0.35f; in.b = 0.55f; in.a = 0.75f;
+    in.widthPx = 3.5f;
+
+    auto out = roundtrip<ecs::UILine>(compser::serializeUILine, compser::deserializeUILine, in);
+    eqF(out.r, in.r); eqF(out.g, in.g); eqF(out.b, in.b); eqF(out.a, in.a);
+    eqF(out.widthPx, in.widthPx);
+}
+
 TEST_CASE("round-trip UITexturedBackground (path + tint; Texture* dropped)", "[ser][ui]") {
     ecs::UITexturedBackground in;
     std::strncpy(in.path, "ui/panel.png", sizeof(in.path) - 1);
@@ -609,14 +619,14 @@ TEST_CASE("every serializable component is covered by a round-trip case", "[ser]
         "CylinderForm", "CompoundCollider", "Material", "LightSource", "Name",
         "TemplateInstance", "SpringConstraint", "PointJointConstraint",
         "HingeJointConstraint", "ConeTwistJointConstraint", "AudioSource",
-        "ScriptComponent", "UITransform", "UIBackground", "UITexturedBackground",
+        "ScriptComponent", "UITransform", "UIBackground", "UILine", "UITexturedBackground",
         "UICurvedBackground", "UIText", "UIButton", "TextLabel3D", "AnimationPlayer",
         "SkinnedMeshRenderer", "BoneAttachment",
         // handled outside the pair (deserialize is a no-op / empty), pinned above
         "MeshRenderer", "Parent",
     };
     // Bump this when adding a serializer (and add the case + the name above).
-    CHECK(covered.size() == 30);
+    CHECK(covered.size() == 31);
 }
 
 // ============================================================================

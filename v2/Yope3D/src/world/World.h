@@ -294,6 +294,10 @@ public:
     // Coordinates are in [0,1] screen percentage, top-left origin.
     ecs::Entity addUIBackground        (math::Vec2 min, math::Vec2 max,
                                         math::Vec4 color, int depth = 0);
+    // Adds a non-interactive screen-space segment. `a` and `b` are endpoints;
+    // width is in physical pixels and remains resolution-independent.
+    ecs::Entity addUILine              (math::Vec2 a, math::Vec2 b,
+                                        math::Vec4 color, float widthPx = 1.0f, int depth = 0);
     ecs::Entity addUITexturedBackground(math::Vec2 min, math::Vec2 max,
                                         math::Vec4 tint, const char* texPath, int depth = 0);
     ecs::Entity addUICurvedBackground  (math::Vec2 min, math::Vec2 max,

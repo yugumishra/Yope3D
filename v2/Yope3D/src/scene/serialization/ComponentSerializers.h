@@ -82,11 +82,13 @@ bool deserializeAudioSource    (const JsonNode& node, void* comp);
 void serializeScriptComponent  (const void* comp, JsonWriter& w);
 bool deserializeScriptComponent(const JsonNode& node, void* comp);
 
-// UI components (5 types; Texture*/atlas pointers are runtime-only)
+// UI components (Texture*/atlas pointers are runtime-only)
 void serializeUITransform           (const void* comp, JsonWriter& w);
 bool deserializeUITransform          (const JsonNode& node, void* comp);
 void serializeUIBackground          (const void* comp, JsonWriter& w);
 bool deserializeUIBackground         (const JsonNode& node, void* comp);
+void serializeUILine                (const void* comp, JsonWriter& w);
+bool deserializeUILine               (const JsonNode& node, void* comp);
 void serializeUITexturedBackground  (const void* comp, JsonWriter& w);
 bool deserializeUITexturedBackground (const JsonNode& node, void* comp);
 void serializeUICurvedBackground    (const void* comp, JsonWriter& w);

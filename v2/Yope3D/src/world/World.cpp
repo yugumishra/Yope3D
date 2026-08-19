@@ -1787,6 +1787,23 @@ ecs::Entity World::addUIBackground(math::Vec2 min, math::Vec2 max, math::Vec4 co
     return e;
 }
 
+ecs::Entity World::addUILine(math::Vec2 a, math::Vec2 b, math::Vec4 color,
+                             float widthPx, int depth) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    ecs::UITransform uiTf{};
+    uiTf.minX = a.x; uiTf.minY = a.y;
+    uiTf.maxX = b.x; uiTf.maxY = b.y;
+    uiTf.depth = depth;
+    registry_.add<ecs::UITransform>(e, uiTf);
+    ecs::UILine line{};
+    line.r = color.x; line.g = color.y; line.b = color.z; line.a = color.w;
+    line.widthPx = widthPx;
+    registry_.add<ecs::UILine>(e, line);
+    finalizeEntity(e, "UI Line");
+    return e;
+}
+
 ecs::Entity World::addUITexturedBackground(math::Vec2 min, math::Vec2 max,
                                             math::Vec4 tint, const char* texPath, int depth) {
     std::lock_guard lk(structureMtx_);

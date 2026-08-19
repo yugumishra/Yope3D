@@ -73,6 +73,10 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
             e = world.addUIBackground(mn, mx,
                 {uiBackground.r, uiBackground.g, uiBackground.b, uiBackground.a},
                 uiTransform.depth);
+        } else if (hasUILine) {
+            e = world.addUILine(mn, mx,
+                {uiLine.r, uiLine.g, uiLine.b, uiLine.a}, uiLine.widthPx,
+                uiTransform.depth);
         } else if (hasUICurvedBackground) {
             e = world.addUICurvedBackground(mn, mx,
                 {uiCurvedBackground.r, uiCurvedBackground.g,
@@ -105,6 +109,9 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
             // Restore UI visual component overrides
             if (hasUIBackground) {
                 if (auto* t = reg.get<ecs::UIBackground>(e)) *t = uiBackground;
+            }
+            if (hasUILine) {
+                if (auto* t = reg.get<ecs::UILine>(e)) *t = uiLine;
             }
             if (hasUITexturedBackground) {
                 if (auto* t = reg.get<ecs::UITexturedBackground>(e)) {
@@ -352,6 +359,10 @@ ecs::Entity ComponentSnapshot::restore(World& world) const {
         if (!reg.has<ecs::UIBackground>(e)) reg.add<ecs::UIBackground>(e, uiBackground);
         else if (auto* t = reg.get<ecs::UIBackground>(e)) *t = uiBackground;
     }
+    if (hasUILine) {
+        if (!reg.has<ecs::UILine>(e)) reg.add<ecs::UILine>(e, uiLine);
+        else if (auto* t = reg.get<ecs::UILine>(e)) *t = uiLine;
+    }
     if (hasUITexturedBackground) {
         ecs::UITexturedBackground restored = uiTexturedBackground;
         restored.texture = nullptr;  // runtime-only; caller reloads from path
@@ -476,6 +487,7 @@ ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world
     // UI components
     if (auto* t = reg.get<ecs::UITransform>(e))          { s.hasUITransform = true;          s.uiTransform = *t; }
     if (auto* t = reg.get<ecs::UIBackground>(e))         { s.hasUIBackground = true;         s.uiBackground = *t; }
+    if (auto* t = reg.get<ecs::UILine>(e))                { s.hasUILine = true;               s.uiLine = *t; }
     if (auto* t = reg.get<ecs::UITexturedBackground>(e)) {
         s.hasUITexturedBackground = true;
         s.uiTexturedBackground    = *t;

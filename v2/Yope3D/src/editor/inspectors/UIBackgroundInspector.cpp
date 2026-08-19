@@ -24,6 +24,27 @@ void drawUIBackgroundComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
             e, before, *bg, "Edit UI Background Color"));
 }
 
+void drawUILineComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
+    auto* line = static_cast<ecs::UILine*>(comp);
+    if (!ImGui::CollapsingHeader("UI Line", ImGuiTreeNodeFlags_DefaultOpen)) return;
+
+    static ecs::UILine before{};
+    float col[4] = {line->r, line->g, line->b, line->a};
+    if (ImGui::ColorEdit4("Color##uiline", col)) {
+        line->r = col[0]; line->g = col[1]; line->b = col[2]; line->a = col[3];
+    }
+    if (ImGui::IsItemActivated()) before = *line;
+    if (ImGui::IsItemDeactivatedAfterEdit())
+        ctx.history->execute(ctx, std::make_unique<SetComponentCommand<ecs::UILine>>(
+            e, before, *line, "Edit UI Line Color"));
+
+    ImGui::DragFloat("Width (px)##uiline", &line->widthPx, 0.1f, 0.1f, 128.0f, "%.1f");
+    if (ImGui::IsItemActivated()) before = *line;
+    if (ImGui::IsItemDeactivatedAfterEdit())
+        ctx.history->execute(ctx, std::make_unique<SetComponentCommand<ecs::UILine>>(
+            e, before, *line, "Edit UI Line Width"));
+}
+
 void drawUITexturedBackgroundComponent(void* comp, EditorContext& ctx, ecs::Entity e) {
     auto* bg = static_cast<ecs::UITexturedBackground*>(comp);
     if (!ImGui::CollapsingHeader("UI Textured Background", ImGuiTreeNodeFlags_DefaultOpen)) return;

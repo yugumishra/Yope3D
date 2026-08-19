@@ -352,6 +352,9 @@ void bind_world(py::module_& m) {
         // ---- HUD / world text (coords in [0,1] screen percentage, top-left origin) ----
         .def("add_ui_background", &World::addUIBackground,
              py::arg("min"), py::arg("max"), py::arg("color"), py::arg("depth") = 0)
+        .def("add_ui_line", &World::addUILine,
+             py::arg("a"), py::arg("b"), py::arg("color"), py::arg("width_px") = 1.0f,
+             py::arg("depth") = 0)
         .def("add_ui_curved_background", &World::addUICurvedBackground,
              py::arg("min"), py::arg("max"), py::arg("color"), py::arg("curvature") = 0.5f, py::arg("depth") = 0)
         .def("add_ui_textured_background",

@@ -78,6 +78,7 @@ static std::vector<CompSerEntry> buildSerTable() {
         { ecs::typeId<ecs::ScriptComponent>(),       "ScriptComponent",       compser::serializeScriptComponent,       compser::deserializeScriptComponent       },
         { ecs::typeId<ecs::UITransform>(),           "UITransform",           compser::serializeUITransform,           compser::deserializeUITransform           },
         { ecs::typeId<ecs::UIBackground>(),          "UIBackground",          compser::serializeUIBackground,          compser::deserializeUIBackground          },
+        { ecs::typeId<ecs::UILine>(),                "UILine",                compser::serializeUILine,                compser::deserializeUILine                },
         { ecs::typeId<ecs::UITexturedBackground>(),  "UITexturedBackground",  compser::serializeUITexturedBackground,  compser::deserializeUITexturedBackground  },
         { ecs::typeId<ecs::UICurvedBackground>(),    "UICurvedBackground",    compser::serializeUICurvedBackground,    compser::deserializeUICurvedBackground    },
         { ecs::typeId<ecs::UIText>(),                "UIText",                compser::serializeUIText,                compser::deserializeUIText                },
@@ -107,6 +108,7 @@ static bool snapshotHasSameShape(const ComponentSnapshot& a, const ComponentSnap
            a.hasHingeJoint == b.hasHingeJoint && a.hasConeTwistJoint == b.hasConeTwistJoint &&
            a.hasParent == b.hasParent && a.hasMesh == b.hasMesh && a.hasMaterial == b.hasMaterial &&
            a.hasUITransform == b.hasUITransform && a.hasUIBackground == b.hasUIBackground &&
+           a.hasUILine == b.hasUILine &&
            a.hasUITexturedBackground == b.hasUITexturedBackground &&
            a.hasUICurvedBackground == b.hasUICurvedBackground && a.hasUIText == b.hasUIText &&
            a.hasUIButton == b.hasUIButton && a.hasTextLabel3D == b.hasTextLabel3D &&
@@ -165,6 +167,7 @@ static void computeOverrides(const ComponentSnapshot& live, const ComponentSnaps
     diff(live.hasMaterial, base.hasMaterial, "Material", &live.material, &base.material, compser::serializeMaterial);
     diff(live.hasUITransform, base.hasUITransform, "UITransform", &live.uiTransform, &base.uiTransform, compser::serializeUITransform);
     diff(live.hasUIBackground, base.hasUIBackground, "UIBackground", &live.uiBackground, &base.uiBackground, compser::serializeUIBackground);
+    diff(live.hasUILine, base.hasUILine, "UILine", &live.uiLine, &base.uiLine, compser::serializeUILine);
     diff(live.hasUITexturedBackground, base.hasUITexturedBackground, "UITexturedBackground", &live.uiTexturedBackground, &base.uiTexturedBackground, compser::serializeUITexturedBackground);
     diff(live.hasUICurvedBackground, base.hasUICurvedBackground, "UICurvedBackground", &live.uiCurvedBackground, &base.uiCurvedBackground, compser::serializeUICurvedBackground);
     diff(live.hasUIText, base.hasUIText, "UIText", &live.uiText, &base.uiText, compser::serializeUIText);
@@ -919,6 +922,7 @@ void applyComponentOverrides(const JsonNode& ov, ComponentSnapshot& snap) {
     if (ov.contains("Material"))             compser::deserializeMaterial(ov["Material"], &snap.material);
     if (ov.contains("UITransform"))          compser::deserializeUITransform(ov["UITransform"], &snap.uiTransform);
     if (ov.contains("UIBackground"))         compser::deserializeUIBackground(ov["UIBackground"], &snap.uiBackground);
+    if (ov.contains("UILine"))                compser::deserializeUILine(ov["UILine"], &snap.uiLine);
     if (ov.contains("UITexturedBackground")) compser::deserializeUITexturedBackground(ov["UITexturedBackground"], &snap.uiTexturedBackground);
     if (ov.contains("UICurvedBackground"))   compser::deserializeUICurvedBackground(ov["UICurvedBackground"], &snap.uiCurvedBackground);
     if (ov.contains("UIText"))               compser::deserializeUIText(ov["UIText"], &snap.uiText);
@@ -1079,6 +1083,10 @@ bool parseEntityNode(const JsonNode& entNode, SubParse& out,
     if (entNode.contains("UIBackground")) {
         snap.hasUIBackground = true;
         compser::deserializeUIBackground(entNode["UIBackground"], &snap.uiBackground);
+    }
+    if (entNode.contains("UILine")) {
+        snap.hasUILine = true;
+        compser::deserializeUILine(entNode["UILine"], &snap.uiLine);
     }
     if (entNode.contains("UITexturedBackground")) {
         snap.hasUITexturedBackground = true;

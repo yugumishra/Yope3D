@@ -819,6 +819,20 @@ class UIBackground:
     b: float
     a: float
 
+class UILine:
+    """Solid screen-space segment (pairs with ``UITransform``).
+
+    ``UITransform.min_*`` is the start point and ``max_*`` is the end point.
+    Lines are visual-only and do not receive UI input.
+    """
+
+    r: float
+    g: float
+    b: float
+    a: float
+    width_px: float
+    """Stroke width in physical pixels."""
+
 class UITexturedBackground:
     """Texture-modulated rectangle (pairs with ``UITransform``).
 
@@ -1055,6 +1069,7 @@ ComponentName = Literal[
     "ScriptComponent",
     "UITransform",
     "UIBackground",
+    "UILine",
     "UITexturedBackground",
     "UIText",
     "UIButton",
@@ -1821,6 +1836,18 @@ class World:
 
         Returns:
             The new UI entity.
+        """
+    def add_ui_line(
+        self, a: Vec2, b: Vec2, color: Vec4, width_px: float = 1.0, depth: int = 0
+    ) -> Entity:
+        """Add a non-interactive screen-space line segment.
+
+        Args:
+            a: Start point in ``[0, 1]`` screen percent.
+            b: End point in ``[0, 1]`` screen percent.
+            color: RGBA in ``[0, 1]``.
+            width_px: Stroke width in physical pixels.
+            depth: Sort order; higher draws on top.
         """
     def add_ui_curved_background(
         self, min: Vec2, max: Vec2, color: Vec4, curvature: float = 0.5, depth: int = 0
@@ -2621,6 +2648,8 @@ def reg_get(e: Entity, name: Literal["ScriptComponent"]) -> ScriptComponent | No
 def reg_get(e: Entity, name: Literal["UITransform"]) -> UITransform | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["UIBackground"]) -> UIBackground | None: ...
+@overload
+def reg_get(e: Entity, name: Literal["UILine"]) -> UILine | None: ...
 @overload
 def reg_get(e: Entity, name: Literal["UITexturedBackground"]) -> UITexturedBackground | None: ...
 @overload

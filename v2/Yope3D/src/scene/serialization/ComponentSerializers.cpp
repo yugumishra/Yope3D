@@ -564,6 +564,27 @@ bool deserializeUIBackground(const JsonNode& n, void* comp) {
     return true;
 }
 
+// ---- UILine ----
+
+void serializeUILine(const void* comp, JsonWriter& w) {
+    auto* line = static_cast<const ecs::UILine*>(comp);
+    w.writeFloat4("color", line->r, line->g, line->b, line->a);
+    w.writeFloat("widthPx", line->widthPx);
+}
+
+bool deserializeUILine(const JsonNode& n, void* comp) {
+    auto* line = static_cast<ecs::UILine*>(comp);
+    if (n.contains("color")) {
+        auto& arr = n["color"].asArray();
+        if (arr.size() >= 4) {
+            line->r = arr[0].asFloat(); line->g = arr[1].asFloat();
+            line->b = arr[2].asFloat(); line->a = arr[3].asFloat();
+        }
+    }
+    if (n.contains("widthPx")) line->widthPx = n["widthPx"].asFloat();
+    return true;
+}
+
 // ---- UITexturedBackground ----
 
 void serializeUITexturedBackground(const void* comp, JsonWriter& w) {

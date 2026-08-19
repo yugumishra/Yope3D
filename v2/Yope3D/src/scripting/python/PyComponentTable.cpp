@@ -57,6 +57,7 @@ void build() {
         entryFor<ecs::ScriptComponent>  ("ScriptComponent"),
         entryFor<ecs::UITransform>      ("UITransform"),
         entryFor<ecs::UIBackground>     ("UIBackground"),
+        entryFor<ecs::UILine>           ("UILine"),
         entryFor<ecs::UITexturedBackground>("UITexturedBackground"),
         entryFor<ecs::UIText>           ("UIText"),
         entryFor<ecs::UIButton>        ("UIButton"),

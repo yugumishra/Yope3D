@@ -29,6 +29,7 @@ void drawScriptComponent                 (void*, EditorContext&, ecs::Entity);
 // UI component inspectors
 void drawUITransformComponent            (void*, EditorContext&, ecs::Entity);
 void drawUIBackgroundComponent           (void*, EditorContext&, ecs::Entity);
+void drawUILineComponent                 (void*, EditorContext&, ecs::Entity);
 void drawUITexturedBackgroundComponent   (void*, EditorContext&, ecs::Entity);
 void drawUICurvedBackgroundComponent     (void*, EditorContext&, ecs::Entity);
 void drawUITextComponent                 (void*, EditorContext&, ecs::Entity);
@@ -63,6 +64,7 @@ void registerAllInspectors() {
         { ecs::typeId<ecs::ScriptComponent>(),       drawScriptComponent                },
         { ecs::typeId<ecs::UITransform>(),           drawUITransformComponent           },
         { ecs::typeId<ecs::UIBackground>(),          drawUIBackgroundComponent          },
+        { ecs::typeId<ecs::UILine>(),                drawUILineComponent                },
         { ecs::typeId<ecs::UITexturedBackground>(),  drawUITexturedBackgroundComponent  },
         { ecs::typeId<ecs::UICurvedBackground>(),    drawUICurvedBackgroundComponent    },
         { ecs::typeId<ecs::UIText>(),                drawUITextComponent                },

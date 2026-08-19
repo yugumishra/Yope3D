@@ -59,6 +59,7 @@ struct ComponentSnapshot {
     // UI components (Texture*/atlas pointers are never snapshotted)
     bool hasUITransform          = false;  ecs::UITransform          uiTransform;
     bool hasUIBackground         = false;  ecs::UIBackground         uiBackground;
+    bool hasUILine               = false;  ecs::UILine               uiLine;
     bool hasUITexturedBackground = false;  ecs::UITexturedBackground uiTexturedBackground;
     bool hasUICurvedBackground   = false;  ecs::UICurvedBackground   uiCurvedBackground;
     bool hasUIText               = false;  ecs::UIText               uiText;
