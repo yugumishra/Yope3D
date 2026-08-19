@@ -76,6 +76,12 @@ public:
     // tag if present). Takes the structure lock internally.
     void        makeKinematic(ecs::Entity e);
 
+    // Bare entity: Transform only — no Hull, no mesh. The composable base for
+    // render-only objects (pair with attachMesh) and for anything that wants the
+    // collider attached separately (attachSphereCollider etc.). Every other
+    // factory here bakes in a body, a mesh, or both; this one bakes in neither.
+    ecs::Entity createEntity(math::Vec3 pos = {}, const char* name = "Entity");
+
     // Visual-only entity (mesh, no physics body).
     ecs::Entity addRenderObject(const std::vector<Vertex>&   vertices,
                                 const std::vector<uint32_t>& indices);

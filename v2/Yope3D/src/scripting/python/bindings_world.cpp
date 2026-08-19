@@ -154,6 +154,15 @@ void bind_world(py::module_& m) {
              })
         .def("get_registry", [](World& w) -> ecs::Registry& { return w.getRegistry(); },
              py::return_value_policy::reference)
+        // Bare entity: Transform only, no Hull and no mesh. Pair with the
+        // attach_*_mesh helpers below for a render-only object (decor, markers,
+        // trigger visuals) — the one combination the add_* factories can't
+        // produce, since each of them bakes in a physics body. Also the way to
+        // build an entity whose collider is chosen later via attach_*_collider.
+        .def("create_entity",
+             [](World& w, math::Vec3 pos, const std::string& name) {
+                 return w.createEntity(pos, name.c_str());
+             }, py::arg("pos") = math::Vec3{}, py::arg("name") = std::string("Entity"))
         // Mesh-attachment helpers — call after add_sphere/add_obb/add_aabb
         .def("attach_sphere_mesh",
              [](World& w, ecs::Entity e, float r,
@@ -210,6 +219,13 @@ void bind_world(py::module_& m) {
                  RenderMesh* m = w.attachMesh(e, Primitives::cylinder(r, hh));
                  if (m) { m->color[0]=cr; m->color[1]=cg; m->color[2]=cb; m->state=0; }
              }, py::arg("entity"), py::arg("radius"), py::arg("half_height"),
+                py::arg("r")=1.f, py::arg("g")=1.f, py::arg("b")=1.f)
+        .def("attach_plane_mesh",
+             [](World& w, ecs::Entity e, float halfExtent,
+                float cr=1.f, float cg=1.f, float cb=1.f) {
+                 RenderMesh* m = w.attachMesh(e, Primitives::plane(halfExtent));
+                 if (m) { m->color[0]=cr; m->color[1]=cg; m->color[2]=cb; m->state=0; }
+             }, py::arg("entity"), py::arg("half_extent") = 500.f,
                 py::arg("r")=1.f, py::arg("g")=1.f, py::arg("b")=1.f)
         // ---- GJK-only physics primitives (no mesh — call attach_*_mesh after) ----
         .def("add_capsule",  &World::addCapsule,

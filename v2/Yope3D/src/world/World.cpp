@@ -561,6 +561,14 @@ ecs::Entity World::addOBBFromMesh(const LoadedMesh& loadedMesh, float mass) {
 
 // ---- Visual-only factory methods ----
 
+ecs::Entity World::createEntity(math::Vec3 pos, const char* name) {
+    std::lock_guard lk(structureMtx_);
+    ecs::Entity e = registry_.create();
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {1.0f, 1.0f, 1.0f}});
+    finalizeEntity(e, name);
+    return e;
+}
+
 ecs::Entity World::addRenderObject(const std::vector<Vertex>& vertices,
                                     const std::vector<uint32_t>& indices) {
     std::lock_guard lk(structureMtx_);

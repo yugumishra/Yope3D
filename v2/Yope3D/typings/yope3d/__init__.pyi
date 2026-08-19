@@ -1359,6 +1359,27 @@ class World:
     # Attaching render meshes
     # ------------------------------------------------------------------ #
 
+    def create_entity(self, pos: Vec3 = ..., name: str = "Entity") -> Entity:
+        """Create a bare entity: ``Transform`` only, no physics body and no mesh.
+
+        Every ``add_*`` factory bakes in a Hull, so this is the entry point for a
+        **render-only** object — pair it with one of the ``attach_*_mesh`` helpers
+        below::
+
+            e = world.create_entity(Vec3(0, 3, 0))
+            world.attach_box_mesh(e, Vec3(0.5, 0.5, 0.5), 0.9, 0.2, 0.2)
+
+        It is also how you build an entity whose collider is decided separately,
+        via the ``attach_*_collider`` methods.
+
+        Args:
+            pos: Initial world position. Defaults to the origin.
+            name: ``Name`` component value, as shown in the editor hierarchy.
+
+        Returns:
+            The new entity.
+        """
+
     def attach_sphere_mesh(
         self,
         entity: Entity,
@@ -1427,6 +1448,23 @@ class World:
             entity: Target entity.
             radius: Cylinder radius.
             half_height: Half the cylinder section length.
+            r: Red in ``[0, 1]``.
+            g: Green in ``[0, 1]``.
+            b: Blue in ``[0, 1]``.
+        """
+    def attach_plane_mesh(
+        self,
+        entity: Entity,
+        half_extent: float = 500.0,
+        r: float = 1.0,
+        g: float = 1.0,
+        b: float = 1.0,
+    ) -> None:
+        """Give an entity a flat ground-plane render mesh in the XZ plane.
+
+        Args:
+            entity: Target entity.
+            half_extent: Half the plane's side length in meters.
             r: Red in ``[0, 1]``.
             g: Green in ``[0, 1]``.
             b: Blue in ``[0, 1]``.
