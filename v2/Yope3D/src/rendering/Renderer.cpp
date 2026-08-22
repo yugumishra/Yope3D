@@ -2585,6 +2585,16 @@ void Renderer::drawFrame(GpuDevice& gpu, Window& window, const Camera& camera, W
         buildECSUIGeometry(uiBuffers[currentFrame], world, sw, sh);
         buildECSText3DGeometry(text3DBuffers_[currentFrame], world);
         uploadDebugLines(world);
+        // Same window, same reason: vkWaitForFences above has retired slot
+        // `currentFrame`, so its dynamic-mesh rings are now safe to overwrite.
+        //
+        // RenderMesh sizes that ring from its own frames-in-flight constant,
+        // because world/ must not depend on the renderer. This is where the two
+        // are held together: a mismatch would let a script write a slot the GPU
+        // is still reading, corrupting geometry with no error anywhere.
+        static_assert(static_cast<int>(RenderMesh::kFramesInFlight) == MAX_FRAMES,
+                      "RenderMesh::kFramesInFlight must match Renderer::MAX_FRAMES");
+        world.uploadDynamicMeshes(static_cast<uint32_t>(currentFrame));
     }
 
     vkResetCommandBuffer(cmdBuffers[currentFrame], 0);
@@ -2829,6 +2839,7 @@ uint32_t Renderer::beginFrameForEditor(GpuDevice& gpu, Window& window,
             auto _lk = world.lockStructure();
             buildECSText3DGeometry(text3DBuffers_[currentFrame], world);
             uploadDebugLines(world);
+            world.uploadDynamicMeshes(static_cast<uint32_t>(currentFrame));
         }
 
         // Skinning compute BEFORE the shadow pass (see the runtime path).

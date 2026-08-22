@@ -502,6 +502,7 @@ static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& en
                 PrimitiveType detType; math::Vec3 detExt;
                 bool primified = mr->mesh
                     && mr->mesh->primitiveType == PrimitiveType::Custom
+                    && !mr->mesh->isDynamic()
                     && mr->mesh->sourcePath.empty()
                     && !mr->mesh->cpuVertices.empty()
                     && inCompoundSubtree(reg, e)
@@ -516,7 +517,14 @@ static bool writeEntitiesArray(JsonWriter& w, const std::vector<ecs::Entity>& en
                     // Custom-mesh geometry → binary sidecar, except tiny meshes (below
                     // kMeshBinVertexThreshold) which are cheap enough to inline as JSON
                     // arrays and don't justify a second file on disk.
+                    // A dynamic mesh's cpuVertices are whichever frame the script
+                    // happened to stage last. Baking that into the scene would
+                    // freeze one arbitrary frame of a procedural surface into the
+                    // file (and into the .ymesh sidecar, at full size). The script
+                    // that created the mesh recreates and refills it on load, so
+                    // the geometry is deliberately not persisted.
                     if (mr->mesh && mr->mesh->primitiveType == PrimitiveType::Custom
+                        && !mr->mesh->isDynamic()
                         && mr->mesh->sourcePath.empty() && !mr->mesh->cpuVertices.empty()) {
                         const auto& verts = mr->mesh->cpuVertices;
                         const auto& inds  = mr->mesh->cpuIndices;

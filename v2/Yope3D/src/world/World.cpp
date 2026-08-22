@@ -1102,6 +1102,49 @@ RenderMesh* World::attachMesh(ecs::Entity e, const LoadedMesh& mesh) {
     return rm;
 }
 
+// ---- Dynamic meshes ----
+
+ecs::Entity World::createDynamicMesh(uint32_t maxVertices, uint32_t maxIndices,
+                                     math::Vec3 pos, const char* name)
+{
+    if (!gpu_ || maxVertices == 0 || maxIndices == 0) return ecs::NullEntity;
+
+    std::lock_guard lk(structureMtx_);
+    auto rm = std::make_unique<RenderMesh>(*gpu_, RenderMesh::DynamicTag{},
+                                           maxVertices, maxIndices);
+    rm->transformReady = true;   // render-only; no snapshot to wait for
+    RenderMesh* raw = rm.get();
+    meshPool_.push_back(std::move(rm));
+    dynamicMeshes_.push_back(raw);
+
+    ecs::Entity e = registry_.create();
+    registry_.add<Transform>(e, Transform{pos, {0, 0, 0, 1}, {1.0f, 1.0f, 1.0f}});
+    registry_.add<ecs::MeshRenderer>(e, {raw});
+    meshToEntity_[raw] = e;
+    finalizeEntity(e, name);
+    return e;
+}
+
+bool World::updateDynamicMesh(ecs::Entity e,
+                              const std::vector<Vertex>&   vertices,
+                              const std::vector<uint32_t>& indices)
+{
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(e)) return false;
+    auto* mr = registry_.get<ecs::MeshRenderer>(e);
+    if (!mr || !mr->mesh || !mr->mesh->isDynamic()) return false;
+    return mr->mesh->setDynamicGeometry(vertices, indices);
+}
+
+void World::uploadDynamicMeshes(uint32_t slot) {
+    // Runs on the render thread inside the frame-fence window. structureMtx_
+    // guards the vector against a concurrent createDynamicMesh/removeEntity;
+    // the per-mesh copy itself touches only that mesh's own ring slot.
+    std::lock_guard lk(structureMtx_);
+    for (RenderMesh* rm : dynamicMeshes_)
+        rm->uploadDynamic(slot);
+}
+
 // ---- Entity/mesh accessors ----
 
 RenderMesh* World::getMesh(ecs::Entity e) {
@@ -1179,7 +1222,13 @@ void World::removeEntity(ecs::Entity e) {
     animBindings_.erase(e.id);
     animLastSampled_.erase(e.id);
 
-    if (mesh) meshToEntity_.erase(mesh);
+    if (mesh) {
+        meshToEntity_.erase(mesh);
+        // Drop it from the dynamic index first — uploadDynamicMeshes must never
+        // see a mesh that is on its way to pendingGpuDestroy_.
+        dynamicMeshes_.erase(std::remove(dynamicMeshes_.begin(), dynamicMeshes_.end(), mesh),
+                             dynamicMeshes_.end());
+    }
 
     // Move the mesh out of meshPool_ into the pending-destroy queue instead of
     // destroying immediately. The VkBuffers may still be referenced by the

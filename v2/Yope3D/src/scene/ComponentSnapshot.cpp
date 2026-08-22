@@ -479,8 +479,13 @@ ComponentSnapshot snapshotEntity(ecs::Entity e, ecs::Registry& reg, World& world
         s.meshColor[2]    = mr->mesh->color[2];
         s.primType        = mr->mesh->primitiveType;
         s.primExtents     = mr->mesh->primitiveExtents;
-        s.cpuVerts        = mr->mesh->cpuVertices;
-        s.cpuInds         = mr->mesh->cpuIndices;
+        // Skipped for dynamic meshes for the same reason SceneSerializer skips
+        // them: the captured array is one arbitrary frame of script-owned
+        // geometry, and Stop re-runs the script that produces it.
+        if (!mr->mesh->isDynamic()) {
+            s.cpuVerts    = mr->mesh->cpuVertices;
+            s.cpuInds     = mr->mesh->cpuIndices;
+        }
         s.meshSourcePath  = mr->mesh->sourcePath;
     }
 

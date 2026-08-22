@@ -235,6 +235,58 @@ void bind_world(py::module_& m) {
         // ---- Model loading (.obj / .gltf / .glb) ----
         // Returns the list of created entities (one per glTF primitive).
         .def("add_model", &World::addModel, py::arg("path"))
+        // ---- Dynamic meshes (CPU-updated geometry) ----
+        //
+        // create_dynamic_mesh reserves the GPU rings once; update_dynamic_mesh
+        // refills them. Geometry arrives as FLAT float/int lists rather than
+        // lists of Vec3 — one conversion pass instead of one Python object per
+        // vertex, which matters because this is called repeatedly.
+        //
+        // COST: an update is far more expensive than drawing a static mesh. It
+        // re-derives a tangent frame across every triangle and re-encodes every
+        // vertex into the packed GPU layout, from scratch, on each call — there
+        // is no partial-update path. See the COST note on RenderMesh. Update at
+        // the lowest rate that looks right, and never use one to move geometry a
+        // Transform could have moved.
+        .def("create_dynamic_mesh",
+             [](World& w, uint32_t maxVertices, uint32_t maxIndices,
+                math::Vec3 pos, const std::string& name) -> ecs::Entity {
+                 return w.createDynamicMesh(maxVertices, maxIndices, pos, name.c_str());
+             },
+             py::arg("max_vertices"), py::arg("max_indices"),
+             py::arg("pos") = math::Vec3{}, py::arg("name") = std::string("DynamicMesh"))
+        .def("update_dynamic_mesh",
+             [](World& w, ecs::Entity e,
+                const std::vector<float>&    positions,
+                const std::vector<float>&    normals,
+                const std::vector<uint32_t>& indices,
+                const std::vector<float>&    uvs) -> bool {
+                 if (positions.size() % 3 != 0)            return false;
+                 if (normals.size() != positions.size())   return false;
+                 const size_t n = positions.size() / 3;
+                 // UVs are optional: an untextured procedural surface has none.
+                 // They still feed computeTangents, whose degenerate-UV branch
+                 // falls back to an arbitrary perpendicular of the normal — fine
+                 // for flat/solid shading, wrong for normal mapping. Supply real
+                 // UVs if the material has a normal map.
+                 if (!uvs.empty() && uvs.size() != n * 2) return false;
+
+                 std::vector<Vertex> verts(n);
+                 for (size_t i = 0; i < n; ++i) {
+                     Vertex& v = verts[i];
+                     v.position[0] = positions[i * 3 + 0];
+                     v.position[1] = positions[i * 3 + 1];
+                     v.position[2] = positions[i * 3 + 2];
+                     v.normal[0]   = normals[i * 3 + 0];
+                     v.normal[1]   = normals[i * 3 + 1];
+                     v.normal[2]   = normals[i * 3 + 2];
+                     v.uv[0]       = uvs.empty() ? 0.0f : uvs[i * 2 + 0];
+                     v.uv[1]       = uvs.empty() ? 0.0f : uvs[i * 2 + 1];
+                 }
+                 return w.updateDynamicMesh(e, verts, indices);
+             },
+             py::arg("entity"), py::arg("positions"), py::arg("normals"),
+             py::arg("indices"), py::arg("uvs") = std::vector<float>{})
         // Attach a clip-only glTF's animation(s) (e.g. a keyframed Empty exported
         // from Blender, no mesh needed) directly to an existing entity's own
         // Transform — for reusable clips shared across many objects (see

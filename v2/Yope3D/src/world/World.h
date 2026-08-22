@@ -110,6 +110,41 @@ public:
                            const std::vector<uint32_t>& indices);
     RenderMesh* attachMesh(ecs::Entity e, const LoadedMesh& mesh);
 
+    // ---- Dynamic meshes (CPU-updated geometry) ----
+    //
+    // For geometry that genuinely changes shape every few frames — a projected
+    // 4D solid, a deforming surface, a procedurally regenerated cross-section.
+    // The alternative for such a producer is add_model()-style entity churn,
+    // which re-parses a file, blocks the graphics queue twice via
+    // Buffer::uploadStaged's vkQueueWaitIdle, and leaves the old mesh for the
+    // deferred destroy queue — per frame. A dynamic mesh replaces all of that
+    // with a memcpy into an already-mapped ring.
+    //
+    // It is still MUCH more expensive per update than drawing a static mesh:
+    // every update re-derives tangents and re-packs the whole vertex array on
+    // the CPU. Read the COST note on RenderMesh before choosing one, keep the
+    // update rate as low as the visual tolerates, and never use one to move
+    // geometry a Transform could have moved.
+    //
+    // Capacities are fixed at creation; updates beyond them are rejected
+    // wholesale (the mesh keeps its previous geometry) rather than growing the
+    // allocation. Destroy with the ordinary removeEntity().
+    ecs::Entity createDynamicMesh(uint32_t maxVertices, uint32_t maxIndices,
+                                  math::Vec3 pos = {0.0f, 0.0f, 0.0f},
+                                  const char* name = "DynamicMesh");
+
+    // Repack and stage new geometry. Returns false if `e` has no dynamic mesh,
+    // if the arrays exceed the creation capacities, or if an index is out of
+    // range for the vertex array.
+    bool updateDynamicMesh(ecs::Entity e,
+                           const std::vector<Vertex>&   vertices,
+                           const std::vector<uint32_t>& indices);
+
+    // Push staged geometry into ring slot `slot`. Called once per frame by the
+    // Renderer, and ONLY from inside drawFrame's frame-fence window — writing a
+    // slot the GPU may still be reading is the one way to corrupt this path.
+    void uploadDynamicMeshes(uint32_t slot);
+
     RenderMesh* getMesh(ecs::Entity e);
     void        removeEntity(ecs::Entity e);
     // Show/hide an entity's render mesh without destroying it (blinking pickups, etc.).
@@ -765,6 +800,10 @@ private:
     std::recursive_mutex structureMtx_;
 
     std::vector<std::unique_ptr<RenderMesh>> meshPool_;
+    // Non-owning index of the dynamic subset of meshPool_, so the per-frame
+    // upload does not have to scan every mesh in the world. Kept in sync by
+    // createDynamicMesh and removeEntity.
+    std::vector<RenderMesh*> dynamicMeshes_;
     // Meshes removed from meshPool_ but not yet GPU-destroyed.
     // Flushed (with a device sync) at the start of each editor tick, before
     // the command buffer is opened, so VkBuffers are never destroyed while

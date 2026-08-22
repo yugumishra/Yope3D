@@ -1,8 +1,10 @@
 #pragma once
 #include <vulkan/vulkan.h>
 #include <vector>
+#include <array>
 #include <cstdint>
 #include "../gpu/Buffer.h"
+#include "../gpu/DynamicMeshBuffer.h"
 #include "../math/Mat4.h"
 #include "../math/Vec3.h"
 
@@ -146,6 +148,83 @@ public:
     VkDescriptorSet  skinSet     = VK_NULL_HANDLE;
     VkDescriptorPool skinSetPool = VK_NULL_HANDLE;
 
+    // ---- Dynamic meshes ----
+    //
+    // A dynamic mesh has its geometry rewritten from the CPU instead of being
+    // uploaded once at construction. In place of one device-local vertex buffer
+    // it owns kFramesInFlight host-visible rings (DynamicMeshBuffer), because a
+    // slot may only be written after drawFrame's vkWaitForFences has retired
+    // that slot's submission. That is why uploadDynamic() is driven by the
+    // Renderer (via World::uploadDynamicMeshes) and NOT by whoever calls
+    // setDynamicGeometry(): the caller is a script, running well outside the
+    // window. uiBuffers / text3DBuffers_ / lineBuffers_ live under the same
+    // rule; this is a fourth tenant of an existing mechanism, not a new one.
+    //
+    // ---- COST: a dynamic update is NOT the price of drawing a static mesh ----
+    //
+    // Read this before choosing a dynamic mesh over a static one. The expensive
+    // part is not the upload, it is the repack. setDynamicGeometry() re-runs the
+    // whole meshbuild::buildPacked() pipeline on every single call:
+    //
+    //   * computeTangents — a pass over every triangle accumulating per-vertex
+    //     tangents from UV gradients, into two temporary std::vector<math::Vec3>
+    //     allocations the size of the vertex array, followed by a per-vertex
+    //     Gram-Schmidt orthonormalise. This is the larger half of the cost.
+    //   * packVertices — a per-vertex octahedral snorm16 encode of the normal
+    //     and tangent into the 32-byte PackedVertex GPU layout.
+    //
+    // That is O(triangles + vertices) of CPU work per update, redone from
+    // scratch whether one vertex moved or all of them did — there is no delta
+    // path. A static mesh pays exactly this once, at load, and then costs
+    // nothing per frame. Order-of-magnitude: a few thousand vertices lands in
+    // the tens-to-low-hundreds of microseconds per update. That is comfortable
+    // at a capped update rate; it is not free at 60 Hz on a dense mesh, and it
+    // scales with the whole array rather than with what actually changed.
+    //
+    // So: update at the lowest rate the visual tolerates, keep vertex counts
+    // deliberate, and do not reach for a dynamic mesh to animate something a
+    // Transform could have moved.
+    //
+    // Future work, in the order it would pay off (all interior to this class —
+    // none of them change the API below):
+    //   1. Skip computeTangents when the material has no normal map. It is the
+    //      larger half of the cost and pure waste for a flat-shaded surface.
+    //   2. Accept pre-packed PackedVertex, letting a producer that already
+    //      knows its tangent frame bypass the derivation entirely.
+    //   3. Dirty-range updates, so a partial edit copies a sub-range instead of
+    //      re-encoding the whole array.
+
+    // Ring depth. Must equal Renderer::MAX_FRAMES — static_assert'd in
+    // Renderer.cpp, since this header must not depend on the renderer.
+    static constexpr uint32_t kFramesInFlight = 2;
+
+    // Disambiguates the dynamic constructor from the two upload constructors.
+    struct DynamicTag {};
+
+    // Dynamic-mesh constructor. Allocates the rings at the given capacities and
+    // leaves the mesh drawing nothing until the first setDynamicGeometry().
+    // Capacity is fixed here: writes beyond it are clamped, not grown.
+    RenderMesh(GpuDevice& gpu, DynamicTag,
+               uint32_t maxVertices, uint32_t maxIndices);
+
+    bool     isDynamic()          const { return dynamic_; }
+    uint32_t dynamicMaxVertices() const { return dynMaxVerts_; }
+    uint32_t dynamicMaxIndices()  const { return dynMaxIndices_; }
+
+    // Repack `vertices` and stage them for the Renderer to upload. See the COST
+    // note above — this is the expensive call. Returns false (changing nothing,
+    // so the mesh keeps drawing its previous contents) if the mesh is not
+    // dynamic, if the arrays exceed the capacities fixed at construction, or if
+    // an index is out of range for the vertex array.
+    bool setDynamicGeometry(const std::vector<Vertex>&   vertices,
+                            const std::vector<uint32_t>& indices);
+
+    // Copy staged geometry into ring slot `slot` and make it the slot draw()
+    // binds. MUST be called inside the frame-fence window; World::uploadDynamicMeshes
+    // is the only caller. Cheap and idempotent — a mesh that has stopped updating
+    // stops memcpying once every slot holds the current geometry.
+    void uploadDynamic(uint32_t slot);
+
     bool     isSkinned()  const { return influenceCount > 0 && skinnedVertexBuffer.get() != VK_NULL_HANDLE; }
     uint32_t vertexCount() const { return vertexCount_; }
     VkBuffer sourceVertexBuffer() const { return vertexBuffer.get(); }
@@ -158,4 +237,23 @@ private:
     Buffer   indexBuffer;
     uint32_t indexCount  = 0;
     uint32_t vertexCount_ = 0;   // needed to size the skinning dispatch + output buffer
+
+    // ---- Dynamic-mesh state (see the COST note in the public section) ----
+    bool     dynamic_       = false;
+    uint32_t dynMaxVerts_   = 0;
+    uint32_t dynMaxIndices_ = 0;
+    uint32_t drawSlot_      = 0;   // ring slot draw() binds; set by uploadDynamic
+    // One "needs the current staged geometry" bit per slot. setDynamicGeometry
+    // sets them all; uploadDynamic clears the one it writes. Without this a mesh
+    // that stopped updating would keep memcpying identical bytes every frame
+    // forever; with it, copying stops kFramesInFlight frames after the last
+    // update and resumes only on the next one.
+    uint32_t dynDirtyMask_  = 0;
+    std::array<DynamicMeshBuffer, kFramesInFlight> dynRing_;
+    // Staged packed geometry, held between setDynamicGeometry (any thread the
+    // script runs on, outside the window) and uploadDynamic (render thread,
+    // inside it). Reused across updates so a steady-state stream does not
+    // reallocate.
+    std::vector<PackedVertex> dynStagedVerts_;
+    std::vector<uint32_t>     dynStagedIndices_;
 };

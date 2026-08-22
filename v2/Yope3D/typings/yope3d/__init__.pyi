@@ -1935,6 +1935,79 @@ class World:
             The created entities (one per primitive, plus the synthesized
             anchor/holder entity when one was needed).
         """
+    def create_dynamic_mesh(
+        self, max_vertices: int, max_indices: int,
+        pos: Vec3 = ..., name: str = "DynamicMesh"
+    ) -> Entity:
+        """Create an entity whose geometry the CPU rewrites, via :meth:`update_dynamic_mesh`.
+
+        For geometry that genuinely changes *shape* frame to frame — a projected
+        4D solid, a deforming surface, a regenerated cross-section. The
+        alternative for such a producer is ``add_model()`` churn, which re-parses
+        a file, stalls the graphics queue, and orphans the previous mesh, every
+        frame. This replaces all of it with a copy into an already-mapped buffer.
+
+        Capacities are fixed here and never grow: an update whose arrays exceed
+        them is rejected outright and the mesh keeps its previous geometry. Size
+        for the worst case. Destroy with the ordinary ``remove_entity``.
+
+        Args:
+            max_vertices: Vertex capacity of the allocation.
+            max_indices: Index capacity of the allocation.
+            pos: Initial world position.
+            name: Entity name.
+
+        Returns:
+            The new entity, or ``NullEntity`` if either capacity was 0.
+
+        Note:
+            The entity's geometry is deliberately **not** saved by
+            ``save_scene`` — the array it holds is whichever frame the script
+            staged last, and the script that created the mesh refills it on load.
+        """
+    def update_dynamic_mesh(
+        self, entity: Entity, positions: list[float], normals: list[float],
+        indices: list[int], uvs: list[float] = ...
+    ) -> bool:
+        """Replace a dynamic mesh's geometry. **This call is expensive — see below.**
+
+        Geometry is passed as flat lists, not lists of ``Vec3``: ``positions``
+        and ``normals`` hold 3 floats per vertex, ``uvs`` 2. That is one
+        conversion pass instead of one Python object per vertex.
+
+        Args:
+            entity: An entity from :meth:`create_dynamic_mesh`.
+            positions: ``[x0,y0,z0, x1,y1,z1, ...]``.
+            normals: Same length as ``positions``.
+            indices: Triangle list; every value must be < vertex count.
+            uvs: Optional ``[u0,v0, u1,v1, ...]``. Omit for untextured surfaces.
+
+        Returns:
+            False — changing nothing, so the mesh keeps drawing its previous
+            geometry — if the entity has no dynamic mesh, the arrays disagree in
+            length, an index is out of range, or either array exceeds the
+            capacity fixed at creation.
+
+        Note:
+            **Cost.** This is much more expensive per call than drawing a static
+            mesh, and the upload is not the expensive part. Every call re-derives
+            a tangent frame across every triangle (allocating two temporaries the
+            size of the vertex array) and re-encodes every vertex into the packed
+            GPU layout — from scratch, whether one vertex moved or all of them
+            did. There is no partial-update path. A static mesh pays this once,
+            at load, then costs nothing per frame.
+
+            A few thousand vertices lands in the tens-to-low-hundreds of
+            microseconds per call: comfortable at a capped update rate, not free
+            at 60 Hz on a dense mesh. Update as rarely as the visual tolerates,
+            keep vertex counts deliberate, and never use a dynamic mesh to move
+            geometry a ``Transform`` could have moved.
+
+            Omitting ``uvs`` leaves the tangent derivation with degenerate UVs,
+            so it falls back to an arbitrary perpendicular of each normal. Fine
+            for flat or solid shading; supply real UVs if the material has a
+            normal map.
+        """
     def save_scene(self, path: str) -> bool:
         """Write the live world to ``path`` (asset-relative), plus its sidecars.
 
