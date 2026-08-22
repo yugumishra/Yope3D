@@ -724,6 +724,15 @@ void Engine::render() {
     // Must run on this thread — the graphics queue is externally synchronized
     // with drawFrame() below.
     assets->pumpTextureUploads();
+    // Free RenderMeshes queued by World::removeEntity(). It defers rather than
+    // destroying inline because the buffers may still be referenced by the frame
+    // in flight; the syncDevice() inside makes freeing them safe, which is only
+    // true BEFORE drawFrame opens the next command buffer. The editor does the
+    // same at EditorApp.cpp's tick head — without this call the runtime never
+    // reclaimed a removed mesh's VRAM, so scripts that spawn and despawn models
+    // (streamed geometry especially) leaked until process exit.
+    world->flushPendingGpuDestroys();
+
     renderer->setMode(renderMode_);
     { YOPE_PROF_SCOPE("renderer_drawframe", "render");
       renderer->drawFrame(*gpu, *window, *camera, *world, *assets); }
