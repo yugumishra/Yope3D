@@ -35,4 +35,23 @@ std::vector<PackedVertex> packVertices(const std::vector<Vertex>&        verts,
 std::vector<PackedVertex> buildPacked(const std::vector<Vertex>&   verts,
                                       const std::vector<uint32_t>& indices);
 
+// Precondition check for a geometry array pair destined for a FIXED-capacity
+// allocation — i.e. the dynamic-mesh path, where the buffers are sized once at
+// creation and refilled from arrays the engine did not produce.
+//
+// The static path needs none of this: its buffers are sized to the very data
+// they were built from, so capacity always fits and indices are whatever the
+// loader emitted. A dynamic mesh has neither guarantee, and an out-of-range
+// index there is a GPU read past the end of the vertex buffer.
+//
+// Returns false if either array exceeds its capacity or any index is >=
+// vertexCount. Callers must treat a false as "reject the update wholesale and
+// keep the previous geometry" — never as "clamp and continue", which would draw
+// a torn mix of two frames.
+//
+// Lives here rather than on RenderMesh so the rules are provable without a
+// GpuDevice (see tests/mesh_build_tests.cpp).
+bool validateGeometry(size_t vertexCount, const std::vector<uint32_t>& indices,
+                      uint32_t maxVertices, uint32_t maxIndices);
+
 } // namespace meshbuild

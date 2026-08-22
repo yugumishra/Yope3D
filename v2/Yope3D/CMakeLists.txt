@@ -289,6 +289,7 @@ set(ENGINE_SOURCES
     src/gpu/UIBuffer.cpp
     src/gpu/Text3DBuffer.cpp
     src/gpu/LineBuffer.cpp
+    src/gpu/DynamicMeshBuffer.cpp
     src/ui/Background.cpp
     src/ui/TexturedBackground.cpp
     src/ui/AnimatedBackground.cpp
@@ -615,6 +616,23 @@ target_compile_definitions(yope_kinematic_tests PRIVATE
     $<$<BOOL:${YOPE_ENABLE_PROFILER}>:YOPE_PROF_ENABLED>
 )
 target_link_libraries(yope_kinematic_tests PRIVATE Catch2::Catch2WithMain)
+
+# ---------------------------------------------------------------------------
+# Mesh build test — CPU vertex finalisation (tangent frames + octahedral pack).
+# This runs once per mesh at load AND again on every dynamic-mesh update, which
+# is what makes it worth pinning: a regression here is silently wrong shading,
+# never an error. Headless — MeshBuild.cpp reaches Vulkan headers through
+# RenderMesh.h but links no Vulkan library, same tier as yope_gltf_tests.
+# ---------------------------------------------------------------------------
+
+add_executable(yope_mesh_tests
+    tests/mesh_build_tests.cpp
+    src/rendering/MeshBuild.cpp
+    src/math/MathImpl.cpp
+)
+
+target_include_directories(yope_mesh_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(yope_mesh_tests PRIVATE Catch2::Catch2WithMain Vulkan::Vulkan)
 
 # ---------------------------------------------------------------------------
 # Serialization round-trip test — per-component serialize/deserialize pairs.

@@ -91,4 +91,13 @@ std::vector<PackedVertex> buildPacked(const std::vector<Vertex>&   verts,
     return packVertices(verts, computeTangents(verts, indices));
 }
 
+bool validateGeometry(size_t vertexCount, const std::vector<uint32_t>& indices,
+                      uint32_t maxVertices, uint32_t maxIndices) {
+    if (vertexCount  > maxVertices) return false;
+    if (indices.size() > maxIndices) return false;
+    for (uint32_t idx : indices)
+        if (idx >= vertexCount) return false;
+    return true;
+}
+
 } // namespace meshbuild
