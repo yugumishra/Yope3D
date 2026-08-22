@@ -140,6 +140,30 @@ public:
                            const std::vector<Vertex>&   vertices,
                            const std::vector<uint32_t>& indices);
 
+    // Reallocate a dynamic mesh's buffers at new capacities, keeping the entity
+    // and everything hanging off it — Transform, Material, Name, parenting. That
+    // is the whole reason this exists rather than remove + create: a script that
+    // outgrows its capacity should not have to rebuild its entity and lose the
+    // components it configured.
+    //
+    // The resized mesh starts EMPTY and draws nothing until the next
+    // updateDynamicMesh. Geometry is deliberately not carried across: the caller
+    // is resizing precisely because it has new, larger geometry in hand, so
+    // repacking the old array first would be pure waste (and could not fit at
+    // all when shrinking).
+    //
+    // The old buffers may still be referenced by a frame in flight, so they go
+    // through the same deferred-destroy queue removeEntity uses rather than
+    // being freed inline. No-ops (returning true) when the capacities already
+    // match. Returns false if `e` has no dynamic mesh or either capacity is 0.
+    bool resizeDynamicMesh(ecs::Entity e, uint32_t maxVertices, uint32_t maxIndices);
+
+    // Read a dynamic mesh's fixed capacities. Returns false — leaving the outputs
+    // untouched — when `e` has no dynamic mesh, which doubles as the "is this a
+    // dynamic mesh?" query.
+    bool dynamicMeshCapacity(ecs::Entity e, uint32_t& outMaxVertices,
+                             uint32_t& outMaxIndices);
+
     // Push staged geometry into ring slot `slot`. Called once per frame by the
     // Renderer, and ONLY from inside drawFrame's frame-fence window — writing a
     // slot the GPU may still be reading is the one way to corrupt this path.

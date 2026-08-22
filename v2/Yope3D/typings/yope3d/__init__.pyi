@@ -1965,10 +1965,52 @@ class World:
             ``save_scene`` — the array it holds is whichever frame the script
             staged last, and the script that created the mesh refills it on load.
         """
+    def dynamic_mesh_capacity(self, entity: Entity) -> tuple[int, int] | None:
+        """Read a dynamic mesh's fixed ``(max_vertices, max_indices)``.
+
+        Returns ``None`` when the entity has no dynamic mesh, so this doubles as
+        the "is this a dynamic mesh?" query::
+
+            cap = world.dynamic_mesh_capacity(e)
+            if cap and len(positions) // 3 > cap[0]:
+                world.resize_dynamic_mesh(e, len(positions) // 3, len(indices))
+        """
+    def resize_dynamic_mesh(
+        self, entity: Entity, max_vertices: int, max_indices: int
+    ) -> bool:
+        """Reallocate a dynamic mesh's buffers, keeping the entity intact.
+
+        Capacity is fixed at creation, so this is the only way to grow past it.
+        Unlike ``remove_entity`` + :meth:`create_dynamic_mesh`, the entity and
+        everything on it survive — Transform, Material, Name, parenting — which
+        is the point: a script that outgrows its buffer should not have to
+        rebuild the components it configured.
+
+        The mesh is **empty afterwards** and draws nothing until the next
+        :meth:`update_dynamic_mesh`. Geometry is deliberately not carried across:
+        you are resizing because you have new, larger geometry in hand, so
+        repacking the old array first would be pure waste — and could not fit at
+        all when shrinking. Call ``update_dynamic_mesh`` in the same frame to
+        avoid a one-frame gap.
+
+        Args:
+            entity: An entity from :meth:`create_dynamic_mesh`.
+            max_vertices: New vertex capacity.
+            max_indices: New index capacity.
+
+        Returns:
+            False if the entity has no dynamic mesh or either capacity is 0.
+            True — with nothing reallocated — when the capacities already match.
+
+        Note:
+            This reallocates GPU buffers, so it is far more expensive than an
+            update. Resize on a step change in size, not every frame; sizing for
+            the worst case up front is cheaper than tracking the exact bound.
+        """
     def update_dynamic_mesh(
         self, entity: Entity, positions: list[float], normals: list[float],
         indices: list[int], uvs: list[float] = ...
-    ) -> bool:
+    ) -> None:
         """Replace a dynamic mesh's geometry. **This call is expensive — see below.**
 
         Geometry is passed as flat lists, not lists of ``Vec3``: ``positions``
@@ -1982,11 +2024,15 @@ class World:
             indices: Triangle list; every value must be < vertex count.
             uvs: Optional ``[u0,v0, u1,v1, ...]``. Omit for untextured surfaces.
 
-        Returns:
-            False — changing nothing, so the mesh keeps drawing its previous
-            geometry — if the entity has no dynamic mesh, the arrays disagree in
-            length, an index is out of range, or either array exceeds the
-            capacity fixed at creation.
+        Raises:
+            ValueError: If the entity has no dynamic mesh, the arrays disagree in
+                length, an index is out of range, or either array exceeds the
+                capacity fixed at creation. The message names the offending
+                numbers — those four cases have very different fixes, and a bare
+                False could not tell them apart. The mesh is left untouched, so
+                it keeps drawing its previous geometry. Check
+                :meth:`dynamic_mesh_capacity` first (or call
+                :meth:`resize_dynamic_mesh`) if the size is expected to vary.
 
         Note:
             **Cost.** This is much more expensive per call than drawing a static

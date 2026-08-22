@@ -1,6 +1,8 @@
 #ifdef YOPE_PYTHON
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <stdexcept>
+#include <string>
 #include "world/World.h"
 #include "physics/Joint.h"
 #include "physics/KinematicQuery.h"
@@ -255,21 +257,74 @@ void bind_world(py::module_& m) {
              },
              py::arg("max_vertices"), py::arg("max_indices"),
              py::arg("pos") = math::Vec3{}, py::arg("name") = std::string("DynamicMesh"))
+        // Capacity readback. Returns None when the entity has no dynamic mesh,
+        // which doubles as the "is this a dynamic mesh?" query.
+        .def("dynamic_mesh_capacity",
+             [](World& w, ecs::Entity e) -> py::object {
+                 uint32_t maxV = 0, maxI = 0;
+                 if (!w.dynamicMeshCapacity(e, maxV, maxI)) return py::none();
+                 return py::make_tuple(maxV, maxI);
+             },
+             py::arg("entity"))
+        // Reallocate at new capacities, keeping the entity and its components.
+        // The mesh is EMPTY afterwards — call update_dynamic_mesh next.
+        .def("resize_dynamic_mesh",
+             [](World& w, ecs::Entity e, uint32_t maxVertices, uint32_t maxIndices) -> bool {
+                 return w.resizeDynamicMesh(e, maxVertices, maxIndices);
+             },
+             py::arg("entity"), py::arg("max_vertices"), py::arg("max_indices"))
         .def("update_dynamic_mesh",
              [](World& w, ecs::Entity e,
                 const std::vector<float>&    positions,
                 const std::vector<float>&    normals,
                 const std::vector<uint32_t>& indices,
-                const std::vector<float>&    uvs) -> bool {
-                 if (positions.size() % 3 != 0)            return false;
-                 if (normals.size() != positions.size())   return false;
+                const std::vector<float>&    uvs) -> void {
+                 // Every rejection below is a caller bug, and a bare False told
+                 // the caller nothing about WHICH one — over capacity, a stray
+                 // index and a mis-sized normals array are very different fixes.
+                 // Raise with the offending numbers instead; std::invalid_argument
+                 // surfaces in Python as ValueError.
+                 auto fail = [](const std::string& msg) {
+                     throw std::invalid_argument("update_dynamic_mesh: " + msg);
+                 };
+
+                 uint32_t maxV = 0, maxI = 0;
+                 if (!w.dynamicMeshCapacity(e, maxV, maxI))
+                     fail("entity has no dynamic mesh (created with create_dynamic_mesh?)");
+
+                 if (positions.size() % 3 != 0)
+                     fail("positions has " + std::to_string(positions.size()) +
+                          " floats, which is not a multiple of 3");
+                 if (normals.size() != positions.size())
+                     fail("normals has " + std::to_string(normals.size()) +
+                          " floats but positions has " + std::to_string(positions.size()) +
+                          "; they must match");
+
                  const size_t n = positions.size() / 3;
+
                  // UVs are optional: an untextured procedural surface has none.
                  // They still feed computeTangents, whose degenerate-UV branch
                  // falls back to an arbitrary perpendicular of the normal — fine
                  // for flat/solid shading, wrong for normal mapping. Supply real
                  // UVs if the material has a normal map.
-                 if (!uvs.empty() && uvs.size() != n * 2) return false;
+                 if (!uvs.empty() && uvs.size() != n * 2)
+                     fail("uvs has " + std::to_string(uvs.size()) + " floats but " +
+                          std::to_string(n) + " vertices need " + std::to_string(n * 2));
+
+                 if (n > maxV)
+                     fail(std::to_string(n) + " vertices exceeds the capacity of " +
+                          std::to_string(maxV) + " fixed at creation "
+                          "(use resize_dynamic_mesh)");
+                 if (indices.size() > maxI)
+                     fail(std::to_string(indices.size()) + " indices exceeds the capacity of " +
+                          std::to_string(maxI) + " fixed at creation "
+                          "(use resize_dynamic_mesh)");
+
+                 for (size_t k = 0; k < indices.size(); ++k)
+                     if (indices[k] >= n)
+                         fail("indices[" + std::to_string(k) + "] is " +
+                              std::to_string(indices[k]) + ", out of range for " +
+                              std::to_string(n) + " vertices");
 
                  std::vector<Vertex> verts(n);
                  for (size_t i = 0; i < n; ++i) {
@@ -283,7 +338,12 @@ void bind_world(py::module_& m) {
                      v.uv[0]       = uvs.empty() ? 0.0f : uvs[i * 2 + 0];
                      v.uv[1]       = uvs.empty() ? 0.0f : uvs[i * 2 + 1];
                  }
-                 return w.updateDynamicMesh(e, verts, indices);
+                 // The C++ side revalidates (it is the guarantee for non-Python
+                 // callers too). Reaching here after the checks above means an
+                 // engine-side invariant broke, not a script mistake.
+                 if (!w.updateDynamicMesh(e, verts, indices))
+                     throw std::runtime_error(
+                         "update_dynamic_mesh: rejected by the engine after validation passed");
              },
              py::arg("entity"), py::arg("positions"), py::arg("normals"),
              py::arg("indices"), py::arg("uvs") = std::vector<float>{})

@@ -1136,6 +1136,68 @@ bool World::updateDynamicMesh(ecs::Entity e,
     return mr->mesh->setDynamicGeometry(vertices, indices);
 }
 
+bool World::resizeDynamicMesh(ecs::Entity e, uint32_t maxVertices, uint32_t maxIndices) {
+    if (!gpu_ || maxVertices == 0 || maxIndices == 0) return false;
+
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(e)) return false;
+    auto* mr = registry_.get<ecs::MeshRenderer>(e);
+    if (!mr || !mr->mesh || !mr->mesh->isDynamic()) return false;
+
+    RenderMesh* old = mr->mesh;
+    if (old->dynamicMaxVertices() == maxVertices &&
+        old->dynamicMaxIndices()  == maxIndices) return true;
+
+    auto rm = std::make_unique<RenderMesh>(*gpu_, RenderMesh::DynamicTag{},
+                                           maxVertices, maxIndices);
+    // Carry over the presentation state that lives on the mesh rather than on
+    // the entity. Everything else the caller configured (Material, Transform,
+    // Name, Parent) is untouched because the entity itself survives.
+    rm->transformReady = true;
+    rm->color[0]   = old->color[0];
+    rm->color[1]   = old->color[1];
+    rm->color[2]   = old->color[2];
+    rm->state        = old->state;
+    rm->texture      = old->texture;
+    rm->visible      = old->visible;
+    rm->reflectivity = old->reflectivity;
+    rm->modelMatrix  = old->modelMatrix;
+
+    RenderMesh* raw = rm.get();
+    meshPool_.push_back(std::move(rm));
+
+    // Swap the new mesh in everywhere the old one was registered, BEFORE the old
+    // one is queued for destruction — uploadDynamicMeshes must never see a mesh
+    // that is on its way to pendingGpuDestroy_.
+    std::replace(dynamicMeshes_.begin(), dynamicMeshes_.end(), old, raw);
+    meshToEntity_.erase(old);
+    meshToEntity_[raw] = e;
+    mr->mesh = raw;
+
+    // The old buffers may still be bound by a frame in flight, so they take the
+    // same deferred path removeEntity uses; Engine::render flushes it before the
+    // next command buffer opens.
+    auto it = std::find_if(meshPool_.begin(), meshPool_.end(),
+        [old](const std::unique_ptr<RenderMesh>& m) { return m.get() == old; });
+    if (it != meshPool_.end()) {
+        pendingGpuDestroy_.push_back(std::move(*it));
+        meshPool_.erase(it);
+    }
+    return true;
+}
+
+bool World::dynamicMeshCapacity(ecs::Entity e, uint32_t& outMaxVertices,
+                                uint32_t& outMaxIndices)
+{
+    std::lock_guard lk(structureMtx_);
+    if (!registry_.valid(e)) return false;
+    auto* mr = registry_.get<ecs::MeshRenderer>(e);
+    if (!mr || !mr->mesh || !mr->mesh->isDynamic()) return false;
+    outMaxVertices = mr->mesh->dynamicMaxVertices();
+    outMaxIndices  = mr->mesh->dynamicMaxIndices();
+    return true;
+}
+
 void World::uploadDynamicMeshes(uint32_t slot) {
     // Runs on the render thread inside the frame-fence window. structureMtx_
     // guards the vector against a concurrent createDynamicMesh/removeEntity;
