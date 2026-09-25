@@ -38,7 +38,9 @@ const fmt = (d: Date) =>
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href={`${base}/favicon.svg`} />
+		<link rel="icon" href={`${base}/favicon.ico`} sizes="16x16 32x32 48x48" />
+<link rel="icon" type="image/png" href={`${base}/favicon.png`} sizes="96x96" />
+<link rel="apple-touch-icon" href={`${base}/apple-touch-icon.png`} />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="generator" content={Astro.generator} />
 		<meta name="description" content={post.data.description} />
