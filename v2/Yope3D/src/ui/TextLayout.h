@@ -101,4 +101,14 @@ TokenizedText tokenizeStyledText(const std::string& input);
 // TextShaping's problem (see resolveStyledAtlas).
 std::string styledFontPath(const std::string& basePath, uint8_t style);
 
+// Word-wrap test: does a glyph whose right pen edge lands at `rightPx` overflow
+// a row whose limit is `limitPx`? A half-pixel tolerance absorbs float drift —
+// an auto-sized box is exactly as wide as its text, but the limit reaches here
+// through a pixels → fractions → pixels round trip, so the last glyph's edge
+// could land a few ulps past it, wrap onto a line below the box, and vanish.
+inline constexpr float kWrapTolerancePx = 0.5f;
+inline bool overflowsRow(float rightPx, float limitPx) {
+    return rightPx > limitPx + kWrapTolerancePx;
+}
+
 } // namespace text

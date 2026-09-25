@@ -447,3 +447,42 @@ TEST_CASE("styledFontPath follows the on-disk naming convention", "[tags]") {
                 == "nunito_italic");
     }
 }
+
+// ---------------------------------------------------------------------------
+// overflowsRow — the word-wrap test TextBox::buildMesh uses.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("overflowsRow keeps the last glyph of an auto-sized row", "[wrap]") {
+    // Mirrors the UIText.autoSize path in float, as the engine does it:
+    // measureNatural sums advances → Renderer stores the width as a screen
+    // fraction → buildMesh multiplies it back to pixels and runs the pen across.
+    // The last glyph's edge lands exactly on the limit in real arithmetic; with
+    // a strict '>' it spilled a few ulps over for lengths like 11 and 14 at
+    // 1920×1080, wrapped below the one-line box, and was never drawn.
+    const float advEm = 1229.0f / 2048.0f;   // monaco.ttf advance
+    const float sw = 1920.0f, minX = 0.01f;
+    const float targetPx = 20.0f, pad = 6.0f;
+    const float adv = advEm * targetPx;
+
+    for (int n = 1; n <= 60; ++n) {
+        float row = 0.0f;
+        for (int i = 0; i < n; ++i) row += adv;
+        const float bMaxX = (minX + (row + pad * 2.0f) / sw) * sw;
+
+        int wraps = 0;
+        float penX = minX * sw + pad;
+        for (int i = 0; i < n; ++i) {
+            if (overflowsRow(penX + adv, bMaxX - pad)) ++wraps;
+            penX += adv;
+        }
+        INFO("glyph count " << n);
+        REQUIRE(wraps == 0);
+    }
+}
+
+TEST_CASE("overflowsRow still wraps a genuine overflow", "[wrap]") {
+    REQUIRE_FALSE(overflowsRow(100.0f, 100.0f));
+    REQUIRE_FALSE(overflowsRow(100.0f + kWrapTolerancePx, 100.0f));
+    REQUIRE(overflowsRow(101.0f, 100.0f));   // a whole pixel over is real
+    REQUIRE(overflowsRow(112.0f, 100.0f));   // a whole glyph over is real
+}

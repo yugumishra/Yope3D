@@ -125,7 +125,7 @@ void TextBox::buildMesh(UIBuffer& buf, float screenW, float screenH) {
             if (sg.isNewline) { totalW = std::max(totalW, rowW); rowW = 0; totalH += lineH; return true; }
             if (!sg.glyph) return true;
             float adv = sg.glyph->advance * targetPx;
-            if (rowW + adv > areaW) { totalW = std::max(totalW, rowW); rowW = 0; totalH += lineH; }
+            if (text::overflowsRow(rowW + adv, areaW)) { totalW = std::max(totalW, rowW); rowW = 0; totalH += lineH; }
             rowW += adv;
             return true;
         });
@@ -185,7 +185,7 @@ void TextBox::buildMesh(UIBuffer& buf, float screenW, float screenH) {
         float adv = g->advance * targetPx;
 
         // Word-wrap: if this glyph overflows the right edge, move to next line.
-        if (penX + adv > bMaxX - pad) {
+        if (text::overflowsRow(penX + adv, bMaxX - pad)) {
             penX  = originX;
             penY += lineH;
         }
